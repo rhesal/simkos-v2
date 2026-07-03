@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+/* ============================================
+   SimKos Design System — Tailwind CSS v4
+   Theme: Akuntan Profesional
+   ============================================ */
+
+@theme {
+  /* --- Color Palette --- */
+  --color-bone: #F8F9FA;
+  --color-navy: #1E3A8A;
+  --color-navy-light: #2548A8;
+  --color-navy-dark: #152C6B;
+  --color-income: #10B981;
+  --color-income-light: #D1FAE5;
+  --color-expense: #EF4444;
+  --color-expense-light: #FEE2E2;
+  --color-lunas: #10B981;
+  --color-jatuh-tempo: #F59E0B;
+  --color-terlambat: #EF4444;
+  --color-kosong: #9CA3AF;
+  --color-text-primary: #1F2937;
+  --color-text-secondary: #6B7280;
+  --color-text-muted: #9CA3AF;
+  --color-border: #E5E7EB;
+  --color-card: #FFFFFF;
+
+  /* --- Font --- */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  /* --- Large font sizes for accessibility --- */
+  --font-size-xs: 0.875rem;     /* 14px */
+  --font-size-sm: 1rem;         /* 16px */
+  --font-size-base: 1.125rem;   /* 18px */
+  --font-size-lg: 1.25rem;      /* 20px */
+  --font-size-xl: 1.5rem;       /* 24px */
+  --font-size-2xl: 1.875rem;    /* 30px */
+  --font-size-3xl: 2.25rem;     /* 36px */
+
+  /* --- Spacing (large touch targets) --- */
+  --spacing-touch: 3rem;        /* 48px minimum touch target */
+
+  /* --- Border Radius --- */
+  --radius-card: 1rem;
+  --radius-btn: 0.875rem;
+  --radius-badge: 0.5rem;
+}
+
+/* ============================================
+   Base Styles
+   ============================================ */
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-bone);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100dvh;
+}
+
+/* Safe area for bottom nav */
+#app {
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* ============================================
+   Utility animations
+   ============================================ */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-gentle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.4s ease-out both;
+}
+
+.animate-stagger-1 { animation-delay: 0.05s; }
+.animate-stagger-2 { animation-delay: 0.10s; }
+.animate-stagger-3 { animation-delay: 0.15s; }
+.animate-stagger-4 { animation-delay: 0.20s; }
+.animate-stagger-5 { animation-delay: 0.25s; }
