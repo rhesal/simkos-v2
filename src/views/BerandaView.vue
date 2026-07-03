@@ -1,193 +1,237 @@
 <template>
-  <div class="px-4 py-5 space-y-5">
+  <div>
+    <!-- ========== HEADER DENGAN PEMILIH LOKASI ========== -->
+    <header class="bg-navy text-white px-6 pt-5 pb-6 shadow-lg rounded-b-[1.5rem] space-y-5 animate-fade-in-up">
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="text-3xl font-extrabold tracking-tight">SimKos</h1>
+          <p class="text-base text-blue-200 mt-1 font-medium">Sistem Manajemen Kos</p>
+        </div>
+        <button class="w-13 h-13 rounded-full bg-white/15 flex items-center justify-center active:scale-95 transition-transform" aria-label="Profil Pengguna">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </button>
+      </div>
 
-    <!-- ========== LOCATION SELECTOR ========== -->
-    <div class="animate-fade-in-up animate-stagger-1">
-      <label for="lokasi-select" class="block text-sm font-semibold text-text-secondary mb-2">
-        Pilih Lokasi Kos
-      </label>
+      <!-- Combo-box Pemilih Lokasi (Kustom & Tertutup) -->
       <div class="relative">
-        <select
-          id="lokasi-select"
-          v-model="selectedLocation"
-          class="w-full appearance-none bg-card border-2 border-border rounded-[var(--radius-btn)]
-                 px-5 py-4 text-lg font-semibold text-text-primary
-                 focus:border-navy focus:ring-4 focus:ring-navy/10 focus:outline-none
-                 transition-all duration-200 cursor-pointer shadow-sm"
+        <button
+          @click="isDropdownOpen = !isDropdownOpen"
+          class="w-full bg-white/10 hover:bg-white/15 active:bg-white/20 border-2 border-white/20 rounded-[var(--radius-btn)]
+                 px-5 py-4 flex items-center justify-between text-lg font-bold text-white
+                 transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-white/25"
         >
-          <option v-for="loc in locations" :key="loc.id" :value="loc.id">
-            {{ loc.name }}
-          </option>
-        </select>
-        <!-- Dropdown arrow -->
-        <div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-          <svg class="w-6 h-6 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+          <div class="flex items-center gap-3">
+            <span class="text-2xl">{{ selectedLocationData.icon }}</span>
+            <span>{{ selectedLocationData.name }}</span>
+          </div>
+          <svg
+            class="w-6 h-6 text-white/80 transition-transform duration-200"
+            :class="{ 'rotate-180': isDropdownOpen }"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="3"
+          >
             <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
           </svg>
-        </div>
-      </div>
-    </div>
+        </button>
 
-    <!-- ========== CASH SUMMARY CARD ========== -->
-    <div class="animate-fade-in-up animate-stagger-2">
-      <div class="bg-navy rounded-[var(--radius-card)] p-6 text-white shadow-xl relative overflow-hidden">
-        <!-- Decorative circles -->
-        <div class="absolute -right-8 -top-8 w-32 h-32 bg-white/5 rounded-full"></div>
-        <div class="absolute -right-4 top-12 w-20 h-20 bg-white/5 rounded-full"></div>
-
-        <div class="relative z-10">
-          <div class="flex items-center gap-2 mb-1">
-            <svg class="w-5 h-5 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-            </svg>
-            <p class="text-sm font-medium text-blue-200">Sisa Kas · {{ currentMonth }}</p>
-          </div>
-
-          <p class="text-3xl font-extrabold tracking-tight mt-2">
-            {{ formatCurrency(currentCash.sisa) }}
-          </p>
-
-          <div class="flex items-center gap-6 mt-4 pt-4 border-t border-white/15">
-            <div class="flex items-center gap-2">
-              <span class="w-8 h-8 rounded-lg bg-income/20 flex items-center justify-center">
-                <svg class="w-5 h-5 text-green-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
-                </svg>
-              </span>
-              <div>
-                <p class="text-xs text-blue-300">Masuk</p>
-                <p class="text-base font-bold text-green-300">{{ formatCurrency(currentCash.masuk) }}</p>
-              </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="w-8 h-8 rounded-lg bg-expense/20 flex items-center justify-center">
-                <svg class="w-5 h-5 text-red-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
-                </svg>
-              </span>
-              <div>
-                <p class="text-xs text-blue-300">Keluar</p>
-                <p class="text-base font-bold text-red-300">{{ formatCurrency(currentCash.keluar) }}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ========== ACTION BUTTONS ========== -->
-    <div class="grid grid-cols-2 gap-3 animate-fade-in-up animate-stagger-3">
-      <!-- Catat Uang Masuk -->
-      <button
-        class="flex flex-col items-center justify-center gap-2
-               bg-income text-white rounded-[var(--radius-btn)]
-               p-5 min-h-[5.5rem] shadow-lg shadow-income/25
-               active:scale-[0.97] transition-all duration-150
-               hover:shadow-xl hover:shadow-income/30 hover:brightness-110"
-      >
-        <span class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-        </span>
-        <span class="text-base font-bold">Uang Masuk</span>
-      </button>
-
-      <!-- Catat Uang Keluar -->
-      <button
-        class="flex flex-col items-center justify-center gap-2
-               bg-expense text-white rounded-[var(--radius-btn)]
-               p-5 min-h-[5.5rem] shadow-lg shadow-expense/25
-               active:scale-[0.97] transition-all duration-150
-               hover:shadow-xl hover:shadow-expense/30 hover:brightness-110"
-      >
-        <span class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14" />
-          </svg>
-        </span>
-        <span class="text-base font-bold">Uang Keluar</span>
-      </button>
-    </div>
-
-    <!-- ========== ROOM STATUS ========== -->
-    <div class="animate-fade-in-up animate-stagger-4">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-xl font-bold text-text-primary">Status Kamar</h2>
-        <span class="text-sm text-text-muted font-medium">{{ currentLocationData.rooms.length }} kamar</span>
-      </div>
-
-      <!-- Legend -->
-      <div class="flex flex-wrap gap-x-4 gap-y-1 mb-4">
-        <span class="flex items-center gap-1.5 text-xs font-medium text-text-secondary">
-          <span class="w-3 h-3 rounded-full bg-lunas"></span> Lunas
-        </span>
-        <span class="flex items-center gap-1.5 text-xs font-medium text-text-secondary">
-          <span class="w-3 h-3 rounded-full bg-jatuh-tempo"></span> Jatuh Tempo
-        </span>
-        <span class="flex items-center gap-1.5 text-xs font-medium text-text-secondary">
-          <span class="w-3 h-3 rounded-full bg-terlambat"></span> Terlambat
-        </span>
-        <span class="flex items-center gap-1.5 text-xs font-medium text-text-secondary">
-          <span class="w-3 h-3 rounded-full bg-kosong"></span> Kosong
-        </span>
-      </div>
-
-      <!-- Room Cards -->
-      <div class="space-y-3">
+        <!-- Dropdown Menu Item -->
         <div
-          v-for="room in currentLocationData.rooms"
-          :key="room.id"
-          class="bg-card rounded-[var(--radius-card)] border border-border p-4 flex items-center gap-4
-                 shadow-sm hover:shadow-md transition-shadow duration-200"
+          v-if="isDropdownOpen"
+          class="absolute z-50 left-0 right-0 mt-2 bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl overflow-hidden"
         >
-          <!-- Status Indicator -->
-          <div
-            class="w-14 h-14 rounded-2xl flex items-center justify-center text-white text-lg font-extrabold flex-shrink-0 shadow-sm"
-            :class="statusBgClass(room.status)"
+          <button
+            v-for="loc in locations"
+            :key="loc.id"
+            @click="selectLocation(loc.id)"
+            class="w-full px-5 py-4 text-left text-lg font-bold text-text-primary hover:bg-gray-50 active:bg-gray-100 flex items-center gap-3 border-b border-border last:border-0"
           >
-            {{ room.number }}
-          </div>
+            <span class="text-2xl">{{ loc.icon }}</span>
+            <span>{{ loc.name }}</span>
+          </button>
+        </div>
+      </div>
+    </header>
 
-          <!-- Room Info -->
-          <div class="flex-1 min-w-0">
-            <p class="text-base font-bold text-text-primary truncate">
-              {{ room.tenant || 'Kamar Kosong' }}
-            </p>
-            <p class="text-sm text-text-secondary mt-0.5">
-              {{ statusLabel(room.status) }}
-              <span v-if="room.dueDate && room.status !== 'kosong'" class="text-text-muted">
-                · {{ room.dueDate }}
-              </span>
-            </p>
-          </div>
+    <!-- ========== BODY LAYOUT WITH INCREASED PADDING & SPACING ========== -->
+    <div class="px-6 py-6 space-y-6 max-w-lg mx-auto">
 
-          <!-- Status badge -->
-          <span
-            class="px-3 py-1.5 rounded-[var(--radius-badge)] text-xs font-bold flex-shrink-0"
-            :class="statusBadgeClass(room.status)"
-          >
-            {{ statusLabel(room.status) }}
+      <!-- ========== CASH SUMMARY CARD ========== -->
+      <div class="animate-fade-in-up animate-stagger-1">
+        <div class="bg-navy rounded-[var(--radius-card)] p-6 text-white shadow-xl relative overflow-hidden">
+          <!-- Decorative Background Elements -->
+          <div class="absolute -right-8 -top-8 w-36 h-36 bg-white/5 rounded-full"></div>
+          <div class="absolute -right-4 top-14 w-24 h-24 bg-white/5 rounded-full"></div>
+
+          <div class="relative z-10 space-y-5">
+            <div class="flex items-center gap-2.5">
+              <svg class="w-6 h-6 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
+              </svg>
+              <p class="text-base font-semibold text-blue-200">Sisa Kas · {{ currentMonth }}</p>
+            </div>
+
+            <p class="text-4xl font-extrabold tracking-tight">
+              {{ formatCurrency(currentCash.sisa) }}
+            </p>
+
+            <div class="flex items-center justify-between gap-4 pt-5 border-t border-white/15">
+              <!-- Income Total -->
+              <div class="flex items-center gap-3">
+                <span class="w-11 h-11 rounded-xl bg-income/20 flex items-center justify-center flex-shrink-0">
+                  <svg class="w-7 h-7 text-green-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
+                  </svg>
+                </span>
+                <div>
+                  <p class="text-sm font-bold text-blue-200">Masuk</p>
+                  <p class="text-lg font-extrabold text-green-300 mt-0.5">{{ formatCurrency(currentCash.masuk) }}</p>
+                </div>
+              </div>
+
+              <!-- Expense Total -->
+              <div class="flex items-center gap-3">
+                <span class="w-11 h-11 rounded-xl bg-expense/20 flex items-center justify-center flex-shrink-0">
+                  <svg class="w-7 h-7 text-red-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
+                  </svg>
+                </span>
+                <div>
+                  <p class="text-sm font-bold text-blue-200">Keluar</p>
+                  <p class="text-lg font-extrabold text-red-300 mt-0.5">{{ formatCurrency(currentCash.keluar) }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== ACTION BUTTONS DENGAN UKURAN EKSTRA BESAR (CHUNKY) ========== -->
+      <div class="grid grid-cols-2 gap-4 animate-fade-in-up animate-stagger-2">
+        <!-- Catat Uang Masuk -->
+        <button
+          class="flex flex-col items-center justify-center gap-3
+                 bg-income text-white rounded-[var(--radius-card)]
+                 p-6 min-h-[7rem] shadow-lg shadow-income/25
+                 active:scale-[0.96] transition-all duration-150
+                 hover:shadow-xl hover:shadow-income/30 hover:brightness-105"
+        >
+          <span class="w-13 h-13 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner">
+            <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+          </span>
+          <span class="text-lg font-extrabold tracking-wide">Uang Masuk</span>
+        </button>
+
+        <!-- Catat Uang Keluar -->
+        <button
+          class="flex flex-col items-center justify-center gap-3
+                 bg-expense text-white rounded-[var(--radius-card)]
+                 p-6 min-h-[7rem] shadow-lg shadow-expense/25
+                 active:scale-[0.96] transition-all duration-150
+                 hover:shadow-xl hover:shadow-expense/30 hover:brightness-105"
+        >
+          <span class="w-13 h-13 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner">
+            <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14" />
+            </svg>
+          </span>
+          <span class="text-lg font-extrabold tracking-wide">Uang Keluar</span>
+        </button>
+      </div>
+
+      <!-- ========== STATUS KAMAR DENGAN UKURAN LEBIH BESAR ========== -->
+      <div class="space-y-4 animate-fade-in-up animate-stagger-3">
+        <div class="flex items-end justify-between border-b-2 border-border pb-2">
+          <h2 class="text-2xl font-black text-text-primary tracking-tight">Status Kamar</h2>
+          <span class="text-lg font-bold text-text-secondary bg-gray-100 px-3 py-1 rounded-full">{{ currentLocationData.rooms.length }} kamar</span>
+        </div>
+
+        <!-- Legend Status (Ukuran Lebih Besar & Renggang) -->
+        <div class="flex flex-wrap gap-x-5 gap-y-2 bg-white p-4 rounded-[var(--radius-card)] border border-border shadow-sm">
+          <span class="flex items-center gap-2.5 text-sm font-bold text-text-primary">
+            <span class="w-4 h-4 rounded-full bg-lunas shadow-sm"></span> Lunas
+          </span>
+          <span class="flex items-center gap-2.5 text-sm font-bold text-text-primary">
+            <span class="w-4 h-4 rounded-full bg-jatuh-tempo shadow-sm"></span> Jatuh Tempo
+          </span>
+          <span class="flex items-center gap-2.5 text-sm font-bold text-text-primary">
+            <span class="w-4 h-4 rounded-full bg-terlambat shadow-sm"></span> Terlambat
+          </span>
+          <span class="flex items-center gap-2.5 text-sm font-bold text-text-primary">
+            <span class="w-4 h-4 rounded-full bg-kosong shadow-sm"></span> Kosong
           </span>
         </div>
-      </div>
-    </div>
 
-    <!-- Spacer for bottom nav -->
-    <div class="h-4"></div>
+        <!-- Room Cards List -->
+        <div class="space-y-4">
+          <div
+            v-for="room in currentLocationData.rooms"
+            :key="room.id"
+            class="bg-card rounded-[var(--radius-card)] border-2 border-border p-5 flex items-center gap-5
+                   shadow-sm hover:shadow-md transition-shadow duration-200"
+          >
+            <!-- Status Indicator Badge (Chunky) -->
+            <div
+              class="w-16 h-16 rounded-2xl flex items-center justify-center text-white text-xl font-black flex-shrink-0 shadow-md"
+              :class="statusBgClass(room.status)"
+            >
+              {{ room.number }}
+            </div>
+
+            <!-- Room Info -->
+            <div class="flex-1 min-w-0">
+              <p class="text-lg font-extrabold text-text-primary truncate">
+                {{ room.tenant || 'Kamar Kosong' }}
+              </p>
+              <p class="text-sm font-semibold text-text-secondary mt-1">
+                {{ statusLabel(room.status) }}
+                <span v-if="room.dueDate && room.status !== 'kosong'" class="text-text-muted">
+                  · {{ room.dueDate }}
+                </span>
+              </p>
+            </div>
+
+            <!-- Action Status Badge -->
+            <span
+              class="px-4 py-2 rounded-[var(--radius-badge)] text-sm font-extrabold flex-shrink-0 border"
+              :class="statusBadgeClass(room.status)"
+            >
+              {{ statusLabel(room.status) }}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Spacer for layout breathing room -->
+      <div class="h-8"></div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue'
 
-// --- Static Data ---
+const isDropdownOpen = ref(false)
+const selectedLocation = ref('melati')
+
 const locations = [
-  { id: 'melati', name: '🏠 Kos Melati' },
-  { id: 'mawar', name: '🌹 Kos Mawar' },
+  { id: 'melati', name: 'Kos Melati', icon: '🏠' },
+  { id: 'mawar', name: 'Kos Mawar', icon: '🌹' },
 ]
 
-const selectedLocation = ref('melati')
+const selectedLocationData = computed(() => {
+  return locations.find(loc => loc.id === selectedLocation.value)
+})
+
+const selectLocation = (id) => {
+  selectedLocation.value = id
+  isDropdownOpen.value = false
+}
 
 const locationData = {
   melati: {
@@ -216,7 +260,6 @@ const locationData = {
   },
 }
 
-// --- Computed ---
 const currentLocationData = computed(() => {
   return locationData[selectedLocation.value]
 })
@@ -230,7 +273,6 @@ const currentMonth = computed(() => {
   return now.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
 })
 
-// --- Helpers ---
 function formatCurrency(value) {
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
@@ -262,11 +304,11 @@ function statusBgClass(status) {
 
 function statusBadgeClass(status) {
   const map = {
-    lunas: 'bg-income-light text-income',
-    'jatuh-tempo': 'bg-amber-100 text-amber-700',
-    terlambat: 'bg-expense-light text-expense',
-    kosong: 'bg-gray-100 text-text-muted',
+    lunas: 'bg-income-light text-income border-income/20',
+    'jatuh-tempo': 'bg-amber-100 text-amber-800 border-amber-200',
+    terlambat: 'bg-expense-light text-expense border-expense/20',
+    kosong: 'bg-gray-100 text-text-muted border-gray-200',
   }
-  return map[status] || 'bg-gray-100 text-gray-500'
+  return map[status] || 'bg-gray-100 text-gray-500 border-gray-200'
 }
 </script>
