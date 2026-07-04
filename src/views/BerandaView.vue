@@ -7,7 +7,7 @@
           <h1 class="text-3xl font-extrabold tracking-tight">SimKos</h1>
           <p class="text-base text-blue-200 mt-1 font-medium">Sistem Manajemen Kos</p>
         </div>
-        <div class="relative">
+        <div class="relative z-50">
           <button
             @click="isSettingsOpen = !isSettingsOpen"
             class="w-13 h-13 rounded-full bg-white/15 flex items-center justify-center active:scale-95 transition-transform"
@@ -205,39 +205,39 @@
       </div>
 
       <!-- ========== ACTION BUTTONS DENGAN UKURAN EKSTRA BESAR (CHUNKY) ========== -->
-      <div class="grid grid-cols-2 gap-4 animate-fade-in-up animate-stagger-2">
+      <div class="flex flex-col gap-4 w-full animate-fade-in-up animate-stagger-2">
         <!-- Catat Uang Masuk -->
         <router-link
           to="/tambah-pemasukan"
-          class="flex flex-col items-center justify-center gap-3
+          class="flex items-center gap-4 w-full
                  bg-income text-white rounded-[var(--radius-card)]
-                 p-6 min-h-[7rem] shadow-lg shadow-income/25
-                 active:scale-[0.96] transition-all duration-150
+                 p-6 min-h-[5.5rem] shadow-lg shadow-income/25
+                 active:scale-[0.98] transition-all duration-150
                  hover:shadow-xl hover:shadow-income/30 hover:brightness-105"
         >
-          <span class="w-13 h-13 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner">
+          <span class="w-13 h-13 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner flex-shrink-0">
             <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
           </span>
-          <span class="text-lg font-extrabold tracking-wide">Uang Masuk</span>
+          <span class="text-xl font-extrabold tracking-wide">Catat Uang Masuk</span>
         </router-link>
 
         <!-- Catat Uang Keluar -->
         <router-link
           to="/tambah-pengeluaran"
-          class="flex flex-col items-center justify-center gap-3
+          class="flex items-center gap-4 w-full
                  bg-expense text-white rounded-[var(--radius-card)]
-                 p-6 min-h-[7rem] shadow-lg shadow-expense/25
-                 active:scale-[0.96] transition-all duration-150
+                 p-6 min-h-[5.5rem] shadow-lg shadow-expense/25
+                 active:scale-[0.98] transition-all duration-150
                  hover:shadow-xl hover:shadow-expense/30 hover:brightness-105"
         >
-          <span class="w-13 h-13 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner">
+          <span class="w-13 h-13 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner flex-shrink-0">
             <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14" />
             </svg>
           </span>
-          <span class="text-lg font-extrabold tracking-wide">Uang Keluar</span>
+          <span class="text-xl font-extrabold tracking-wide">Catat Uang Keluar</span>
         </router-link>
       </div>
 
