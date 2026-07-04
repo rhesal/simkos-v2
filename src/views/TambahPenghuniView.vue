@@ -356,10 +356,11 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { supabase } from '../supabase.js'
 
 const router = useRouter()
+const route = useRoute()
 
 // --- UI States ---
 const isLoadingLocations = ref(true)
@@ -428,6 +429,11 @@ onMounted(async () => {
     console.error('[Supabase] Fetch locations error:', error)
   } else {
     locationList.value = data || []
+    
+    // Pre-select location from route query
+    if (route.query.location_id) {
+      form.location_id = route.query.location_id
+    }
   }
 })
 
@@ -452,6 +458,11 @@ watch(() => form.location_id, async (newId) => {
     console.error('[Supabase] Fetch rooms error:', error)
   } else {
     roomList.value = data || []
+    
+    // Preselect room from route query if available
+    if (route.query.room_id && roomList.value.some(r => r.id === route.query.room_id)) {
+      form.room_id = route.query.room_id
+    }
   }
 })
 

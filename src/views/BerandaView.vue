@@ -245,34 +245,7 @@
           </div>
         </div>
 
-        <!-- ========== ACTION BUTTONS (CHUNKY) ========== -->
-        <div class="grid grid-cols-2 gap-4 w-full animate-fade-in-up animate-stagger-3">
-          <!-- Catat Uang Masuk -->
-          <router-link
-            to="/tambah-pemasukan"
-            class="flex flex-col items-center justify-center gap-3 bg-income text-white rounded-[var(--radius-card)] p-5 min-h-[6.5rem] shadow-lg shadow-income/25 active:scale-[0.96] transition-all duration-150 hover:shadow-xl hover:shadow-income/30 hover:brightness-105"
-          >
-            <span class="w-11 h-11 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner">
-              <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-            </span>
-            <span class="text-base font-extrabold tracking-wide">Uang Masuk</span>
-          </router-link>
 
-          <!-- Catat Uang Keluar -->
-          <router-link
-            to="/tambah-pengeluaran"
-            class="flex flex-col items-center justify-center gap-3 bg-expense text-white rounded-[var(--radius-card)] p-5 min-h-[6.5rem] shadow-lg shadow-expense/25 active:scale-[0.96] transition-all duration-150 hover:shadow-xl hover:shadow-expense/30 hover:brightness-105"
-          >
-            <span class="w-11 h-11 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner">
-              <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14" />
-              </svg>
-            </span>
-            <span class="text-base font-extrabold tracking-wide">Uang Keluar</span>
-          </router-link>
-        </div>
 
         <!-- ========== RADAR JATUH TEMPO ========== -->
         <div class="space-y-4 animate-fade-in-up animate-stagger-4">

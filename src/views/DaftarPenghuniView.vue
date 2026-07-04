@@ -3,9 +3,9 @@
     <!-- Header -->
     <header class="bg-navy rounded-b-4xl px-6 pt-12 pb-8 text-white shadow-lg max-w-lg mx-auto space-y-6">
       <div class="flex items-center justify-between">
-        <h1 class="text-3xl font-black tracking-tight">Penghuni</h1>
+        <h1 class="text-3xl font-black tracking-tight">Denah Kos</h1>
         <span class="bg-white/10 px-4 py-1.5 rounded-full text-sm font-bold">
-          Master Data
+          Room Grid
         </span>
       </div>
 
@@ -27,27 +27,56 @@
             to="/tambah-penghuni"
             class="px-4 py-3.5 bg-white text-navy font-bold rounded-xl flex items-center justify-center gap-1.5 shadow active:scale-95 transition-transform"
           >
-            <span>➕</span> Tambah
+            <span>➕</span> Daftar
           </router-link>
         </div>
 
-        <!-- Status Filter Dropdown -->
-        <div class="space-y-1.5">
-          <label for="status-filter" class="block text-xs font-bold text-blue-200">Status Penyewaan</label>
-          <div class="relative">
-            <select
-              id="status-filter"
-              v-model="statusFilter"
-              class="w-full px-5 py-4 bg-white border-2 border-white/20 rounded-xl appearance-none focus:outline-none focus:border-white text-lg font-medium text-gray-800 shadow-sm"
-            >
-              <option value="Semua">📋 Semua Status</option>
-              <option value="Aktif">🟢 Aktif (Sedang Sewa)</option>
-              <option value="Alumni">⚪ Alumni (Sudah Checkout)</option>
-            </select>
-            <div class="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-              </svg>
+        <!-- Filters Grid -->
+        <div class="grid grid-cols-2 gap-3">
+          <!-- Location Filter -->
+          <div class="space-y-1.5">
+            <label for="location-filter" class="block text-xs font-bold text-blue-200">Lokasi Kos</label>
+            <div class="relative">
+              <select
+                id="location-filter"
+                v-model="selectedLocationFilter"
+                class="w-full px-4 py-3 bg-white border-2 border-white/20 rounded-xl appearance-none focus:outline-none focus:border-white text-sm font-bold text-gray-800 shadow-sm"
+              >
+                <option value="ALL">🏢 Semua Lokasi</option>
+                <option
+                  v-for="loc in locationsList"
+                  :key="loc.id"
+                  :value="loc.id"
+                >
+                  🏠 {{ loc.nama_lokasi }}
+                </option>
+              </select>
+              <div class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Status Filter Dropdown -->
+          <div class="space-y-1.5">
+            <label for="status-filter" class="block text-xs font-bold text-blue-200">Status Kamar</label>
+            <div class="relative">
+              <select
+                id="status-filter"
+                v-model="statusFilter"
+                class="w-full px-4 py-3 bg-white border-2 border-white/20 rounded-xl appearance-none focus:outline-none focus:border-white text-sm font-bold text-gray-800 shadow-sm"
+              >
+                <option value="Semua">📋 Semua</option>
+                <option value="Terisi">🟢 Terisi</option>
+                <option value="Kosong">⚪ Kosong</option>
+              </select>
+              <div class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+              </div>
             </div>
           </div>
         </div>
@@ -62,132 +91,246 @@
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
-        <span class="text-base font-semibold text-text-secondary">Memuat data penghuni...</span>
+        <span class="text-base font-semibold text-text-secondary">Memuat denah kos...</span>
       </div>
 
       <template v-else>
+        <!-- Legend Status -->
+        <div class="flex flex-wrap gap-x-5 gap-y-2 bg-white p-4 rounded-[var(--radius-card)] border border-border shadow-sm">
+          <span class="flex items-center gap-2.5 text-sm font-bold text-text-primary">
+            <span class="w-4 h-4 rounded-full bg-green-500 shadow-sm"></span> Terisi
+          </span>
+          <span class="flex items-center gap-2.5 text-sm font-bold text-text-primary">
+            <span class="w-4 h-4 rounded-full bg-gray-300 shadow-sm"></span> Kosong
+          </span>
+        </div>
+
         <!-- Empty State -->
         <div
-          v-if="filteredRentals.length === 0"
+          v-if="filteredRooms.length === 0"
           class="bg-white rounded-[var(--radius-card)] border-2 border-dashed border-border p-12 text-center"
         >
           <div class="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
             <svg class="w-8 h-8 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766v-.109A12.318 12.318 0 018.25 15.75c0-2.331 0-4.512.645-6.374 1.766a4.125 4.125 0 00-7.533 2.493 9.337 9.337 0 004.121.952c.963 0 1.868-.216 2.625-.372M12 9.75a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM21 9.75a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955a1.126 1.126 0 011.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
             </svg>
           </div>
-          <p class="text-lg font-bold text-text-primary mb-1">Tidak ada penghuni</p>
-          <p class="text-sm text-text-secondary">Tidak ditemukan data penyewa sesuai filter.</p>
+          <p class="text-lg font-bold text-text-primary mb-1">Kamar tidak ditemukan</p>
+          <p class="text-sm text-text-secondary">Tidak ada kamar yang sesuai dengan filter.</p>
         </div>
 
-        <!-- Cards List -->
-        <div v-else class="space-y-4">
+        <!-- Rooms Row List -->
+        <div v-else class="flex flex-col gap-3">
           <div
-            v-for="item in filteredRentals"
-            :key="item.id"
-            class="bg-white rounded-[var(--radius-card)] border-2 border-border p-5 space-y-4 shadow-sm hover:shadow-md transition-all duration-200"
+            v-for="room in filteredRooms"
+            :key="room.id"
+            @click="handleRoomClick(room)"
+            class="bg-white rounded-[var(--radius-card)] border-2 border-border p-4 flex items-center justify-between gap-4 cursor-pointer shadow-sm active:scale-[0.98] hover:shadow transition-all duration-150 relative overflow-hidden"
           >
-            <!-- Card Header: Nama & Status Badge & Edit/Delete -->
-            <div class="flex items-start justify-between gap-2">
-              <div>
-                <h3 class="text-xl font-black text-text-primary tracking-tight">
-                  {{ item.tenants?.nama_lengkap }}
-                </h3>
-                <p class="text-sm font-semibold text-text-secondary mt-0.5">
-                  📞 {{ item.tenants?.nomor_hp || 'Tidak ada nomor HP' }}
+            <!-- Left Side: Square Room Number Box -->
+            <div
+              class="w-14 h-14 rounded-2xl flex items-center justify-center text-white text-lg font-black flex-shrink-0 shadow-sm"
+              :class="room.activeRental ? 'bg-green-500' : 'bg-slate-400'"
+            >
+              {{ room.nomor_kamar }}
+            </div>
+
+            <!-- Middle Side: Main Info -->
+            <div class="flex-1 min-w-0 flex flex-col justify-center">
+              <template v-if="room.activeRental">
+                <p class="text-base font-extrabold text-text-primary truncate">
+                  {{ room.activeRental.tenants?.nama_lengkap }}
                 </p>
-              </div>
+                <p class="text-xs font-semibold text-text-secondary mt-0.5">
+                  {{ formatCurrency(room.harga_bulanan || 0) }}/bulan
+                </p>
+              </template>
+              <template v-else>
+                <p class="text-base font-extrabold text-text-primary truncate">
+                  Kamar {{ room.nomor_kamar }}
+                </p>
+                <p class="text-xs font-semibold text-text-secondary mt-0.5">
+                  {{ formatCurrency(room.harga_bulanan || 0) }}/bulan
+                </p>
+              </template>
+            </div>
 
-              <!-- Status & Actions Stack -->
-              <div class="flex flex-col items-end gap-2">
+            <!-- Right Side: Status Badge -->
+            <div class="flex-shrink-0">
+              <template v-if="room.activeRental">
                 <span
-                  class="px-3 py-1 rounded-full text-xs font-black border shadow-sm"
-                  :class="item.status_aktif
-                    ? 'bg-green-100 text-green-700 border-green-200'
-                    : 'bg-gray-100 text-gray-500 border-gray-200'"
+                  class="px-3 py-1.5 rounded-full text-xs font-black inline-block border shadow-sm"
+                  :class="room.activeRental.diffDays < 0
+                    ? 'bg-red-100 text-red-700 border-red-200 animate-pulse'
+                    : room.activeRental.diffDays === 0
+                      ? 'bg-red-50 text-red-600 border-red-100'
+                      : 'bg-amber-100 text-amber-800 border-amber-200'"
                 >
-                  {{ item.status_aktif ? '🟢 Aktif' : '⚪ Alumni' }}
+                  <template v-if="room.activeRental.diffDays < 0">
+                    🔴 Lewat {{ Math.abs(room.activeRental.diffDays) }} Hari
+                  </template>
+                  <template v-else-if="room.activeRental.diffDays === 0">
+                    ⚠️ Hari Ini
+                  </template>
+                  <template v-else>
+                    ⏳ H-{{ room.activeRental.diffDays }}
+                  </template>
                 </span>
-                <div class="flex gap-2">
-                  <button
-                    @click="bukaModalEdit(item)"
-                    class="p-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm border border-gray-200 active:scale-95 transition-transform"
-                    title="Ubah Penghuni"
-                  >
-                    ✏️
-                  </button>
-                  <button
-                    @click="hapusRental(item)"
-                    class="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-sm border border-red-200 active:scale-95 transition-transform"
-                    title="Hapus Penghuni"
-                  >
-                    🗑️
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Details: Kamar & Lokasi, Masa Sewa -->
-            <div class="bg-gray-50 border border-border rounded-xl p-4 space-y-2.5 text-sm font-semibold text-text-primary">
-              <div class="flex items-center justify-between">
-                <span class="text-text-secondary">Lokasi Kos</span>
-                <span class="font-extrabold text-navy">🏠 {{ item.rooms?.locations?.nama_lokasi || 'Tidak Diketahui' }}</span>
-              </div>
-              <div class="flex items-center justify-between">
-                <span class="text-text-secondary">Nomor Kamar</span>
-                <span class="font-extrabold">Kamar {{ item.rooms?.nomor_kamar || '-' }}</span>
-              </div>
-              <div class="flex items-center justify-between">
-                <span class="text-text-secondary">Tipe Sewa</span>
-                <span class="capitalize bg-navy/5 text-navy px-2 py-0.5 rounded text-xs font-black">{{ item.tipe_sewa }}</span>
-              </div>
-              <div class="flex items-center justify-between pt-2 border-t border-gray-200 text-xs">
-                <span class="text-text-secondary">Mulai Masuk</span>
-                <span>{{ formatDateDisplay(item.tanggal_masuk) }}</span>
-              </div>
-              <div class="flex items-center justify-between text-xs">
-                <span class="text-text-secondary">Jatuh Tempo</span>
-                <span :class="item.status_aktif ? 'font-bold text-navy' : 'text-text-secondary'">
-                  {{ formatDateDisplay(item.tanggal_jatuh_tempo) }}
+              </template>
+              <template v-else>
+                <span class="px-4 py-1.5 rounded-full text-xs font-bold bg-gray-100 text-gray-500 border border-gray-200 inline-block shadow-sm">
+                  Kosong
                 </span>
-              </div>
+              </template>
             </div>
 
-            <!-- Actions Grid (Only active leases) -->
-            <div v-if="item.status_aktif" class="grid grid-cols-2 gap-3 pt-2">
-              <!-- WhatsApp -->
-              <button
-                @click="hubungiWhatsApp(item.tenants?.nomor_hp)"
-                class="flex items-center justify-center gap-2 py-3 bg-white border-2 border-green-500 hover:bg-green-50 active:scale-95 text-green-600 rounded-xl text-sm font-bold shadow-sm transition-all duration-150"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.73-1.45L0 24zm6.59-4.846c1.6.95 3.188 1.449 4.825 1.451 5.436 0 9.86-4.37 9.864-9.799.002-2.63-1.023-5.101-2.885-6.965C16.488 2.012 14.032.99 11.413.99c-5.447 0-9.877 4.373-9.882 9.8.001 1.65.452 3.254 1.31 4.68l-.932 3.406 3.535-.918c1.393.75 2.973 1.146 4.603 1.146zm11.385-6.864c-.302-.15-1.786-.87-2.063-.97-.277-.1-.478-.15-.678.15-.2.3-.775.97-.95 1.17-.175.2-.35.225-.652.075-.302-.15-1.276-.467-2.43-1.485-.898-.795-1.503-1.778-1.68-2.078-.175-.3-.018-.462.13-.61.135-.133.302-.35.45-.525.15-.175.2-.3.3-.5.1-.2.05-.375-.025-.525-.075-.15-.678-1.62-.93-2.225-.246-.588-.496-.51-.678-.52-.175-.008-.375-.01-.575-.01-.2 0-.525.075-.8.375-.275.3-1.05 1.025-1.05 2.5s1.025 2.9 1.175 3.1c.15.2 2.013 3.037 4.875 4.275.681.295 1.213.47 1.627.6.685.217 1.307.186 1.8.113.55-.082 1.786-.725 2.037-1.425.25-.7 0-1.25-.075-1.375-.075-.125-.275-.2-.577-.35z"/>
-                </svg>
-                <span>WhatsApp</span>
-              </button>
-
-              <!-- Checkout -->
-              <button
-                @click="checkOutPenghuni(item)"
-                class="flex items-center justify-center gap-2 py-3 bg-red-600 hover:bg-red-700 active:scale-95 text-white rounded-xl text-sm font-bold shadow-sm transition-all duration-150"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
-                </svg>
-                <span>Checkout</span>
-              </button>
-            </div>
+            <!-- Tiny Location Info overlay -->
+            <span class="absolute right-3 top-1 text-[8px] font-bold text-text-muted opacity-30">
+              {{ room.locations?.nama_lokasi }}
+            </span>
           </div>
         </div>
       </template>
     </div>
 
-    <!-- Edit Modal Dialog (Custom Premium Backdrop) -->
+    <!-- Modal 1: Detail Penghuni (Terisi) -->
+    <div
+      v-if="showDetailModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 pb-24 bg-navy/60 backdrop-blur-sm animate-fade-in"
+    >
+      <div class="bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl w-full max-w-md p-6 space-y-5 max-h-[80vh] overflow-y-auto pb-8 animate-fade-in-up">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between border-b-2 border-border pb-3">
+          <div>
+            <h3 class="text-xl font-black text-text-primary tracking-tight">
+              🏠 Detail Kamar {{ selectedRoom?.nomor_kamar }}
+            </h3>
+            <p class="text-xs font-bold text-text-secondary mt-0.5">
+              {{ selectedRoom?.locations?.nama_lokasi }}
+            </p>
+          </div>
+          <button @click="showDetailModal = false" class="text-text-muted hover:text-text-primary text-xl font-bold">✕</button>
+        </div>
+
+        <!-- Detail Data -->
+        <div class="space-y-3.5 pb-6">
+          <div class="bg-gray-50 border border-border rounded-xl p-4 space-y-2.5 text-sm font-semibold text-text-primary">
+            <div class="flex items-center justify-between">
+              <span class="text-text-secondary">Nama Penghuni</span>
+              <span class="font-extrabold">{{ selectedRoom?.activeRental?.tenants?.nama_lengkap }}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-text-secondary">Nomor HP</span>
+              <span class="font-extrabold text-navy">📞 {{ selectedRoom?.activeRental?.tenants?.nomor_hp || '-' }}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-text-secondary">Harga Sewa</span>
+              <span class="font-extrabold text-green-700">{{ formatCurrency(selectedRoom?.harga_bulanan || 0) }}/bulan</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-text-secondary">Tipe Sewa</span>
+              <span class="capitalize bg-navy/5 text-navy px-2 py-0.5 rounded text-xs font-black">{{ selectedRoom?.activeRental?.tipe_sewa }}</span>
+            </div>
+            <div class="flex items-center justify-between pt-2 border-t border-gray-200 text-xs">
+              <span class="text-text-secondary">Mulai Masuk</span>
+              <span>{{ formatDateDisplay(selectedRoom?.activeRental?.tanggal_masuk) }}</span>
+            </div>
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-text-secondary">Jatuh Tempo</span>
+              <span class="font-bold text-navy">{{ formatDateDisplay(selectedRoom?.activeRental?.tanggal_jatuh_tempo) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Actions Grid (WhatsApp, Edit, Checkout, Hapus) -->
+        <div class="space-y-3">
+          <div class="grid grid-cols-2 gap-3">
+            <!-- WhatsApp -->
+            <button
+              @click="hubungiWhatsApp(selectedRoom?.activeRental?.tenants?.nomor_hp)"
+              class="flex items-center justify-center gap-2 py-3 bg-white border-2 border-green-500 hover:bg-green-50 active:scale-95 text-green-600 rounded-xl text-sm font-bold shadow-sm transition-all duration-150"
+            >
+              🟢 WhatsApp
+            </button>
+
+            <!-- Edit -->
+            <button
+              @click="triggerEditModal"
+              class="flex items-center justify-center gap-2 py-3 bg-gray-100 hover:bg-gray-200 active:scale-95 text-gray-700 rounded-xl text-sm font-bold shadow-sm transition-all duration-150 border border-gray-200"
+            >
+              ✏️ Edit Data
+            </button>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <!-- Checkout -->
+            <button
+              @click="checkOutPenghuni(selectedRoom?.activeRental)"
+              class="flex items-center justify-center gap-2 py-3 bg-red-50 hover:bg-red-100 active:scale-95 text-red-600 rounded-xl text-sm font-bold shadow-sm transition-all duration-150 border border-red-200"
+            >
+              🔴 Checkout
+            </button>
+
+            <!-- Hapus -->
+            <button
+              @click="hapusRental(selectedRoom?.activeRental)"
+              class="flex items-center justify-center gap-2 py-3 bg-red-600 hover:bg-red-700 active:scale-95 text-white rounded-xl text-sm font-bold shadow-sm transition-all duration-150"
+            >
+              🗑️ Hapus Sewa
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 2: Kamar Kosong (Siap Huni) -->
+    <div
+      v-if="showEmptyModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 pb-24 bg-navy/60 backdrop-blur-sm animate-fade-in"
+    >
+      <div class="bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl w-full max-w-md p-6 space-y-5 max-h-[80vh] overflow-y-auto pb-8 animate-fade-in-up">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between border-b-2 border-border pb-3">
+          <div>
+            <h3 class="text-xl font-black text-text-primary tracking-tight">
+              ⚪ Kamar {{ selectedRoom?.nomor_kamar }} Kosong
+            </h3>
+            <p class="text-xs font-bold text-text-secondary mt-0.5">
+              {{ selectedRoom?.locations?.nama_lokasi }}
+            </p>
+          </div>
+          <button @click="showEmptyModal = false" class="text-text-muted hover:text-text-primary text-xl font-bold">✕</button>
+        </div>
+
+        <div class="text-center py-6 space-y-3 pb-6">
+          <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto text-3xl">🔑</div>
+          <p class="text-base font-extrabold text-text-primary">Kamar ini sedang kosong & siap dihuni.</p>
+          <p class="text-xs font-bold text-text-secondary">Harga Standar: {{ formatCurrency(selectedRoom?.harga_bulanan || 0) }}/bulan</p>
+        </div>
+
+        <div class="flex gap-3">
+          <button
+            @click="showEmptyModal = false"
+            class="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl active:scale-95 transition-transform"
+          >
+            Tutup
+          </button>
+          <router-link
+            :to="`/tambah-penghuni?location_id=${selectedRoom?.location_id}&room_id=${selectedRoom?.id}`"
+            class="flex-1 py-3 bg-navy text-white text-center font-bold rounded-xl active:scale-95 transition-transform shadow flex items-center justify-center gap-1.5"
+          >
+            ➕ Daftarkan
+          </router-link>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 3: Edit Data Sewa (Terisi) -->
     <div
       v-if="showEditModal"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy/60 backdrop-blur-sm animate-fade-in"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 pb-24 bg-navy/60 backdrop-blur-sm animate-fade-in"
     >
-      <div class="bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl w-full max-w-md p-6 space-y-4 animate-fade-in-up">
+      <div class="bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl w-full max-w-md p-6 space-y-4 max-h-[80vh] overflow-y-auto pb-8 animate-fade-in-up">
         <!-- Modal Header -->
         <div class="flex items-center justify-between border-b-2 border-border pb-3">
           <h3 class="text-xl font-black text-text-primary flex items-center gap-2">
@@ -197,7 +340,7 @@
         </div>
 
         <!-- Modal Fields -->
-        <div class="space-y-4 py-2">
+        <div class="space-y-4 py-2 pb-6">
           <!-- Nama Lengkap -->
           <div class="space-y-1.5">
             <label for="edit-nama" class="block text-sm font-bold text-text-primary">Nama Lengkap</label>
@@ -283,12 +426,19 @@ import { supabase } from '../supabase.js'
 import BottomNav from '../components/BottomNav.vue'
 
 const isLoading = ref(true)
-const rentalsList = ref([])
+const roomsList = ref([])
+const locationsList = ref([])
+const selectedLocationFilter = ref('ALL')
 const searchQuery = ref('')
 const statusFilter = ref('Semua')
 
-// Edit Modal States
+// Modal visibility & selected room state
+const showDetailModal = ref(false)
+const showEmptyModal = ref(false)
 const showEditModal = ref(false)
+const selectedRoom = ref(null)
+
+// Edit Form
 const editForm = reactive({
   rentalId: null,
   tenantId: null,
@@ -299,49 +449,109 @@ const editForm = reactive({
   tanggal_jatuh_tempo: ''
 })
 
-async function loadRentals() {
+// Fetch Locations on Mount
+async function loadLocations() {
+  try {
+    const { data, error } = await supabase
+      .from('locations')
+      .select('*')
+      .order('nama_lokasi', { ascending: true })
+
+    if (error) throw error
+    locationsList.value = data || []
+  } catch (err) {
+    console.error('[SimKos] Gagal fetch lokasi:', err)
+  }
+}
+
+// Fetch all rooms with joined rental/tenant info
+async function loadRoomsAndRentals() {
   isLoading.value = true
   try {
     const { data, error } = await supabase
-      .from('rentals')
-      .select('*, tenants(*), rooms(*, locations(*))')
-      .order('tanggal_masuk', { ascending: false })
+      .from('rooms')
+      .select('*, locations(nama_lokasi), rentals(*, tenants(*))')
+      .order('nomor_kamar', { ascending: true })
 
     if (error) throw error
-    rentalsList.value = data || []
+
+    // Post-process to map active rental and days left
+    roomsList.value = (data || []).map(room => {
+      const activeRental = room.rentals?.find(r => r.status_aktif === true) || null
+      if (activeRental) {
+        activeRental.diffDays = getDiffDays(activeRental.tanggal_jatuh_tempo)
+      }
+      return {
+        ...room,
+        activeRental
+      }
+    })
   } catch (err) {
-    console.error('[SimKos] Error loading rentals:', err)
+    console.error('[SimKos] Gagal fetch denah kamar:', err)
   } finally {
     isLoading.value = false
   }
 }
 
-onMounted(() => {
-  loadRentals()
+onMounted(async () => {
+  await loadLocations()
+  await loadRoomsAndRentals()
 })
 
-// Filtered and searched rentals
-const filteredRentals = computed(() => {
-  let list = rentalsList.value
+// Filtered Rooms
+const filteredRooms = computed(() => {
+  let list = roomsList.value
 
-  // 1. Search filter (case-insensitive name check)
+  // 1. Location filter
+  if (selectedLocationFilter.value !== 'ALL') {
+    list = list.filter(r => r.location_id === selectedLocationFilter.value)
+  }
+
+  // 2. Search filter (if query exists, check if name matches active tenant)
   if (searchQuery.value.trim()) {
     const q = searchQuery.value.toLowerCase().trim()
-    list = list.filter(item => {
-      const name = item.tenants?.nama_lengkap || ''
-      return name.toLowerCase().includes(q)
+    list = list.filter(r => {
+      const tenantName = r.activeRental?.tenants?.nama_lengkap || ''
+      return tenantName.toLowerCase().includes(q)
     })
   }
 
-  // 2. Status filter
-  if (statusFilter.value === 'Aktif') {
-    list = list.filter(item => item.status_aktif === true)
-  } else if (statusFilter.value === 'Alumni') {
-    list = list.filter(item => item.status_aktif === false)
+  // 3. Status filter
+  if (statusFilter.value === 'Terisi') {
+    list = list.filter(r => r.activeRental !== null)
+  } else if (statusFilter.value === 'Kosong') {
+    list = list.filter(r => r.activeRental === null)
   }
 
   return list
 })
+
+// Room Click Handler
+function handleRoomClick(room) {
+  selectedRoom.value = room
+  if (room.activeRental) {
+    showDetailModal.value = true
+  } else {
+    showEmptyModal.value = true
+  }
+}
+
+// Open Edit Modal from Detail Modal
+function triggerEditModal() {
+  const rental = selectedRoom.value?.activeRental
+  if (!rental) return
+
+  editForm.rentalId = rental.id
+  editForm.tenantId = rental.tenant_id
+  editForm.roomId = selectedRoom.value.id
+  editForm.nama_lengkap = rental.tenants?.nama_lengkap || ''
+  editForm.nomor_hp = rental.tenants?.nomor_hp || ''
+  editForm.harga_bulanan = selectedRoom.value.harga_bulanan || 0
+  editForm.tanggal_jatuh_tempo = rental.tanggal_jatuh_tempo || ''
+
+  showDetailModal.value = false
+  showEditModal.value = true
+}
 
 // WhatsApp Quick Action
 function hubungiWhatsApp(noHp) {
@@ -356,53 +566,6 @@ function hubungiWhatsApp(noHp) {
   window.open(`https://wa.me/${formatted}`, '_blank')
 }
 
-// Checkout Process (Sequential DB operations)
-async function checkOutPenghuni(rental) {
-  const confirmCheckout = confirm(`Apakah Anda yakin ingin memproses Checkout untuk ${rental.tenants?.nama_lengkap || 'penghuni ini'}? Kamar ini akan otomatis kosong kembali.`)
-  if (!confirmCheckout) return
-
-  isLoading.value = true
-
-  try {
-    // 1. Update status sewa di tabel rentals
-    const { error: rentalError } = await supabase
-      .from('rentals')
-      .update({ status_aktif: false })
-      .eq('id', rental.id)
-
-    if (rentalError) throw new Error(`Gagal memperbarui status sewa: ${rentalError.message}`)
-
-    // 2. Update status kamar di tabel rooms menjadi 'Kosong'
-    if (rental.room_id) {
-      const { error: roomError } = await supabase
-        .from('rooms')
-        .update({ status_kamar: 'Kosong' })
-        .eq('id', rental.room_id)
-
-      if (roomError) throw new Error(`Gagal mengosongkan status kamar: ${roomError.message}`)
-    }
-
-    alert('Checkout berhasil diproses!')
-    await loadRentals()
-  } catch (err) {
-    alert(`Gagal memproses checkout: ${err.message}`)
-    console.error('[SimKos] Checkout error:', err)
-    isLoading.value = false
-  }
-}
-
-// Open Edit Modal
-function bukaModalEdit(rental) {
-  editForm.rentalId = rental.id
-  editForm.tenantId = rental.tenant_id
-  editForm.roomId = rental.room_id
-  editForm.nama_lengkap = rental.tenants?.nama_lengkap || ''
-  editForm.nomor_hp = rental.tenants?.nomor_hp || ''
-  editForm.harga_bulanan = rental.rooms?.harga_bulanan || 0
-  editForm.tanggal_jatuh_tempo = rental.tanggal_jatuh_tempo || ''
-  showEditModal.value = true
-}
-
 // Update Tenant Data (CRUD - Update)
 async function updatePenghuni() {
   if (!editForm.nama_lengkap.trim() || !editForm.nomor_hp.trim()) {
@@ -411,6 +574,7 @@ async function updatePenghuni() {
   }
 
   isLoading.value = true
+  showEditModal.value = false
 
   try {
     // 1. Update tenants table
@@ -450,9 +614,8 @@ async function updatePenghuni() {
       if (rentalError) throw rentalError
     }
 
-    alert('Data penghuni berhasil diperbarui!')
-    showEditModal.value = false
-    await loadRentals()
+    alert('Data sewa berhasil diperbarui!')
+    await loadRoomsAndRentals()
   } catch (err) {
     alert(`Gagal memperbarui data: ${err.message}`)
     console.error('[SimKos] Update error:', err)
@@ -460,15 +623,54 @@ async function updatePenghuni() {
   }
 }
 
+// Checkout Process (Sequential DB operations)
+async function checkOutPenghuni(rental) {
+  if (!rental) return
+  const confirmCheckout = confirm(`Apakah Anda yakin ingin memproses Checkout untuk ${rental.tenants?.nama_lengkap || 'penghuni ini'}? Kamar ini akan otomatis kosong kembali.`)
+  if (!confirmCheckout) return
+
+  isLoading.value = true
+  showDetailModal.value = false
+
+  try {
+    // 1. Update status sewa di tabel rentals
+    const { error: rentalError } = await supabase
+      .from('rentals')
+      .update({ status_aktif: false })
+      .eq('id', rental.id)
+
+    if (rentalError) throw new Error(`Gagal memperbarui status sewa: ${rentalError.message}`)
+
+    // 2. Update status kamar di tabel rooms menjadi 'Kosong'
+    if (rental.room_id) {
+      const { error: roomError } = await supabase
+        .from('rooms')
+        .update({ status_kamar: 'Kosong' })
+        .eq('id', rental.room_id)
+
+      if (roomError) throw new Error(`Gagal mengosongkan status kamar: ${roomError.message}`)
+    }
+
+    alert('Checkout berhasil diproses!')
+    await loadRoomsAndRentals()
+  } catch (err) {
+    alert(`Gagal memproses checkout: ${err.message}`)
+    console.error('[SimKos] Checkout error:', err)
+    isLoading.value = false
+  }
+}
+
 // Delete Rental Record (CRUD - Delete)
 async function hapusRental(rental) {
+  if (!rental) return
   const confirmDelete = confirm(`Apakah Anda yakin ingin menghapus data sewa untuk ${rental.tenants?.nama_lengkap || 'penghuni ini'}? Tindakan ini akan menghapus riwayat sewa ini dari database dan mengosongkan status kamar.`)
   if (!confirmDelete) return
 
   isLoading.value = true
+  showDetailModal.value = false
 
   try {
-    // 1. Hapus dari tabel rentals
+    // 1. Hapus dari rentals
     const { error: deleteError } = await supabase
       .from('rentals')
       .delete()
@@ -476,7 +678,7 @@ async function hapusRental(rental) {
 
     if (deleteError) throw deleteError
 
-    // 2. Kembalikan status kamar di tabel rooms menjadi 'Kosong'
+    // 2. Kembalikan status kamar menjadi 'Kosong'
     if (rental.room_id) {
       const { error: roomError } = await supabase
         .from('rooms')
@@ -487,7 +689,7 @@ async function hapusRental(rental) {
     }
 
     alert('Data sewa berhasil dihapus!')
-    await loadRentals()
+    await loadRoomsAndRentals()
   } catch (err) {
     alert(`Gagal menghapus data sewa: ${err.message}`)
     console.error('[SimKos] Delete error:', err)
@@ -495,7 +697,32 @@ async function hapusRental(rental) {
   }
 }
 
+// Helper: Sisa Hari Jatuh Tempo
+function getDiffDays(tanggalJatuhTempo) {
+  if (!tanggalJatuhTempo) return null
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  
+  const parts = tanggalJatuhTempo.split('-')
+  if (parts.length !== 3) return null
+  
+  const dueDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10))
+  dueDate.setHours(0, 0, 0, 0)
+  
+  const diffTime = dueDate.getTime() - today.getTime()
+  return Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+}
+
 // Helpers
+function formatCurrency(value) {
+  return new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value)
+}
+
 function formatDateDisplay(dateStr) {
   if (!dateStr) return '-'
   const parts = dateStr.split('-')
