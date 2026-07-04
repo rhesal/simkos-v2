@@ -251,7 +251,7 @@ const form = reactive({
 
 // Occupied rooms in selected location
 const occupiedRooms = computed(() => {
-  return roomList.value.filter(r => (r.status || '').toLowerCase() === 'terisi')
+  return roomList.value.filter(r => (r.status_kamar || '').toLowerCase() === 'terisi')
 })
 
 // Validation

@@ -293,29 +293,39 @@
             <label for="tgl-masuk" class="block text-base font-bold text-text-primary">
               Tanggal Masuk <span class="text-expense">*</span>
             </label>
-            <input
-              id="tgl-masuk"
-              v-model="form.tanggal_masuk"
-              type="date"
-              class="w-full bg-card border-2 border-border rounded-[var(--radius-btn)]
-                     px-4 py-4 text-base font-semibold text-text-primary
-                     focus:border-navy focus:ring-4 focus:ring-navy/10 focus:outline-none
-                     transition-all duration-200 shadow-sm"
-            />
+            <div class="relative rounded-[var(--radius-btn)] border-2 border-border bg-card focus-within:border-navy focus-within:ring-4 focus-within:ring-navy/10 transition-all duration-200 shadow-sm">
+              <!-- Visual Text Overlay -->
+              <div class="w-full px-4 py-4 text-base font-semibold text-text-primary flex items-center justify-between pointer-events-none">
+                <span>{{ formatDateDisplay(form.tanggal_masuk) }}</span>
+                <span class="text-text-muted">📅</span>
+              </div>
+              <!-- Native Date Input -->
+              <input
+                id="tgl-masuk"
+                v-model="form.tanggal_masuk"
+                type="date"
+                class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              />
+            </div>
           </div>
           <div class="space-y-2">
             <label for="tgl-tempo" class="block text-base font-bold text-text-primary">
               Jatuh Tempo <span class="text-expense">*</span>
             </label>
-            <input
-              id="tgl-tempo"
-              v-model="form.tanggal_jatuh_tempo"
-              type="date"
-              class="w-full bg-card border-2 border-border rounded-[var(--radius-btn)]
-                     px-4 py-4 text-base font-semibold text-text-primary
-                     focus:border-navy focus:ring-4 focus:ring-navy/10 focus:outline-none
-                     transition-all duration-200 shadow-sm"
-            />
+            <div class="relative rounded-[var(--radius-btn)] border-2 border-border bg-card focus-within:border-navy focus-within:ring-4 focus-within:ring-navy/10 transition-all duration-200 shadow-sm">
+              <!-- Visual Text Overlay -->
+              <div class="w-full px-4 py-4 text-base font-semibold text-text-primary flex items-center justify-between pointer-events-none">
+                <span>{{ formatDateDisplay(form.tanggal_jatuh_tempo) }}</span>
+                <span class="text-text-muted">📅</span>
+              </div>
+              <!-- Native Date Input -->
+              <input
+                id="tgl-tempo"
+                v-model="form.tanggal_jatuh_tempo"
+                type="date"
+                class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              />
+            </div>
           </div>
         </div>
 
@@ -444,6 +454,36 @@ watch(() => form.location_id, async (newId) => {
     roomList.value = data || []
   }
 })
+
+// --- Otomatisasi Jatuh Tempo ---
+watch(
+  () => [form.tanggal_masuk, form.tipe_sewa],
+  ([tglMasuk, tipeSewa]) => {
+    if (!tglMasuk) return
+
+    const parts = tglMasuk.split('-')
+    if (parts.length !== 3) return
+
+    const year = parseInt(parts[0], 10)
+    const month = parseInt(parts[1], 10) - 1
+    const day = parseInt(parts[2], 10)
+
+    const date = new Date(year, month, day)
+
+    if (tipeSewa === 'bulanan') {
+      date.setMonth(date.getMonth() + 1)
+    } else if (tipeSewa === 'harian') {
+      date.setDate(date.getDate() + 1)
+    }
+
+    const y = date.getFullYear()
+    const m = String(date.getMonth() + 1).padStart(2, '0')
+    const d = String(date.getDate()).padStart(2, '0')
+
+    form.tanggal_jatuh_tempo = `${y}-${m}-${d}`
+  },
+  { immediate: true }
+)
 
 // --- File Handling ---
 function handleFileSelect(e) {
@@ -594,5 +634,12 @@ function formatCurrency(value) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(value)
+}
+
+function formatDateDisplay(dateStr) {
+  if (!dateStr) return ''
+  const parts = dateStr.split('-')
+  if (parts.length !== 3) return dateStr
+  return `${parts[2]}/${parts[1]}/${parts[0]}`
 }
 </script>

@@ -173,49 +173,45 @@
               {{ formatCurrency(saldoBersih) }}
             </p>
 
-            <div class="flex items-center justify-between gap-4 pt-5 border-t border-white/15">
-              <!-- Income Total -->
-              <div class="flex items-center gap-3">
-                <span class="w-11 h-11 rounded-xl bg-income/20 flex items-center justify-center flex-shrink-0">
-                  <svg class="w-7 h-7 text-green-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
-                  </svg>
-                </span>
-                <div>
-                  <p class="text-sm font-bold text-blue-200">Masuk</p>
-                  <p class="text-lg font-extrabold text-green-300 mt-0.5">{{ formatCurrency(totalPemasukan) }}</p>
+            <div class="flex flex-col gap-3 pt-5 border-t border-white/15">
+              <!-- Income Row -->
+              <div class="flex items-center justify-between w-full">
+                <div class="flex items-center gap-3">
+                  <span class="w-10 h-10 rounded-xl bg-income/20 flex items-center justify-center flex-shrink-0">
+                    <svg class="w-6 h-6 text-green-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
+                    </svg>
+                  </span>
+                  <span class="text-base font-bold text-blue-200">Masuk</span>
                 </div>
+                <span class="text-xl font-extrabold text-green-300">{{ formatCurrency(totalPemasukan) }}</span>
               </div>
 
-              <!-- Expense Total -->
-              <div class="flex items-center gap-3">
-                <span class="w-11 h-11 rounded-xl bg-expense/20 flex items-center justify-center flex-shrink-0">
-                  <svg class="w-7 h-7 text-red-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
-                  </svg>
-                </span>
-                <div>
-                  <p class="text-sm font-bold text-blue-200">Keluar</p>
-                  <p class="text-lg font-extrabold text-red-300 mt-0.5">{{ formatCurrency(totalPengeluaran) }}</p>
+              <!-- Expense Row -->
+              <div class="flex items-center justify-between w-full">
+                <div class="flex items-center gap-3">
+                  <span class="w-10 h-10 rounded-xl bg-expense/20 flex items-center justify-center flex-shrink-0">
+                    <svg class="w-6 h-6 text-red-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
+                    </svg>
+                  </span>
+                  <span class="text-base font-bold text-blue-200">Keluar</span>
                 </div>
+                <span class="text-xl font-extrabold text-red-300">{{ formatCurrency(totalPengeluaran) }}</span>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- ========== ACTION BUTTONS DENGAN UKURAN EKSTRA BESAR (CHUNKY) ========== -->
-      <div class="grid grid-cols-2 gap-4 w-full animate-fade-in-up animate-stagger-2">
+      <!-- Action Buttons: 2 Kolom -->
+      <div class="grid grid-cols-2 gap-4 animate-fade-in-up animate-stagger-2">
         <!-- Catat Uang Masuk -->
         <router-link
           to="/tambah-pemasukan"
-          class="flex flex-col items-center justify-center gap-3
-                 bg-income text-white rounded-[var(--radius-card)]
-                 p-5 min-h-[6.5rem] shadow-lg shadow-income/25
-                 active:scale-[0.96] transition-all duration-150
-                 hover:shadow-xl hover:shadow-income/30 hover:brightness-105"
+          class="flex flex-col items-center justify-center gap-3 bg-income text-white rounded-[var(--radius-card)] p-5 min-h-[6.5rem] shadow-lg shadow-income/25 active:scale-[0.96] transition-all duration-150 hover:shadow-xl hover:shadow-income/30 hover:brightness-105"
         >
-          <span class="w-11 h-11 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner flex-shrink-0">
+          <span class="w-11 h-11 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner">
             <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
@@ -226,13 +222,9 @@
         <!-- Catat Uang Keluar -->
         <router-link
           to="/tambah-pengeluaran"
-          class="flex flex-col items-center justify-center gap-3
-                 bg-expense text-white rounded-[var(--radius-card)]
-                 p-5 min-h-[6.5rem] shadow-lg shadow-expense/25
-                 active:scale-[0.96] transition-all duration-150
-                 hover:shadow-xl hover:shadow-expense/30 hover:brightness-105"
+          class="flex flex-col items-center justify-center gap-3 bg-expense text-white rounded-[var(--radius-card)] p-5 min-h-[6.5rem] shadow-lg shadow-expense/25 active:scale-[0.96] transition-all duration-150 hover:shadow-xl hover:shadow-expense/30 hover:brightness-105"
         >
-          <span class="w-11 h-11 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner flex-shrink-0">
+          <span class="w-11 h-11 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner">
             <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14" />
             </svg>
@@ -251,10 +243,10 @@
         <!-- Legend Status (Ukuran Lebih Besar & Renggang) -->
         <div class="flex flex-wrap gap-x-5 gap-y-2 bg-white p-4 rounded-[var(--radius-card)] border border-border shadow-sm">
           <span class="flex items-center gap-2.5 text-sm font-bold text-text-primary">
-            <span class="w-4 h-4 rounded-full bg-lunas shadow-sm"></span> Terisi
+            <span class="w-4 h-4 rounded-full bg-green-500 shadow-sm"></span> Terisi
           </span>
           <span class="flex items-center gap-2.5 text-sm font-bold text-text-primary">
-            <span class="w-4 h-4 rounded-full bg-kosong shadow-sm"></span> Kosong
+            <span class="w-4 h-4 rounded-full bg-gray-400 shadow-sm"></span> Kosong
           </span>
         </div>
 
@@ -301,7 +293,7 @@
             <!-- Status Indicator Badge (Chunky) -->
             <div
               class="w-16 h-16 rounded-2xl flex items-center justify-center text-white text-xl font-black flex-shrink-0 shadow-md"
-              :class="statusBgClass(room.status)"
+              :class="statusBgClass(room.status_kamar)"
             >
               {{ room.nomor_kamar }}
             </div>
@@ -319,9 +311,9 @@
             <!-- Action Status Badge -->
             <span
               class="px-4 py-2 rounded-[var(--radius-badge)] text-sm font-extrabold flex-shrink-0 border"
-              :class="statusBadgeClass(room.status)"
+              :class="statusBadgeClass(room.status_kamar)"
             >
-              {{ statusLabel(room.status) }}
+              {{ statusLabel(room.status_kamar) }}
             </span>
           </div>
         </div>
@@ -487,28 +479,22 @@ function formatCurrency(value) {
   }).format(value)
 }
 
-function statusLabel(status) {
-  const s = (status || '').toLowerCase()
-  const map = {
-    kosong: 'Kosong',
-    tersedia: 'Tersedia',
-    terisi: 'Terisi',
-  }
-  return map[s] || status || 'Kosong'
+function statusLabel(status_kamar) {
+  const s = (status_kamar || '').toLowerCase()
+  if (s === 'terisi') return 'Terisi'
+  return 'Kosong'
 }
 
-function statusBgClass(status) {
-  const s = (status || '').toLowerCase()
-  if (s === 'kosong') return 'bg-kosong'
-  if (s === 'tersedia' || s === 'terisi') return 'bg-lunas'
-  return 'bg-kosong'
+function statusBgClass(status_kamar) {
+  const s = (status_kamar || '').toLowerCase()
+  if (s === 'terisi') return 'bg-green-500'
+  return 'bg-gray-400'
 }
 
-function statusBadgeClass(status) {
-  const s = (status || '').toLowerCase()
-  if (s === 'kosong') return 'bg-gray-100 text-text-muted border-gray-200'
-  if (s === 'tersedia' || s === 'terisi') return 'bg-income-light text-income border-income/20'
-  return 'bg-gray-100 text-text-muted border-gray-200'
+function statusBadgeClass(status_kamar) {
+  const s = (status_kamar || '').toLowerCase()
+  if (s === 'terisi') return 'bg-green-100 text-green-700 border-green-200'
+  return 'bg-gray-100 text-gray-500 border-gray-200'
 }
 // --- Logout Function ---
 async function handleLogout() {

@@ -85,15 +85,20 @@
             <label for="tanggal" class="block text-base font-bold text-text-primary">
               Tanggal <span class="text-expense">*</span>
             </label>
-            <input
-              id="tanggal"
-              v-model="form.tanggal"
-              type="date"
-              class="w-full bg-card border-2 border-border rounded-[var(--radius-btn)]
-                     px-4 py-4 text-base font-semibold text-text-primary
-                     focus:border-navy focus:ring-4 focus:ring-navy/10 focus:outline-none
-                     transition-all duration-200 shadow-sm"
-            />
+            <div class="relative rounded-[var(--radius-btn)] border-2 border-border bg-card focus-within:border-navy focus-within:ring-4 focus-within:ring-navy/10 transition-all duration-200 shadow-sm">
+              <!-- Visual Text Overlay -->
+              <div class="w-full px-4 py-4 text-base font-semibold text-text-primary flex items-center justify-between pointer-events-none">
+                <span>{{ formatDateDisplay(form.tanggal) }}</span>
+                <span class="text-text-muted">📅</span>
+              </div>
+              <!-- Native Date Input -->
+              <input
+                id="tanggal"
+                v-model="form.tanggal"
+                type="date"
+                class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              />
+            </div>
           </div>
 
           <!-- Kategori -->
@@ -345,7 +350,7 @@ async function handleSubmit() {
       .from('expenses')
       .insert({
         location_id: form.location_id,
-        tanggal: form.tanggal,
+        tanggal_pengeluaran: form.tanggal,
         kategori: form.kategori,
         nominal: form.nominal,
         keterangan: form.keterangan.trim() || null,
@@ -371,5 +376,12 @@ async function handleSubmit() {
   } finally {
     isSubmitting.value = false
   }
+}
+
+function formatDateDisplay(dateStr) {
+  if (!dateStr) return ''
+  const parts = dateStr.split('-')
+  if (parts.length !== 3) return dateStr
+  return `${parts[2]}/${parts[1]}/${parts[0]}`
 }
 </script>
