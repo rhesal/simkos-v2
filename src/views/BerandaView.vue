@@ -39,7 +39,7 @@
             <router-link
               to="/tambah-kamar"
               @click="isSettingsOpen = false"
-              class="w-full px-5 py-4 text-left text-lg font-bold text-text-primary hover:bg-gray-50 active:bg-gray-100 flex items-center gap-3"
+              class="w-full px-5 py-4 text-left text-lg font-bold text-text-primary hover:bg-gray-50 active:bg-gray-100 flex items-center gap-3 border-b border-border"
             >
               <span class="w-10 h-10 rounded-xl bg-navy/10 flex items-center justify-center flex-shrink-0">
                 <svg class="w-5 h-5 text-navy" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -47,6 +47,18 @@
                 </svg>
               </span>
               Tambah Kamar
+            </router-link>
+            <router-link
+              to="/tambah-penghuni"
+              @click="isSettingsOpen = false"
+              class="w-full px-5 py-4 text-left text-lg font-bold text-text-primary hover:bg-gray-50 active:bg-gray-100 flex items-center gap-3"
+            >
+              <span class="w-10 h-10 rounded-xl bg-income/10 flex items-center justify-center flex-shrink-0">
+                <svg class="w-5 h-5 text-income" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" />
+                </svg>
+              </span>
+              Daftar Penghuni Baru
             </router-link>
           </div>
         </div>

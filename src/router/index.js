@@ -26,6 +26,11 @@ const routes = [
     name: 'TambahKamar',
     component: () => import('../views/TambahKamarView.vue'),
   },
+  {
+    path: '/tambah-penghuni',
+    name: 'TambahPenghuni',
+    component: () => import('../views/TambahPenghuniView.vue'),
+  },
 ]
 
 const router = createRouter({
