@@ -207,7 +207,8 @@
       <!-- ========== ACTION BUTTONS DENGAN UKURAN EKSTRA BESAR (CHUNKY) ========== -->
       <div class="grid grid-cols-2 gap-4 animate-fade-in-up animate-stagger-2">
         <!-- Catat Uang Masuk -->
-        <button
+        <router-link
+          to="/tambah-pemasukan"
           class="flex flex-col items-center justify-center gap-3
                  bg-income text-white rounded-[var(--radius-card)]
                  p-6 min-h-[7rem] shadow-lg shadow-income/25
@@ -220,10 +221,11 @@
             </svg>
           </span>
           <span class="text-lg font-extrabold tracking-wide">Uang Masuk</span>
-        </button>
+        </router-link>
 
         <!-- Catat Uang Keluar -->
-        <button
+        <router-link
+          to="/tambah-pengeluaran"
           class="flex flex-col items-center justify-center gap-3
                  bg-expense text-white rounded-[var(--radius-card)]
                  p-6 min-h-[7rem] shadow-lg shadow-expense/25
@@ -236,7 +238,7 @@
             </svg>
           </span>
           <span class="text-lg font-extrabold tracking-wide">Uang Keluar</span>
-        </button>
+        </router-link>
       </div>
 
       <!-- ========== STATUS KAMAR DINAMIS ========== -->

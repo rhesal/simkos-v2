@@ -33,6 +33,16 @@ const routes = [
     component: () => import('../views/TambahPenghuniView.vue'),
   },
   {
+    path: '/tambah-pengeluaran',
+    name: 'TambahPengeluaran',
+    component: () => import('../views/TambahPengeluaranView.vue'),
+  },
+  {
+    path: '/tambah-pemasukan',
+    name: 'TambahPemasukan',
+    component: () => import('../views/TambahPemasukanView.vue'),
+  },
+  {
     path: '/login',
     name: 'Login',
     component: () => import('../views/LoginView.vue'),
