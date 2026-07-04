@@ -52,45 +52,79 @@
         </div>
       </div>
 
-      <!-- Combo-box Pemilih Lokasi (Kustom & Tertutup) -->
+      <!-- Combo-box Pemilih Lokasi (Dinamis dari Supabase) -->
       <div class="relative">
-        <button
-          @click="isDropdownOpen = !isDropdownOpen"
-          class="w-full bg-white/10 hover:bg-white/15 active:bg-white/20 border-2 border-white/20 rounded-[var(--radius-btn)]
-                 px-5 py-4 flex items-center justify-between text-lg font-bold text-white
-                 transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-white/25"
-        >
-          <div class="flex items-center gap-3">
-            <span class="text-2xl">{{ selectedLocationData.icon }}</span>
-            <span>{{ selectedLocationData.name }}</span>
-          </div>
-          <svg
-            class="w-6 h-6 text-white/80 transition-transform duration-200"
-            :class="{ 'rotate-180': isDropdownOpen }"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="3"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-          </svg>
-        </button>
-
-        <!-- Dropdown Menu Item -->
+        <!-- Loading state lokasi -->
         <div
-          v-if="isDropdownOpen"
-          class="absolute z-50 left-0 right-0 mt-2 bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl overflow-hidden"
+          v-if="isLoadingLocations"
+          class="w-full bg-white/10 border-2 border-white/20 rounded-[var(--radius-btn)]
+                 px-5 py-4 flex items-center gap-3 text-lg font-bold text-white/60"
         >
-          <button
-            v-for="loc in locations"
-            :key="loc.id"
-            @click="selectLocation(loc.id)"
-            class="w-full px-5 py-4 text-left text-lg font-bold text-text-primary hover:bg-gray-50 active:bg-gray-100 flex items-center gap-3 border-b border-border last:border-0"
-          >
-            <span class="text-2xl">{{ loc.icon }}</span>
-            <span>{{ loc.name }}</span>
-          </button>
+          <svg class="w-6 h-6 animate-spin text-white/50" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <span>Memuat lokasi...</span>
         </div>
+
+        <!-- Empty state lokasi -->
+        <router-link
+          v-else-if="locations.length === 0"
+          to="/tambah-lokasi"
+          class="w-full bg-white/10 hover:bg-white/15 border-2 border-dashed border-white/30 rounded-[var(--radius-btn)]
+                 px-5 py-4 flex items-center justify-center gap-3 text-lg font-bold text-white
+                 transition-all duration-200"
+        >
+          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          <span>Tambah Lokasi Pertama</span>
+        </router-link>
+
+        <!-- Dropdown pemilih lokasi -->
+        <template v-else>
+          <button
+            @click="isDropdownOpen = !isDropdownOpen"
+            class="w-full bg-white/10 hover:bg-white/15 active:bg-white/20 border-2 border-white/20 rounded-[var(--radius-btn)]
+                   px-5 py-4 flex items-center justify-between text-lg font-bold text-white
+                   transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-white/25"
+          >
+            <div class="flex items-center gap-3">
+              <span class="text-2xl">🏠</span>
+              <span>{{ selectedLocationName }}</span>
+            </div>
+            <svg
+              class="w-6 h-6 text-white/80 transition-transform duration-200"
+              :class="{ 'rotate-180': isDropdownOpen }"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="3"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+            </svg>
+          </button>
+
+          <!-- Dropdown Menu Items -->
+          <div
+            v-if="isDropdownOpen"
+            class="absolute z-50 left-0 right-0 mt-2 bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl overflow-hidden"
+          >
+            <button
+              v-for="loc in locations"
+              :key="loc.id"
+              @click="selectLocation(loc.id)"
+              class="w-full px-5 py-4 text-left text-lg font-bold text-text-primary hover:bg-gray-50 active:bg-gray-100 flex items-center gap-3 border-b border-border last:border-0"
+              :class="{ 'bg-navy/5': loc.id === selectedLocation }"
+            >
+              <span class="text-2xl">🏠</span>
+              <span>{{ loc.nama_lokasi }}</span>
+              <svg v-if="loc.id === selectedLocation" class="w-5 h-5 text-navy ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+            </button>
+          </div>
+        </template>
       </div>
     </header>
 
@@ -182,33 +216,59 @@
         </button>
       </div>
 
-      <!-- ========== STATUS KAMAR DENGAN UKURAN LEBIH BESAR ========== -->
+      <!-- ========== STATUS KAMAR DINAMIS ========== -->
       <div class="space-y-4 animate-fade-in-up animate-stagger-3">
         <div class="flex items-end justify-between border-b-2 border-border pb-2">
           <h2 class="text-2xl font-black text-text-primary tracking-tight">Status Kamar</h2>
-          <span class="text-lg font-bold text-text-secondary bg-gray-100 px-3 py-1 rounded-full">{{ currentLocationData.rooms.length }} kamar</span>
+          <span class="text-lg font-bold text-text-secondary bg-gray-100 px-3 py-1 rounded-full">{{ rooms.length }} kamar</span>
         </div>
 
         <!-- Legend Status (Ukuran Lebih Besar & Renggang) -->
         <div class="flex flex-wrap gap-x-5 gap-y-2 bg-white p-4 rounded-[var(--radius-card)] border border-border shadow-sm">
           <span class="flex items-center gap-2.5 text-sm font-bold text-text-primary">
-            <span class="w-4 h-4 rounded-full bg-lunas shadow-sm"></span> Lunas
-          </span>
-          <span class="flex items-center gap-2.5 text-sm font-bold text-text-primary">
-            <span class="w-4 h-4 rounded-full bg-jatuh-tempo shadow-sm"></span> Jatuh Tempo
-          </span>
-          <span class="flex items-center gap-2.5 text-sm font-bold text-text-primary">
-            <span class="w-4 h-4 rounded-full bg-terlambat shadow-sm"></span> Terlambat
+            <span class="w-4 h-4 rounded-full bg-lunas shadow-sm"></span> Terisi
           </span>
           <span class="flex items-center gap-2.5 text-sm font-bold text-text-primary">
             <span class="w-4 h-4 rounded-full bg-kosong shadow-sm"></span> Kosong
           </span>
         </div>
 
-        <!-- Room Cards List -->
-        <div class="space-y-4">
+        <!-- Loading Kamar -->
+        <div v-if="isLoadingRooms" class="flex items-center justify-center py-10">
+          <svg class="w-8 h-8 animate-spin text-navy" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <span class="ml-3 text-lg font-semibold text-text-secondary">Memuat data kamar...</span>
+        </div>
+
+        <!-- Empty State Kamar -->
+        <div
+          v-else-if="rooms.length === 0 && !isLoadingRooms"
+          class="bg-white rounded-[var(--radius-card)] border-2 border-dashed border-border p-8 text-center"
+        >
+          <div class="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
+            <svg class="w-8 h-8 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955a1.126 1.126 0 011.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+            </svg>
+          </div>
+          <p class="text-lg font-bold text-text-primary mb-1">Belum ada kamar</p>
+          <p class="text-sm text-text-secondary mb-4">Tambahkan kamar untuk lokasi ini.</p>
+          <router-link
+            to="/tambah-kamar"
+            class="inline-flex items-center gap-2 bg-navy text-white px-5 py-3 rounded-[var(--radius-btn)] text-base font-bold active:scale-95 transition-transform"
+          >
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Tambah Kamar
+          </router-link>
+        </div>
+
+        <!-- Room Cards List (Dinamis v-for) -->
+        <div v-else class="space-y-4">
           <div
-            v-for="room in currentLocationData.rooms"
+            v-for="room in rooms"
             :key="room.id"
             class="bg-card rounded-[var(--radius-card)] border-2 border-border p-5 flex items-center gap-5
                    shadow-sm hover:shadow-md transition-shadow duration-200"
@@ -218,19 +278,16 @@
               class="w-16 h-16 rounded-2xl flex items-center justify-center text-white text-xl font-black flex-shrink-0 shadow-md"
               :class="statusBgClass(room.status)"
             >
-              {{ room.number }}
+              {{ room.nomor_kamar }}
             </div>
 
             <!-- Room Info -->
             <div class="flex-1 min-w-0">
               <p class="text-lg font-extrabold text-text-primary truncate">
-                {{ room.tenant || 'Kamar Kosong' }}
+                Kamar {{ room.nomor_kamar }}
               </p>
               <p class="text-sm font-semibold text-text-secondary mt-1">
-                {{ statusLabel(room.status) }}
-                <span v-if="room.dueDate && room.status !== 'kosong'" class="text-text-muted">
-                  · {{ room.dueDate }}
-                </span>
+                {{ formatCurrency(room.harga_bulanan || 0) }}/bulan
               </p>
             </div>
 
@@ -252,70 +309,24 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { supabase } from '../supabase.js'
 
-// --- Uji Koneksi Supabase ---
-onMounted(async () => {
-  const { data, error } = await supabase.from('locations').select('*')
-  if (error) {
-    console.error('[Supabase] Gagal fetch locations:', error)
-  } else {
-    console.log('[Supabase] Koneksi berhasil! Data locations:', data)
-  }
-})
-
+// --- UI States ---
 const isDropdownOpen = ref(false)
 const isSettingsOpen = ref(false)
-const selectedLocation = ref('melati')
+const isLoadingLocations = ref(true)
+const isLoadingRooms = ref(false)
 
-const locations = [
-  { id: 'melati', name: 'Kos Melati', icon: '🏠' },
-  { id: 'mawar', name: 'Kos Mawar', icon: '🌹' },
-]
+// --- Data States ---
+const locations = ref([])
+const selectedLocation = ref(null)
+const rooms = ref([])
 
-const selectedLocationData = computed(() => {
-  return locations.find(loc => loc.id === selectedLocation.value)
-})
-
-const selectLocation = (id) => {
-  selectedLocation.value = id
-  isDropdownOpen.value = false
-}
-
-const locationData = {
-  melati: {
-    cash: { masuk: 12500000, keluar: 4200000, sisa: 8300000 },
-    rooms: [
-      { id: 1, number: '01', tenant: 'Budi Santoso', status: 'lunas', dueDate: '1 Jul 2026' },
-      { id: 2, number: '02', tenant: 'Siti Aminah', status: 'lunas', dueDate: '1 Jul 2026' },
-      { id: 3, number: '03', tenant: 'Andi Wijaya', status: 'jatuh-tempo', dueDate: '3 Jul 2026' },
-      { id: 4, number: '04', tenant: 'Dewi Lestari', status: 'terlambat', dueDate: '28 Jun 2026' },
-      { id: 5, number: '05', tenant: null, status: 'kosong', dueDate: null },
-      { id: 6, number: '06', tenant: 'Rizal Pratama', status: 'lunas', dueDate: '1 Jul 2026' },
-      { id: 7, number: '07', tenant: 'Maya Sari', status: 'jatuh-tempo', dueDate: '5 Jul 2026' },
-      { id: 8, number: '08', tenant: null, status: 'kosong', dueDate: null },
-    ],
-  },
-  mawar: {
-    cash: { masuk: 9000000, keluar: 3100000, sisa: 5900000 },
-    rooms: [
-      { id: 1, number: '01', tenant: 'Hendra Gunawan', status: 'lunas', dueDate: '1 Jul 2026' },
-      { id: 2, number: '02', tenant: 'Linda Permata', status: 'terlambat', dueDate: '25 Jun 2026' },
-      { id: 3, number: '03', tenant: null, status: 'kosong', dueDate: null },
-      { id: 4, number: '04', tenant: 'Fajar Nugroho', status: 'lunas', dueDate: '1 Jul 2026' },
-      { id: 5, number: '05', tenant: 'Ratna Dewi', status: 'jatuh-tempo', dueDate: '4 Jul 2026' },
-      { id: 6, number: '06', tenant: 'Agus Salim', status: 'lunas', dueDate: '1 Jul 2026' },
-    ],
-  },
-}
-
-const currentLocationData = computed(() => {
-  return locationData[selectedLocation.value]
-})
-
-const currentCash = computed(() => {
-  return currentLocationData.value.cash
+// --- Computed ---
+const selectedLocationName = computed(() => {
+  const loc = locations.value.find(l => l.id === selectedLocation.value)
+  return loc ? loc.nama_lokasi : 'Pilih Lokasi'
 })
 
 const currentMonth = computed(() => {
@@ -323,6 +334,71 @@ const currentMonth = computed(() => {
   return now.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
 })
 
+// Kas sementara (placeholder sampai tabel transaksi dibuat)
+const currentCash = computed(() => {
+  return { masuk: 0, keluar: 0, sisa: 0 }
+})
+
+// --- Fetch Locations ---
+onMounted(async () => {
+  const { data, error } = await supabase
+    .from('locations')
+    .select('*')
+    .order('nama_lokasi', { ascending: true })
+
+  isLoadingLocations.value = false
+
+  if (error) {
+    console.error('[Supabase] Gagal fetch locations:', error)
+  } else {
+    locations.value = data || []
+    console.log('[Supabase] Locations loaded:', data)
+
+    // Set lokasi pertama sebagai default
+    if (locations.value.length > 0) {
+      selectedLocation.value = locations.value[0].id
+    }
+  }
+})
+
+// --- Fetch Rooms (reaktif terhadap perubahan lokasi) ---
+async function fetchRooms(locationId) {
+  if (!locationId) {
+    rooms.value = []
+    return
+  }
+
+  isLoadingRooms.value = true
+
+  const { data, error } = await supabase
+    .from('rooms')
+    .select('*')
+    .eq('location_id', locationId)
+    .order('nomor_kamar', { ascending: true })
+
+  isLoadingRooms.value = false
+
+  if (error) {
+    console.error('[Supabase] Gagal fetch rooms:', error)
+    rooms.value = []
+  } else {
+    rooms.value = data || []
+    console.log('[Supabase] Rooms loaded for location', locationId, ':', data)
+  }
+}
+
+// Watcher: setiap kali selectedLocation berubah, fetch ulang rooms
+watch(selectedLocation, (newId) => {
+  fetchRooms(newId)
+}, { immediate: true })
+
+// --- Actions ---
+const selectLocation = (id) => {
+  selectedLocation.value = id
+  isDropdownOpen.value = false
+}
+
+// --- Helpers ---
 function formatCurrency(value) {
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
@@ -333,32 +409,26 @@ function formatCurrency(value) {
 }
 
 function statusLabel(status) {
+  const s = (status || '').toLowerCase()
   const map = {
-    lunas: 'Lunas',
-    'jatuh-tempo': 'Jatuh Tempo',
-    terlambat: 'Terlambat',
     kosong: 'Kosong',
+    tersedia: 'Tersedia',
+    terisi: 'Terisi',
   }
-  return map[status] || status
+  return map[s] || status || 'Kosong'
 }
 
 function statusBgClass(status) {
-  const map = {
-    lunas: 'bg-lunas',
-    'jatuh-tempo': 'bg-jatuh-tempo',
-    terlambat: 'bg-terlambat',
-    kosong: 'bg-kosong',
-  }
-  return map[status] || 'bg-gray-400'
+  const s = (status || '').toLowerCase()
+  if (s === 'kosong') return 'bg-kosong'
+  if (s === 'tersedia' || s === 'terisi') return 'bg-lunas'
+  return 'bg-kosong'
 }
 
 function statusBadgeClass(status) {
-  const map = {
-    lunas: 'bg-income-light text-income border-income/20',
-    'jatuh-tempo': 'bg-amber-100 text-amber-800 border-amber-200',
-    terlambat: 'bg-expense-light text-expense border-expense/20',
-    kosong: 'bg-gray-100 text-text-muted border-gray-200',
-  }
-  return map[status] || 'bg-gray-100 text-gray-500 border-gray-200'
+  const s = (status || '').toLowerCase()
+  if (s === 'kosong') return 'bg-gray-100 text-text-muted border-gray-200'
+  if (s === 'tersedia' || s === 'terisi') return 'bg-income-light text-income border-income/20'
+  return 'bg-gray-100 text-text-muted border-gray-200'
 }
 </script>
