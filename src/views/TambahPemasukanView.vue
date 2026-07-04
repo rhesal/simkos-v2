@@ -63,18 +63,15 @@
             <select
               id="lokasi-select"
               v-model="form.location_id"
-              class="w-full appearance-none bg-card border-2 border-border rounded-[var(--radius-btn)]
-                     px-5 py-4 text-lg font-semibold text-text-primary
-                     focus:border-navy focus:ring-4 focus:ring-navy/10 focus:outline-none
-                     transition-all duration-200 shadow-sm"
+              class="w-full px-5 py-4 bg-white border-2 border-gray-200 rounded-xl appearance-none focus:outline-none focus:border-navy text-lg font-medium text-gray-800 shadow-sm"
             >
-              <option value="" disabled>-- Pilih Lokasi Kos --</option>
+              <option value="" disabled hidden selected>-- Pilih Lokasi Kos --</option>
               <option v-for="loc in locationList" :key="loc.id" :value="loc.id">
                 {{ loc.nama_lokasi }}
               </option>
             </select>
-            <div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-              <svg class="w-6 h-6 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <div class="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
               </svg>
             </div>
@@ -100,21 +97,17 @@
               id="kamar-select"
               v-model="form.room_id"
               :disabled="!form.location_id || occupiedRooms.length === 0"
-              class="w-full appearance-none bg-card border-2 border-border rounded-[var(--radius-btn)]
-                     px-5 py-4 text-lg font-semibold text-text-primary
-                     focus:border-navy focus:ring-4 focus:ring-navy/10 focus:outline-none
-                     transition-all duration-200 shadow-sm
-                     disabled:opacity-50 disabled:cursor-not-allowed"
+              class="w-full px-5 py-4 bg-white border-2 border-gray-200 rounded-xl appearance-none focus:outline-none focus:border-navy text-lg font-medium text-gray-800 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <option value="" disabled>
+              <option value="" disabled hidden selected>
                 {{ !form.location_id ? '-- Pilih lokasi dahulu --' : occupiedRooms.length === 0 ? '-- Tidak ada kamar terisi --' : '-- Pilih Kamar --' }}
               </option>
               <option v-for="room in occupiedRooms" :key="room.id" :value="room.id">
                 Kamar {{ room.nomor_kamar }} — {{ formatCurrency(room.harga_bulanan) }}
               </option>
             </select>
-            <div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-              <svg class="w-6 h-6 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <div class="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
               </svg>
             </div>

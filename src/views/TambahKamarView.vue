@@ -63,18 +63,15 @@
             <select
               id="lokasi-select"
               v-model="form.location_id"
-              class="w-full appearance-none bg-card border-2 border-border rounded-[var(--radius-btn)]
-                     px-5 py-4 text-lg font-semibold text-text-primary
-                     focus:border-navy focus:ring-4 focus:ring-navy/10 focus:outline-none
-                     transition-all duration-200 shadow-sm"
+              class="w-full px-5 py-4 bg-white border-2 border-gray-200 rounded-xl appearance-none focus:outline-none focus:border-navy text-lg font-medium text-gray-800 shadow-sm"
             >
-              <option value="" disabled>-- Pilih Lokasi Kos --</option>
+              <option value="" disabled hidden selected>-- Pilih Lokasi Kos --</option>
               <option v-for="loc in locationList" :key="loc.id" :value="loc.id">
                 {{ loc.nama_lokasi }}
               </option>
             </select>
-            <div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-              <svg class="w-6 h-6 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <div class="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
               </svg>
             </div>
@@ -155,18 +152,15 @@
             <select
               id="status-kamar"
               v-model="form.status"
-              class="w-full appearance-none bg-card border-2 border-border rounded-[var(--radius-btn)]
-                     px-5 py-4 text-lg font-semibold text-text-primary
-                     focus:border-navy focus:ring-4 focus:ring-navy/10 focus:outline-none
-                     transition-all duration-200 shadow-sm"
+              class="w-full px-5 py-4 bg-white border-2 border-gray-200 rounded-xl appearance-none focus:outline-none focus:border-navy text-lg font-medium text-gray-800 shadow-sm"
             >
               <option value="kosong">⚪ Kosong</option>
               <option value="lunas">🟢 Lunas</option>
               <option value="jatuh-tempo">🟡 Jatuh Tempo</option>
               <option value="terlambat">🔴 Terlambat</option>
             </select>
-            <div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-              <svg class="w-6 h-6 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <div class="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
               </svg>
             </div>
@@ -256,7 +250,7 @@ async function handleSubmit() {
     nomor_kamar: form.nomor_kamar.trim(),
     harga_harian: form.harga_harian || 0,
     harga_bulanan: form.harga_bulanan || 0,
-    status: form.status,
+    status_kamar: form.status, // Perbaikan: ubah status menjadi status_kamar
   }
 
   const { data, error } = await supabase
