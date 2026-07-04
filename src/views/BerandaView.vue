@@ -214,7 +214,18 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { supabase } from '../supabase.js'
+
+// --- Uji Koneksi Supabase ---
+onMounted(async () => {
+  const { data, error } = await supabase.from('locations').select('*')
+  if (error) {
+    console.error('[Supabase] Gagal fetch locations:', error)
+  } else {
+    console.log('[Supabase] Koneksi berhasil! Data locations:', data)
+  }
+})
 
 const isDropdownOpen = ref(false)
 const selectedLocation = ref('melati')
