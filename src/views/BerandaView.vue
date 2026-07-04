@@ -1,7 +1,7 @@
 <template>
   <div>
     <!-- ========== HEADER DENGAN PEMILIH LOKASI ========== -->
-    <header class="bg-navy text-white px-6 pt-5 pb-6 shadow-lg rounded-b-[1.5rem] space-y-5 animate-fade-in-up">
+    <header class="relative z-20 bg-navy text-white px-6 pt-5 pb-6 shadow-lg rounded-b-[1.5rem] space-y-5 animate-fade-in-up">
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-3xl font-extrabold tracking-tight">SimKos</h1>
@@ -170,7 +170,7 @@
             </div>
 
             <p class="text-4xl font-extrabold tracking-tight">
-              {{ formatCurrency(currentCash.sisa) }}
+              {{ formatCurrency(saldoBersih) }}
             </p>
 
             <div class="flex items-center justify-between gap-4 pt-5 border-t border-white/15">
@@ -183,7 +183,7 @@
                 </span>
                 <div>
                   <p class="text-sm font-bold text-blue-200">Masuk</p>
-                  <p class="text-lg font-extrabold text-green-300 mt-0.5">{{ formatCurrency(currentCash.masuk) }}</p>
+                  <p class="text-lg font-extrabold text-green-300 mt-0.5">{{ formatCurrency(totalPemasukan) }}</p>
                 </div>
               </div>
 
@@ -196,7 +196,7 @@
                 </span>
                 <div>
                   <p class="text-sm font-bold text-blue-200">Keluar</p>
-                  <p class="text-lg font-extrabold text-red-300 mt-0.5">{{ formatCurrency(currentCash.keluar) }}</p>
+                  <p class="text-lg font-extrabold text-red-300 mt-0.5">{{ formatCurrency(totalPengeluaran) }}</p>
                 </div>
               </div>
             </div>
@@ -205,39 +205,39 @@
       </div>
 
       <!-- ========== ACTION BUTTONS DENGAN UKURAN EKSTRA BESAR (CHUNKY) ========== -->
-      <div class="flex flex-col gap-4 w-full animate-fade-in-up animate-stagger-2">
+      <div class="grid grid-cols-2 gap-4 w-full animate-fade-in-up animate-stagger-2">
         <!-- Catat Uang Masuk -->
         <router-link
           to="/tambah-pemasukan"
-          class="flex items-center gap-4 w-full
+          class="flex flex-col items-center justify-center gap-3
                  bg-income text-white rounded-[var(--radius-card)]
-                 p-6 min-h-[5.5rem] shadow-lg shadow-income/25
-                 active:scale-[0.98] transition-all duration-150
+                 p-5 min-h-[6.5rem] shadow-lg shadow-income/25
+                 active:scale-[0.96] transition-all duration-150
                  hover:shadow-xl hover:shadow-income/30 hover:brightness-105"
         >
-          <span class="w-13 h-13 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner flex-shrink-0">
-            <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
+          <span class="w-11 h-11 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner flex-shrink-0">
+            <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
           </span>
-          <span class="text-xl font-extrabold tracking-wide">Catat Uang Masuk</span>
+          <span class="text-base font-extrabold tracking-wide">Uang Masuk</span>
         </router-link>
 
         <!-- Catat Uang Keluar -->
         <router-link
           to="/tambah-pengeluaran"
-          class="flex items-center gap-4 w-full
+          class="flex flex-col items-center justify-center gap-3
                  bg-expense text-white rounded-[var(--radius-card)]
-                 p-6 min-h-[5.5rem] shadow-lg shadow-expense/25
-                 active:scale-[0.98] transition-all duration-150
+                 p-5 min-h-[6.5rem] shadow-lg shadow-expense/25
+                 active:scale-[0.96] transition-all duration-150
                  hover:shadow-xl hover:shadow-expense/30 hover:brightness-105"
         >
-          <span class="w-13 h-13 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner flex-shrink-0">
-            <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
+          <span class="w-11 h-11 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner flex-shrink-0">
+            <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14" />
             </svg>
           </span>
-          <span class="text-xl font-extrabold tracking-wide">Catat Uang Keluar</span>
+          <span class="text-base font-extrabold tracking-wide">Uang Keluar</span>
         </router-link>
       </div>
 
@@ -362,9 +362,11 @@ const currentMonth = computed(() => {
   return now.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
 })
 
-// Kas sementara (placeholder sampai tabel transaksi dibuat)
-const currentCash = computed(() => {
-  return { masuk: 0, keluar: 0, sisa: 0 }
+// --- Cash Balance States ---
+const totalPemasukan = ref(0)
+const totalPengeluaran = ref(0)
+const saldoBersih = computed(() => {
+  return totalPemasukan.value - totalPengeluaran.value
 })
 
 // --- Fetch Locations ---
@@ -415,9 +417,58 @@ async function fetchRooms(locationId) {
   }
 }
 
-// Watcher: setiap kali selectedLocation berubah, fetch ulang rooms
+// --- Fetch Expenses (Uang Keluar) ---
+async function fetchExpenses(locationId) {
+  if (!locationId) {
+    totalPengeluaran.value = 0
+    return
+  }
+
+  const { data, error } = await supabase
+    .from('expenses')
+    .select('nominal')
+    .eq('location_id', locationId)
+
+  if (error) {
+    console.error('[Supabase] Gagal fetch expenses:', error)
+    totalPengeluaran.value = 0
+  } else {
+    const total = (data || []).reduce((sum, item) => sum + (item.nominal || 0), 0)
+    totalPengeluaran.value = total
+    console.log('[Supabase] Expenses loaded. Total:', total)
+  }
+}
+
+// --- Fetch Incomes (Uang Masuk) ---
+async function fetchIncomes(locationId) {
+  if (!locationId) {
+    totalPemasukan.value = 0
+    return
+  }
+
+  // Inner join query to cross references: incomes -> rentals -> rooms -> locations
+  const { data, error } = await supabase
+    .from('incomes')
+    .select('nominal, rentals!inner(rooms!inner(location_id))')
+    .eq('rentals.rooms.location_id', locationId)
+
+  if (error) {
+    console.error('[Supabase] Gagal fetch incomes:', error)
+    totalPemasukan.value = 0
+  } else {
+    const total = (data || []).reduce((sum, item) => sum + (item.nominal || 0), 0)
+    totalPemasukan.value = total
+    console.log('[Supabase] Incomes loaded. Total:', total)
+  }
+}
+
+// Watcher: setiap kali selectedLocation berubah, fetch ulang data
 watch(selectedLocation, (newId) => {
-  fetchRooms(newId)
+  if (newId) {
+    fetchRooms(newId)
+    fetchExpenses(newId)
+    fetchIncomes(newId)
+  }
 }, { immediate: true })
 
 // --- Actions ---
