@@ -87,10 +87,36 @@
           🧹 Reset Rentang Tanggal
         </button>
       </div>
+      <!-- Export Buttons (Chunky) -->
+      <div class="grid grid-cols-2 gap-4 mt-4 print-hide">
+        <button
+          @click="exportToCSV"
+          class="flex items-center justify-center gap-2 px-4 py-3.5 bg-green-600 hover:bg-green-700 active:scale-[0.96] text-white rounded-xl text-sm font-extrabold shadow transition-all duration-150"
+        >
+          <span>🟢</span> Excel (CSV)
+        </button>
+        <button
+          @click="exportToPDF"
+          class="flex items-center justify-center gap-2 px-4 py-3.5 bg-white/15 hover:bg-white/20 active:scale-[0.96] text-white rounded-xl text-sm font-extrabold shadow border border-white/10 transition-all duration-150"
+        >
+          <span>🖨️</span> Cetak / PDF
+        </button>
+      </div>
     </header>
 
     <!-- Content Area -->
     <div class="px-6 py-6 space-y-6 max-w-lg mx-auto">
+      <!-- Printable Report Header (Only visible in Print Mode) -->
+      <div class="hidden print-show text-center pb-6 border-b-2 border-gray-300">
+        <h1 class="text-2xl font-black text-gray-800">Laporan Keuangan SimKos</h1>
+        <p class="text-sm font-bold text-gray-500 mt-1">Buku Besar / Riwayat Transaksi</p>
+        <p class="text-xs font-semibold text-gray-500 mt-0.5">
+          Lokasi: {{ selectedLocationFilterName }}
+        </p>
+        <p v-if="startDate || endDate" class="text-xs font-semibold text-gray-500">
+          Periode: {{ startDate ? formatDateDisplay(startDate) : 'Mulai' }} s/d {{ endDate ? formatDateDisplay(endDate) : 'Selesai' }}
+        </p>
+      </div>
       <!-- Loading State -->
       <div v-if="isLoading" class="flex flex-col items-center justify-center py-20 gap-3">
         <svg class="w-10 h-10 animate-spin text-navy" fill="none" viewBox="0 0 24 24">
@@ -348,4 +374,82 @@ function formatDateDisplay(dateStr) {
   if (parts.length !== 3) return dateStr
   return `${parts[2]}/${parts[1]}/${parts[0]}`
 }
+
+const selectedLocationFilterName = computed(() => {
+  if (selectedLocationFilter.value === 'ALL') return 'Semua Lokasi'
+  const loc = locationList.value.find(l => l.id === selectedLocationFilter.value)
+  return loc ? loc.nama_lokasi : 'Tidak Diketahui'
+})
+
+function exportToCSV() {
+  const headers = ['Tanggal', 'Tipe', 'Lokasi/Kamar', 'Keterangan', 'Nominal']
+  
+  const rows = filteredTransactions.value.map(tx => [
+    formatDateDisplay(tx.tanggal),
+    tx.tipe === 'masuk' ? 'Pemasukan' : 'Pengeluaran',
+    tx.entitas.replace(/[👤📦🏢]/g, '').trim(),
+    tx.keterangan,
+    tx.nominal
+  ])
+
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+  ].join('\r\n')
+
+  const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  
+  const todayStr = new Date().toISOString().split('T')[0]
+  const link = document.createElement('a')
+  link.setAttribute('href', url)
+  link.setAttribute('download', `Laporan_SimKos_${todayStr}.csv`)
+  link.style.visibility = 'hidden'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+
+function exportToPDF() {
+  window.print()
+}
 </script>
+
+<style>
+/* Printable CSS styles */
+@media print {
+  /* Hide interactive controls and menus */
+  header,
+  nav,
+  .print-hide,
+  button,
+  .fixed {
+    display: none !important;
+  }
+
+  /* Show printable header */
+  .print-show {
+    display: block !important;
+  }
+
+  /* Expand max width */
+  .max-w-lg {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Ensure card backgrounds are printed */
+  body, .bg-bg-primary {
+    background-color: white !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .bg-white {
+    background-color: white !important;
+    border-color: #e5e7eb !important;
+  }
+}
+</style>

@@ -48,6 +48,11 @@ const routes = [
     component: () => import('../views/RiwayatTransaksiView.vue'),
   },
   {
+    path: '/penghuni',
+    name: 'DaftarPenghuni',
+    component: () => import('../views/DaftarPenghuniView.vue'),
+  },
+  {
     path: '/login',
     name: 'Login',
     component: () => import('../views/LoginView.vue'),
