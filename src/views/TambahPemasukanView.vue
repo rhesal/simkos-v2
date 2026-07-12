@@ -247,6 +247,7 @@ const form = reactive({
   tanggal_bayar: new Date().toISOString().split('T')[0],
   nominal: null,
   keterangan: '',
+  kategori: 'Sewa Kamar',
 })
 
 // Occupied rooms in selected location
@@ -345,6 +346,7 @@ async function handleSubmit() {
   successMsg.value = ''
 
   try {
+    // 1. Insert into incomes
     const { error } = await supabase
       .from('incomes')
       .insert({
@@ -356,14 +358,37 @@ async function handleSubmit() {
 
     if (error) throw error
 
-    successMsg.value = 'Pembayaran berhasil disimpan!'
+    // 2. Automatically advance the tenant due date (tanggal_jatuh_tempo) in rentals only if category is 'Sewa Kamar'
+    if (form.kategori === 'Sewa Kamar') {
+      if (activeRental.value?.tanggal_jatuh_tempo) {
+        const tanggalLama = new Date(activeRental.value.tanggal_jatuh_tempo)
+        tanggalLama.setMonth(tanggalLama.getMonth() + 1)
+
+        const yyyy = tanggalLama.getFullYear()
+        const mm = String(tanggalLama.getMonth() + 1).padStart(2, '0')
+        const dd = String(tanggalLama.getDate()).padStart(2, '0')
+        const tanggalJatuhTempoBaru = `${yyyy}-${mm}-${dd}`
+
+        const { error: updateRentalError } = await supabase
+          .from('rentals')
+          .update({ tanggal_jatuh_tempo: tanggalJatuhTempoBaru })
+          .eq('id', activeRental.value.id)
+
+        if (updateRentalError) throw updateRentalError
+        console.log('Sukses memperbarui siklus jatuh tempo sewa utama.')
+      }
+    } else {
+      console.log('Pemasukan non-sewa dideteksi (Listrik/Denda/Lainnya). Siklus jatuh tempo sewa utama dipertahankan.')
+    }
+
+    successMsg.value = 'Pembayaran berhasil disimpan dan tanggal jatuh tempo diperbarui!'
     setTimeout(() => {
       router.push('/')
     }, 1500)
 
   } catch (err) {
     errorMsg.value = `Gagal menyimpan: ${err.message}`
-    console.error('[Supabase] Insert income error:', err)
+    console.error('[Supabase] Insert income & update due date error:', err)
   } finally {
     isSubmitting.value = false
   }

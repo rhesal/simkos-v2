@@ -305,7 +305,7 @@ function kirimTagihan(rental) {
   }
 
   // Message template
-  const textMsg = `Halo ${tenantName}, mengingatkan untuk pembayaran sewa Kamar ${roomNo} periode bulan ini sebesar ${amountStr}. Pembayaran dapat ditransfer melalui nomor rekening 1440005288516. Jika sudah transfer, mohon kirimkan bukti transfernya ya. Terima kasih! 🙏`
+  const textMsg = `Halo ${tenantName}, mengingatkan untuk pembayaran sewa Kamar ${roomNo} periode bulan ini sebesar ${amountStr}. Pembayaran dapat ditransfer melalui nomor rekening Bank Mandiri 1440005288516 A.N Tutik Widayati. Jika sudah transfer, mohon kirimkan bukti transfernya ya. Terima kasih!`
 
   const waUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(textMsg)}`
   window.open(waUrl, '_blank')
