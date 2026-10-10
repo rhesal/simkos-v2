@@ -1,8 +1,11 @@
 // Helper Supabase Storage untuk file privat (foto KTP & nota).
 //
 // Aturan:
-// - Database HANYA menyimpan path objek di bucket (mis. "<user_id>/ktp_<uuid>.jpg"),
-//   bukan URL publik.
+// - Database HANYA menyimpan path objek di bucket, di folder ORGANISASI:
+//   "<org_id>/ktp_<uuid>.jpg". Policy storage (migration 300) hanya mengizinkan
+//   anggota org tersebut, dan trigger DB menolak path di luar folder org baris itu.
+// - org_id diambil SEKALI setelah login (organization_members), di-cache di
+//   memori, dan dibuang saat logout / user berganti.
 // - Foto KTP ditampilkan lewat downloadPrivateFile() -> Blob -> blob URL di
 //   modal (components/KtpViewerModal.vue). Tidak ada URL yang bisa dibagikan
 //   atau masuk riwayat browser.
@@ -98,6 +101,46 @@ export function clearSignedUrlCache() {
   cache.clear()
 }
 
+// ---------------------------------------------------------------------
+// Organisasi user yang login (multi-pemilik). Satu user = satu org.
+// ---------------------------------------------------------------------
+let orgIdCache = null // { userId, promise }
+
+/** Buang org_id yang di-cache (dipanggil saat logout / ganti user). */
+export function clearOrgIdCache() {
+  orgIdCache = null
+}
+
+/**
+ * org_id milik user yang login. Diambil sekali dari organization_members
+ * (RLS: user hanya melihat keanggotaan org-nya) lalu di-cache per user.
+ */
+export async function getCurrentOrgId() {
+  const { data, error } = await supabase.auth.getUser()
+  if (error || !data?.user) throw new Error('Sesi login tidak ditemukan. Silakan login ulang.')
+  const userId = data.user.id
+  if (orgIdCache && orgIdCache.userId === userId) return orgIdCache.promise
+
+  const promise = (async () => {
+    const { data: rows, error: orgError } = await supabase
+      .from('organization_members')
+      .select('org_id')
+      .eq('user_id', userId)
+    if (orgError) throw new Error(`Gagal memuat data organisasi: ${orgError.message}`)
+    if (!rows || rows.length === 0) {
+      throw new Error('Akun ini belum terdaftar di organisasi SimKos. Hubungi pemilik kos.')
+    }
+    if (rows.length > 1) throw new Error('Akun ini terdaftar di lebih dari satu organisasi.')
+    return rows[0].org_id
+  })()
+  orgIdCache = { userId, promise }
+  // Jangan simpan kegagalan di cache: percobaan berikutnya mengambil ulang.
+  promise.catch(() => {
+    if (orgIdCache?.promise === promise) orgIdCache = null
+  })
+  return promise
+}
+
 let authListenerStarted = false
 let currentUserId = null
 const signedOutHandlers = new Set()
@@ -124,6 +167,7 @@ export function initStorageAuthListener() {
     const nextUserId = session?.user?.id || null
     if (event === 'SIGNED_OUT' || nextUserId !== currentUserId) {
       clearSignedUrlCache()
+      clearOrgIdCache()
       for (const handler of [...signedOutHandlers]) {
         try {
           handler(event)
@@ -133,6 +177,8 @@ export function initStorageAuthListener() {
       }
     }
     currentUserId = nextUserId
+    // Ambil org_id sekali setelah login supaya upload pertama tidak menunggu.
+    if (nextUserId && event !== 'SIGNED_OUT') getCurrentOrgId().catch(() => {})
   })
 }
 
@@ -167,16 +213,33 @@ export function toStoragePath(bucket, value) {
 }
 
 /**
- * Buat path upload baru dengan prefix user id: "<user_id>/<prefix>_<uuid>.<ext>".
- * Prefix user id dipakai oleh policy storage (lihat supabase/migrations).
+ * Buat path upload baru dengan prefix org id: "<org_id>/<prefix>_<uuid>.<ext>".
+ * Prefix org id dipakai oleh policy storage & trigger path (lihat supabase/migrations).
  * Ekstensi diturunkan dari MIME type, bukan dari nama file asli.
  */
 export async function buildUploadPath(prefix, file) {
   const ext = ALLOWED_IMAGE_TYPES[file?.type]
   if (!ext) throw new Error('File harus berupa foto JPG, PNG, atau WEBP.')
-  const { data, error } = await supabase.auth.getUser()
-  if (error || !data?.user) throw new Error('Sesi login tidak ditemukan. Silakan login ulang.')
-  return `${data.user.id}/${prefix}_${crypto.randomUUID()}.${ext}`
+  const orgId = await getCurrentOrgId()
+  return `${orgId}/${prefix}_${crypto.randomUUID()}.${ext}`
+}
+
+export const RELOAD_APP_MESSAGE = 'Upload ditolak server. Muat ulang aplikasi lalu coba lagi.'
+
+/** true bila error storage berarti akses ditolak (403 / RLS). */
+export function isAccessDeniedError(error) {
+  const status = Number(error?.statusCode ?? error?.status)
+  return status === 403 || /row-level security|unauthorized|forbidden/i.test(error?.message || '')
+}
+
+// Upload 403 biasanya berarti aplikasi masih memakai versi lama (aturan
+// penyimpanan berubah) atau data org di memori basi: buang cache & tawarkan muat ulang.
+function promptReloadAfterDenied() {
+  clearOrgIdCache()
+  clearSignedUrlCache()
+  if (typeof window !== 'undefined' && window.confirm(`${RELOAD_APP_MESSAGE}\n\nMuat ulang aplikasi sekarang?`)) {
+    window.location.reload()
+  }
 }
 
 /**
@@ -191,7 +254,16 @@ export async function uploadPrivateFile(bucket, prefix, file) {
     upsert: false,
     contentType: file.type,
   })
-  if (error) throw error
+  if (error) {
+    if (isAccessDeniedError(error)) {
+      promptReloadAfterDenied()
+      const denied = new Error(RELOAD_APP_MESSAGE)
+      denied.needsReload = true
+      denied.cause = error
+      throw denied
+    }
+    throw error
+  }
   return data.path
 }
 

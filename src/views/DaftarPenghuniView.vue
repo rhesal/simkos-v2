@@ -1385,7 +1385,7 @@ async function handleKtpFileChange(e) {
     // Path KTP lama (bila ada) — dihapus setelah path baru tersimpan di DB
     const oldKtp = selectedRoom.value?.activeRental?.tenants?.foto_ktp_url || null
 
-    // 1. Upload ke bucket privat 'ktp_images' dengan path "<user_id>/ktp_...".
+    // 1. Upload ke bucket privat 'ktp_images' dengan path "<org_id>/ktp_...".
     //    DB hanya menyimpan path objek, bukan URL publik.
     const ktpPath = await uploadPrivateFile(KTP_BUCKET, 'ktp', file)
 

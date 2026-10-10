@@ -10,6 +10,13 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Bundle lama harus cepat diganti (aturan storage berubah: upload ke
+      // folder <org_id>/). SW baru langsung aktif & mengambil alih tab.
+      workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
+      },
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
         name: 'SimKos - Sistem Manajemen Kos',

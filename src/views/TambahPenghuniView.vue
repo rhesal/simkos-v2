@@ -539,7 +539,7 @@ async function handleSubmit() {
     // === STEP 1: Upload KTP ===
     submitSteps.value[0].active = true
 
-    // Path disimpan sebagai "<user_id>/ktp_<timestamp>_<rand>.<ext>" (bucket privat)
+    // Path disimpan sebagai "<org_id>/ktp_<uuid>.<ext>" (bucket privat)
     try {
       ktpPath = await uploadPrivateFile(KTP_BUCKET, 'ktp', ktpFile.value)
     } catch (uploadError) {
