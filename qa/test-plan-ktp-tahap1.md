@@ -78,4 +78,15 @@ Lihat `qa/archive/rls-per-user/results_latest.txt`.
 - S3 `using (true)`: migration menolak apply (lulus)
 - S4 `bucket_id = 'x' or true`: 61/68 (bocor) | S5 `owner is not null and auth.uid() is not null`: 63/68 (bocor)
 - S6 S4+S5 + guard RESTRICTIVE usulan: 71/71
-Bug: BUG-001 sebagian diperbaiki, BUG-002 terbuka, BUG-003 diperbaiki di DB.
+Catatan: angka di bagian ini adalah riwayat model per-user dan sudah digantikan oleh bagian 10.
+
+## 10. Tes ulang model organisasi (PR #1, head 8896537, 2026-10-10)
+`./qa/independent/run.sh`: 199/199 lulus.
+- M (urutan deploy 200 -> 210 -> pindah file -> 300): 96/96
+- G (policy storage `or true` / `owner is not null` + guard RESTRICTIVE): 96/96
+- B (jumlah user tidak sesuai saat migration 200, gagal utuh): 2/2
+- R (rollback 300 -> 210 -> 200, bucket tetap private): 4/4
+Uji mutasi: tanpa guard RESTRICTIVE dan trigger path, 10 tes gagal (tes benar-benar mendeteksi regresi).
+Semua temuan dari tahap per-user sudah ditutup oleh PR #1. Laporan bug disimpan di luar repo.
+Belum dicakup (butuh staging / tes di app): Storage API, signed URL, modal KTP, PWA.
+
