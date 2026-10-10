@@ -1,0 +1,298 @@
+
+=== S1 Deploy normal + tes RLS negatif ===
+PASS | ANON-T-locations | anon tidak bisa baca tabel locations | harap=denied | aktual=denied
+PASS | ANON-T-rooms | anon tidak bisa baca tabel rooms | harap=denied | aktual=denied
+PASS | ANON-T-tenants | anon tidak bisa baca tabel tenants | harap=denied | aktual=denied
+PASS | ANON-T-rentals | anon tidak bisa baca tabel rentals | harap=denied | aktual=denied
+PASS | ANON-T-incomes | anon tidak bisa baca tabel incomes | harap=denied | aktual=denied
+PASS | ANON-T-expenses | anon tidak bisa baca tabel expenses | harap=denied | aktual=denied
+PASS | ANON-T-inventories | anon tidak bisa baca tabel inventories | harap=denied | aktual=denied
+PASS | ANON-S-01 | anon tidak bisa lihat objek di ktp_images | harap=rows:0 | aktual=rows:0
+PASS | ANON-S-02 | anon tidak bisa upload ke ktp_images | harap=denied | aktual=denied
+PASS | POS-T-locations | A bisa baca baris miliknya di locations | harap=rows:1 | aktual=rows:1
+PASS | POS-T-rooms | A bisa baca baris miliknya di rooms | harap=rows:1 | aktual=rows:1
+PASS | POS-T-tenants | A bisa baca baris miliknya di tenants | harap=rows:1 | aktual=rows:1
+PASS | POS-T-rentals | A bisa baca baris miliknya di rentals | harap=rows:1 | aktual=rows:1
+PASS | POS-T-incomes | A bisa baca baris miliknya di incomes | harap=rows:1 | aktual=rows:1
+PASS | POS-T-expenses | A bisa baca baris miliknya di expenses | harap=rows:1 | aktual=rows:1
+PASS | POS-T-inventories | A bisa baca baris miliknya di inventories | harap=rows:1 | aktual=rows:1
+PASS | POS-T-INS | A bisa tambah kamar di lokasinya sendiri | harap=rows:1 | aktual=rows:1
+PASS | POS-S-01 | A bisa lihat file KTP miliknya | harap=rows:1 | aktual=rows:1
+PASS | POS-S-02 | A bisa upload ke folder miliknya | harap=rows:1 | aktual=rows:1
+PASS | NEG-SEL-locations | A tidak bisa baca baris B di locations | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-rooms | A tidak bisa baca baris B di rooms | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-tenants | A tidak bisa baca baris B di tenants | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-rentals | A tidak bisa baca baris B di rentals | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-incomes | A tidak bisa baca baris B di incomes | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-expenses | A tidak bisa baca baris B di expenses | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-inventories | A tidak bisa baca baris B di inventories | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-locations | A tidak bisa ubah baris B di locations | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-rooms | A tidak bisa ubah baris B di rooms | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-tenants | A tidak bisa ubah baris B di tenants | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-rentals | A tidak bisa ubah baris B di rentals | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-incomes | A tidak bisa ubah baris B di incomes | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-expenses | A tidak bisa ubah baris B di expenses | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-inventories | A tidak bisa ubah baris B di inventories | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-locations | A tidak bisa hapus baris B di locations | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-rooms | A tidak bisa hapus baris B di rooms | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-tenants | A tidak bisa hapus baris B di tenants | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-rentals | A tidak bisa hapus baris B di rentals | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-incomes | A tidak bisa hapus baris B di incomes | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-expenses | A tidak bisa hapus baris B di expenses | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-inventories | A tidak bisa hapus baris B di inventories | harap=rows:0 | aktual=rows:0
+PASS | NEG-INS-01 | A tidak bisa insert lokasi dengan owner_id B | harap=denied | aktual=denied
+PASS | NEG-INS-02 | A tidak bisa tambah kamar ke lokasi B | harap=denied | aktual=denied
+PASS | NEG-INS-03 | A tidak bisa buat sewa dengan penghuni B | harap=denied | aktual=denied
+PASS | NEG-INS-04 | A tidak bisa buat sewa di kamar B | harap=denied | aktual=denied
+PASS | NEG-INS-05 | A tidak bisa catat pemasukan ke sewa B | harap=denied | aktual=denied
+PASS | NEG-INS-06 | A tidak bisa catat pengeluaran ke lokasi B | harap=denied | aktual=denied
+PASS | NEG-INS-07 | A tidak bisa tambah inventaris ke kamar B (lokasi sendiri) | harap=denied | aktual=denied
+PASS | NEG-INS-08 | A tidak bisa insert penghuni dengan owner_id B (data KTP) | harap=denied | aktual=denied
+PASS | NEG-MOV-01 | A tidak bisa menyerahkan baris miliknya ke B (owner_id) | harap=denied | aktual=denied
+PASS | NEG-MOV-02 | A tidak bisa memindah kamarnya ke lokasi B | harap=denied | aktual=denied
+PASS | NEG-MOV-03 | A tidak bisa mengarahkan foto_ktp_url ke file B lalu membukanya | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-01 | A tidak bisa lihat (=> tidak bisa createSignedUrl) KTP B di folder B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-02 | A tidak bisa lihat KTP lama B (path datar, owner_id B) | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-03 | A tidak bisa lihat file lama tanpa owner_id | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-04 | A tidak bisa lihat nota B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-05 | A tidak bisa upload ke folder B | harap=denied | aktual=denied
+PASS | NEG-S-06 | A tidak bisa upload ke path datar (tanpa folder uid) | harap=denied | aktual=denied
+PASS | NEG-S-08 | A tidak bisa menimpa (update) file B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-09 | A tidak bisa menimpa file lama B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-10 | A tidak bisa memindah file miliknya ke folder B | harap=denied | aktual=denied
+PASS | NEG-S-11 | A tidak bisa hapus file B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-12 | A tidak bisa upload ke bucket lain di luar dua bucket ini via policy ini | harap=denied | aktual=denied
+PASS | CFG-01 | Bucket ktp_images & receipt_images private | harap=rows:2 | aktual=rows:2
+PASS | CFG-02 | Batas ukuran 5 MB di kedua bucket | harap=rows:2 | aktual=rows:2
+PASS | CFG-03 | SVG tidak diizinkan (allowed_mime_types tidak berupa image/* atau image/svg+xml) | harap=rows:0 | aktual=rows:0
+PASS | CFG-04 | Tidak ada policy storage.objects permisif (using true) yang tersisa | harap=rows:0 | aktual=rows:0
+PASS | CFG-05 | RLS aktif di 7 tabel aplikasi | harap=rows:7 | aktual=rows:7
+PASS | CFG-06 | owner_id NOT NULL di 7 tabel (backfill sudah jalan) | harap=rows:7 | aktual=rows:7
+--- S1 Deploy normal + tes RLS negatif: 68/68 lulus
+
+=== S2 Dua user saat migrasi (backfill) ===
+FAIL | S2-01 | Pemilik (A) masih melihat lokasi lama setelah migration | harap=rows:1 | aktual=rows:0
+FAIL | S2-02 | Pemilik (A) masih melihat penghuni lama (dengan KTP) setelah migration | harap=rows:1 | aktual=rows:0
+FAIL | S2-03 | owner_id NOT NULL di 7 tabel setelah migration | harap=rows:7 | aktual=rows:5
+--- S2 Dua user saat migrasi (backfill): 0/3 lulus
+
+=== S3 Policy storage generik 'using (true)' ===
+PASS | S3-01 | 20261010000300_private_storage_buckets.sql menolak apply: ERROR:  Migration dibatalkan: ada policy storage.objects permisif yang tidak membatasi bucket/pemilik, sehingga ktp_images/receipt_images tetap bisa diakses wal
+
+=== S4 policy 'bucket_id = x or true' (lolos migration 300) ===
+PASS | ANON-T-locations | anon tidak bisa baca tabel locations | harap=denied | aktual=denied
+PASS | ANON-T-rooms | anon tidak bisa baca tabel rooms | harap=denied | aktual=denied
+PASS | ANON-T-tenants | anon tidak bisa baca tabel tenants | harap=denied | aktual=denied
+PASS | ANON-T-rentals | anon tidak bisa baca tabel rentals | harap=denied | aktual=denied
+PASS | ANON-T-incomes | anon tidak bisa baca tabel incomes | harap=denied | aktual=denied
+PASS | ANON-T-expenses | anon tidak bisa baca tabel expenses | harap=denied | aktual=denied
+PASS | ANON-T-inventories | anon tidak bisa baca tabel inventories | harap=denied | aktual=denied
+PASS | ANON-S-01 | anon tidak bisa lihat objek di ktp_images | harap=rows:0 | aktual=rows:0
+PASS | ANON-S-02 | anon tidak bisa upload ke ktp_images | harap=denied | aktual=denied
+PASS | POS-T-locations | A bisa baca baris miliknya di locations | harap=rows:1 | aktual=rows:1
+PASS | POS-T-rooms | A bisa baca baris miliknya di rooms | harap=rows:1 | aktual=rows:1
+PASS | POS-T-tenants | A bisa baca baris miliknya di tenants | harap=rows:1 | aktual=rows:1
+PASS | POS-T-rentals | A bisa baca baris miliknya di rentals | harap=rows:1 | aktual=rows:1
+PASS | POS-T-incomes | A bisa baca baris miliknya di incomes | harap=rows:1 | aktual=rows:1
+PASS | POS-T-expenses | A bisa baca baris miliknya di expenses | harap=rows:1 | aktual=rows:1
+PASS | POS-T-inventories | A bisa baca baris miliknya di inventories | harap=rows:1 | aktual=rows:1
+PASS | POS-T-INS | A bisa tambah kamar di lokasinya sendiri | harap=rows:1 | aktual=rows:1
+PASS | POS-S-01 | A bisa lihat file KTP miliknya | harap=rows:1 | aktual=rows:1
+PASS | POS-S-02 | A bisa upload ke folder miliknya | harap=rows:1 | aktual=rows:1
+PASS | NEG-SEL-locations | A tidak bisa baca baris B di locations | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-rooms | A tidak bisa baca baris B di rooms | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-tenants | A tidak bisa baca baris B di tenants | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-rentals | A tidak bisa baca baris B di rentals | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-incomes | A tidak bisa baca baris B di incomes | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-expenses | A tidak bisa baca baris B di expenses | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-inventories | A tidak bisa baca baris B di inventories | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-locations | A tidak bisa ubah baris B di locations | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-rooms | A tidak bisa ubah baris B di rooms | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-tenants | A tidak bisa ubah baris B di tenants | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-rentals | A tidak bisa ubah baris B di rentals | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-incomes | A tidak bisa ubah baris B di incomes | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-expenses | A tidak bisa ubah baris B di expenses | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-inventories | A tidak bisa ubah baris B di inventories | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-locations | A tidak bisa hapus baris B di locations | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-rooms | A tidak bisa hapus baris B di rooms | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-tenants | A tidak bisa hapus baris B di tenants | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-rentals | A tidak bisa hapus baris B di rentals | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-incomes | A tidak bisa hapus baris B di incomes | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-expenses | A tidak bisa hapus baris B di expenses | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-inventories | A tidak bisa hapus baris B di inventories | harap=rows:0 | aktual=rows:0
+PASS | NEG-INS-01 | A tidak bisa insert lokasi dengan owner_id B | harap=denied | aktual=denied
+PASS | NEG-INS-02 | A tidak bisa tambah kamar ke lokasi B | harap=denied | aktual=denied
+PASS | NEG-INS-03 | A tidak bisa buat sewa dengan penghuni B | harap=denied | aktual=denied
+PASS | NEG-INS-04 | A tidak bisa buat sewa di kamar B | harap=denied | aktual=denied
+PASS | NEG-INS-05 | A tidak bisa catat pemasukan ke sewa B | harap=denied | aktual=denied
+PASS | NEG-INS-06 | A tidak bisa catat pengeluaran ke lokasi B | harap=denied | aktual=denied
+PASS | NEG-INS-07 | A tidak bisa tambah inventaris ke kamar B (lokasi sendiri) | harap=denied | aktual=denied
+PASS | NEG-INS-08 | A tidak bisa insert penghuni dengan owner_id B (data KTP) | harap=denied | aktual=denied
+PASS | NEG-MOV-01 | A tidak bisa menyerahkan baris miliknya ke B (owner_id) | harap=denied | aktual=denied
+PASS | NEG-MOV-02 | A tidak bisa memindah kamarnya ke lokasi B | harap=denied | aktual=denied
+PASS | NEG-MOV-03 | A tidak bisa mengarahkan foto_ktp_url ke file B lalu membukanya | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-01 | A tidak bisa lihat (=> tidak bisa createSignedUrl) KTP B di folder B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-02 | A tidak bisa lihat KTP lama B (path datar, owner_id B) | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-03 | A tidak bisa lihat file lama tanpa owner_id | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-04 | A tidak bisa lihat nota B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-05 | A tidak bisa upload ke folder B | harap=denied | aktual=denied
+PASS | NEG-S-06 | A tidak bisa upload ke path datar (tanpa folder uid) | harap=denied | aktual=denied
+PASS | NEG-S-08 | A tidak bisa menimpa (update) file B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-09 | A tidak bisa menimpa file lama B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-10 | A tidak bisa memindah file miliknya ke folder B | harap=denied | aktual=denied
+PASS | NEG-S-11 | A tidak bisa hapus file B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-12 | A tidak bisa upload ke bucket lain di luar dua bucket ini via policy ini | harap=denied | aktual=denied
+PASS | CFG-01 | Bucket ktp_images & receipt_images private | harap=rows:2 | aktual=rows:2
+PASS | CFG-02 | Batas ukuran 5 MB di kedua bucket | harap=rows:2 | aktual=rows:2
+PASS | CFG-03 | SVG tidak diizinkan (allowed_mime_types tidak berupa image/* atau image/svg+xml) | harap=rows:0 | aktual=rows:0
+PASS | CFG-04 | Tidak ada policy storage.objects permisif (using true) yang tersisa | harap=rows:0 | aktual=rows:0
+PASS | CFG-05 | RLS aktif di 7 tabel aplikasi | harap=rows:7 | aktual=rows:7
+PASS | CFG-06 | owner_id NOT NULL di 7 tabel (backfill sudah jalan) | harap=rows:7 | aktual=rows:7
+--- S4 policy 'bucket_id = x or true' (lolos migration 300): 68/68 lulus
+
+=== S5 policy 'owner is not null and auth.uid() is not null' (lolos migration 300) ===
+PASS | ANON-T-locations | anon tidak bisa baca tabel locations | harap=denied | aktual=denied
+PASS | ANON-T-rooms | anon tidak bisa baca tabel rooms | harap=denied | aktual=denied
+PASS | ANON-T-tenants | anon tidak bisa baca tabel tenants | harap=denied | aktual=denied
+PASS | ANON-T-rentals | anon tidak bisa baca tabel rentals | harap=denied | aktual=denied
+PASS | ANON-T-incomes | anon tidak bisa baca tabel incomes | harap=denied | aktual=denied
+PASS | ANON-T-expenses | anon tidak bisa baca tabel expenses | harap=denied | aktual=denied
+PASS | ANON-T-inventories | anon tidak bisa baca tabel inventories | harap=denied | aktual=denied
+PASS | ANON-S-01 | anon tidak bisa lihat objek di ktp_images | harap=rows:0 | aktual=rows:0
+PASS | ANON-S-02 | anon tidak bisa upload ke ktp_images | harap=denied | aktual=denied
+PASS | POS-T-locations | A bisa baca baris miliknya di locations | harap=rows:1 | aktual=rows:1
+PASS | POS-T-rooms | A bisa baca baris miliknya di rooms | harap=rows:1 | aktual=rows:1
+PASS | POS-T-tenants | A bisa baca baris miliknya di tenants | harap=rows:1 | aktual=rows:1
+PASS | POS-T-rentals | A bisa baca baris miliknya di rentals | harap=rows:1 | aktual=rows:1
+PASS | POS-T-incomes | A bisa baca baris miliknya di incomes | harap=rows:1 | aktual=rows:1
+PASS | POS-T-expenses | A bisa baca baris miliknya di expenses | harap=rows:1 | aktual=rows:1
+PASS | POS-T-inventories | A bisa baca baris miliknya di inventories | harap=rows:1 | aktual=rows:1
+PASS | POS-T-INS | A bisa tambah kamar di lokasinya sendiri | harap=rows:1 | aktual=rows:1
+PASS | POS-S-01 | A bisa lihat file KTP miliknya | harap=rows:1 | aktual=rows:1
+PASS | POS-S-02 | A bisa upload ke folder miliknya | harap=rows:1 | aktual=rows:1
+PASS | NEG-SEL-locations | A tidak bisa baca baris B di locations | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-rooms | A tidak bisa baca baris B di rooms | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-tenants | A tidak bisa baca baris B di tenants | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-rentals | A tidak bisa baca baris B di rentals | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-incomes | A tidak bisa baca baris B di incomes | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-expenses | A tidak bisa baca baris B di expenses | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-inventories | A tidak bisa baca baris B di inventories | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-locations | A tidak bisa ubah baris B di locations | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-rooms | A tidak bisa ubah baris B di rooms | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-tenants | A tidak bisa ubah baris B di tenants | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-rentals | A tidak bisa ubah baris B di rentals | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-incomes | A tidak bisa ubah baris B di incomes | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-expenses | A tidak bisa ubah baris B di expenses | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-inventories | A tidak bisa ubah baris B di inventories | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-locations | A tidak bisa hapus baris B di locations | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-rooms | A tidak bisa hapus baris B di rooms | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-tenants | A tidak bisa hapus baris B di tenants | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-rentals | A tidak bisa hapus baris B di rentals | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-incomes | A tidak bisa hapus baris B di incomes | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-expenses | A tidak bisa hapus baris B di expenses | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-inventories | A tidak bisa hapus baris B di inventories | harap=rows:0 | aktual=rows:0
+PASS | NEG-INS-01 | A tidak bisa insert lokasi dengan owner_id B | harap=denied | aktual=denied
+PASS | NEG-INS-02 | A tidak bisa tambah kamar ke lokasi B | harap=denied | aktual=denied
+PASS | NEG-INS-03 | A tidak bisa buat sewa dengan penghuni B | harap=denied | aktual=denied
+PASS | NEG-INS-04 | A tidak bisa buat sewa di kamar B | harap=denied | aktual=denied
+PASS | NEG-INS-05 | A tidak bisa catat pemasukan ke sewa B | harap=denied | aktual=denied
+PASS | NEG-INS-06 | A tidak bisa catat pengeluaran ke lokasi B | harap=denied | aktual=denied
+PASS | NEG-INS-07 | A tidak bisa tambah inventaris ke kamar B (lokasi sendiri) | harap=denied | aktual=denied
+PASS | NEG-INS-08 | A tidak bisa insert penghuni dengan owner_id B (data KTP) | harap=denied | aktual=denied
+PASS | NEG-MOV-01 | A tidak bisa menyerahkan baris miliknya ke B (owner_id) | harap=denied | aktual=denied
+PASS | NEG-MOV-02 | A tidak bisa memindah kamarnya ke lokasi B | harap=denied | aktual=denied
+PASS | NEG-MOV-03 | A tidak bisa mengarahkan foto_ktp_url ke file B lalu membukanya | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-01 | A tidak bisa lihat (=> tidak bisa createSignedUrl) KTP B di folder B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-02 | A tidak bisa lihat KTP lama B (path datar, owner_id B) | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-03 | A tidak bisa lihat file lama tanpa owner_id | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-04 | A tidak bisa lihat nota B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-05 | A tidak bisa upload ke folder B | harap=denied | aktual=denied
+PASS | NEG-S-06 | A tidak bisa upload ke path datar (tanpa folder uid) | harap=denied | aktual=denied
+PASS | NEG-S-08 | A tidak bisa menimpa (update) file B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-09 | A tidak bisa menimpa file lama B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-10 | A tidak bisa memindah file miliknya ke folder B | harap=denied | aktual=denied
+PASS | NEG-S-11 | A tidak bisa hapus file B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-12 | A tidak bisa upload ke bucket lain di luar dua bucket ini via policy ini | harap=denied | aktual=denied
+PASS | CFG-01 | Bucket ktp_images & receipt_images private | harap=rows:2 | aktual=rows:2
+PASS | CFG-02 | Batas ukuran 5 MB di kedua bucket | harap=rows:2 | aktual=rows:2
+PASS | CFG-03 | SVG tidak diizinkan (allowed_mime_types tidak berupa image/* atau image/svg+xml) | harap=rows:0 | aktual=rows:0
+PASS | CFG-04 | Tidak ada policy storage.objects permisif (using true) yang tersisa | harap=rows:0 | aktual=rows:0
+PASS | CFG-05 | RLS aktif di 7 tabel aplikasi | harap=rows:7 | aktual=rows:7
+PASS | CFG-06 | owner_id NOT NULL di 7 tabel (backfill sudah jalan) | harap=rows:7 | aktual=rows:7
+--- S5 policy 'owner is not null and auth.uid() is not null' (lolos migration 300): 68/68 lulus
+
+=== S6 S4+S5 + guard RESTRICTIVE (dari migration 300) ===
+PASS | ANON-T-locations | anon tidak bisa baca tabel locations | harap=denied | aktual=denied
+PASS | ANON-T-rooms | anon tidak bisa baca tabel rooms | harap=denied | aktual=denied
+PASS | ANON-T-tenants | anon tidak bisa baca tabel tenants | harap=denied | aktual=denied
+PASS | ANON-T-rentals | anon tidak bisa baca tabel rentals | harap=denied | aktual=denied
+PASS | ANON-T-incomes | anon tidak bisa baca tabel incomes | harap=denied | aktual=denied
+PASS | ANON-T-expenses | anon tidak bisa baca tabel expenses | harap=denied | aktual=denied
+PASS | ANON-T-inventories | anon tidak bisa baca tabel inventories | harap=denied | aktual=denied
+PASS | ANON-S-01 | anon tidak bisa lihat objek di ktp_images | harap=rows:0 | aktual=rows:0
+PASS | ANON-S-02 | anon tidak bisa upload ke ktp_images | harap=denied | aktual=denied
+PASS | POS-T-locations | A bisa baca baris miliknya di locations | harap=rows:1 | aktual=rows:1
+PASS | POS-T-rooms | A bisa baca baris miliknya di rooms | harap=rows:1 | aktual=rows:1
+PASS | POS-T-tenants | A bisa baca baris miliknya di tenants | harap=rows:1 | aktual=rows:1
+PASS | POS-T-rentals | A bisa baca baris miliknya di rentals | harap=rows:1 | aktual=rows:1
+PASS | POS-T-incomes | A bisa baca baris miliknya di incomes | harap=rows:1 | aktual=rows:1
+PASS | POS-T-expenses | A bisa baca baris miliknya di expenses | harap=rows:1 | aktual=rows:1
+PASS | POS-T-inventories | A bisa baca baris miliknya di inventories | harap=rows:1 | aktual=rows:1
+PASS | POS-T-INS | A bisa tambah kamar di lokasinya sendiri | harap=rows:1 | aktual=rows:1
+PASS | POS-S-01 | A bisa lihat file KTP miliknya | harap=rows:1 | aktual=rows:1
+PASS | POS-S-02 | A bisa upload ke folder miliknya | harap=rows:1 | aktual=rows:1
+PASS | NEG-SEL-locations | A tidak bisa baca baris B di locations | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-rooms | A tidak bisa baca baris B di rooms | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-tenants | A tidak bisa baca baris B di tenants | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-rentals | A tidak bisa baca baris B di rentals | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-incomes | A tidak bisa baca baris B di incomes | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-expenses | A tidak bisa baca baris B di expenses | harap=rows:0 | aktual=rows:0
+PASS | NEG-SEL-inventories | A tidak bisa baca baris B di inventories | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-locations | A tidak bisa ubah baris B di locations | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-rooms | A tidak bisa ubah baris B di rooms | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-tenants | A tidak bisa ubah baris B di tenants | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-rentals | A tidak bisa ubah baris B di rentals | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-incomes | A tidak bisa ubah baris B di incomes | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-expenses | A tidak bisa ubah baris B di expenses | harap=rows:0 | aktual=rows:0
+PASS | NEG-UPD-inventories | A tidak bisa ubah baris B di inventories | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-locations | A tidak bisa hapus baris B di locations | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-rooms | A tidak bisa hapus baris B di rooms | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-tenants | A tidak bisa hapus baris B di tenants | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-rentals | A tidak bisa hapus baris B di rentals | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-incomes | A tidak bisa hapus baris B di incomes | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-expenses | A tidak bisa hapus baris B di expenses | harap=rows:0 | aktual=rows:0
+PASS | NEG-DEL-inventories | A tidak bisa hapus baris B di inventories | harap=rows:0 | aktual=rows:0
+PASS | NEG-INS-01 | A tidak bisa insert lokasi dengan owner_id B | harap=denied | aktual=denied
+PASS | NEG-INS-02 | A tidak bisa tambah kamar ke lokasi B | harap=denied | aktual=denied
+PASS | NEG-INS-03 | A tidak bisa buat sewa dengan penghuni B | harap=denied | aktual=denied
+PASS | NEG-INS-04 | A tidak bisa buat sewa di kamar B | harap=denied | aktual=denied
+PASS | NEG-INS-05 | A tidak bisa catat pemasukan ke sewa B | harap=denied | aktual=denied
+PASS | NEG-INS-06 | A tidak bisa catat pengeluaran ke lokasi B | harap=denied | aktual=denied
+PASS | NEG-INS-07 | A tidak bisa tambah inventaris ke kamar B (lokasi sendiri) | harap=denied | aktual=denied
+PASS | NEG-INS-08 | A tidak bisa insert penghuni dengan owner_id B (data KTP) | harap=denied | aktual=denied
+PASS | NEG-MOV-01 | A tidak bisa menyerahkan baris miliknya ke B (owner_id) | harap=denied | aktual=denied
+PASS | NEG-MOV-02 | A tidak bisa memindah kamarnya ke lokasi B | harap=denied | aktual=denied
+PASS | NEG-MOV-03 | A tidak bisa mengarahkan foto_ktp_url ke file B lalu membukanya | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-01 | A tidak bisa lihat (=> tidak bisa createSignedUrl) KTP B di folder B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-02 | A tidak bisa lihat KTP lama B (path datar, owner_id B) | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-03 | A tidak bisa lihat file lama tanpa owner_id | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-04 | A tidak bisa lihat nota B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-05 | A tidak bisa upload ke folder B | harap=denied | aktual=denied
+PASS | NEG-S-06 | A tidak bisa upload ke path datar (tanpa folder uid) | harap=denied | aktual=denied
+PASS | NEG-S-08 | A tidak bisa menimpa (update) file B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-09 | A tidak bisa menimpa file lama B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-10 | A tidak bisa memindah file miliknya ke folder B | harap=denied | aktual=denied
+PASS | NEG-S-11 | A tidak bisa hapus file B | harap=rows:0 | aktual=rows:0
+PASS | NEG-S-12 | A tidak bisa upload ke bucket lain di luar dua bucket ini via policy ini | harap=denied | aktual=denied
+PASS | CFG-01 | Bucket ktp_images & receipt_images private | harap=rows:2 | aktual=rows:2
+PASS | CFG-02 | Batas ukuran 5 MB di kedua bucket | harap=rows:2 | aktual=rows:2
+PASS | CFG-03 | SVG tidak diizinkan (allowed_mime_types tidak berupa image/* atau image/svg+xml) | harap=rows:0 | aktual=rows:0
+PASS | CFG-04 | Tidak ada policy storage.objects permisif (using true) yang tersisa | harap=rows:0 | aktual=rows:0
+PASS | CFG-05 | RLS aktif di 7 tabel aplikasi | harap=rows:7 | aktual=rows:7
+PASS | CFG-06 | owner_id NOT NULL di 7 tabel (backfill sudah jalan) | harap=rows:7 | aktual=rows:7
+PASS | OTH-01 | anon tetap bisa baca bucket publik lain (avatars) | harap=rows:1 | aktual=rows:1
+PASS | OTH-02 | A tetap bisa baca bucket publik lain (avatars) milik B | harap=rows:1 | aktual=rows:1
+PASS | POS-S-03 | A bisa hapus file KTP miliknya | harap=rows:1 | aktual=rows:1
+--- S6 S4+S5 + guard RESTRICTIVE (dari migration 300): 71/71 lulus
+
+TOTAL GAGAL: 3

@@ -18,7 +18,7 @@
 File `00_supabase_stub.sql`, `15_harness.sql`, dan `06–09_*` adalah salinan dari
 `qa/rls/` milik QA, dengan tambahan (extensions/uuid-ossp, `auth.role()`, `qa.ids`,
 `qa.as_user`). File QA lama di `qa/rls/` (model `owner_id`) tidak diubah. Runner lama
-`qa/rls/run_local.sh` sudah usang, karena merujuk migration `owner_id` dan skema
+`qa/archive/rls-per-user/run_local.sh` sudah usang, karena merujuk migration `owner_id` dan skema
 tebakan yang sudah dihapus dari branch.
 
 Move script dites terpisah dengan stub Storage: `node --test qa/move-script/`.
