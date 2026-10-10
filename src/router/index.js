@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { supabase } from '../supabase.js'
+import { isChunkLoadError, reloadOnce } from '../lib/chunkReload.js'
 
 const routes = [
   {
@@ -82,6 +83,15 @@ router.beforeEach(async (to, from, next) => {
     next({ name: 'Beranda' })
   } else {
     next()
+  }
+})
+
+// Chunk halaman gagal dimuat (biasanya karena ada deploy baru sementara tab
+// masih memakai versi lama): muat ulang halaman tujuan sekali.
+router.onError((err, to) => {
+  if (isChunkLoadError(err)) {
+    console.warn('[SimKos] Versi aplikasi berganti, memuat ulang halaman.')
+    reloadOnce(to?.fullPath || '/')
   }
 })
 
