@@ -143,6 +143,16 @@
           </div>
         </div>
 
+        <!-- Pesan hasil hapus pengeluaran -->
+        <div
+          v-if="pageMsg"
+          class="rounded-xl px-4 py-3 text-sm font-bold border-2 flex items-start justify-between gap-3"
+          :class="pageMsgType === 'error' ? 'bg-expense-light border-expense/30 text-expense' : 'bg-income-light border-income/30 text-income'"
+        >
+          <span>{{ pageMsg }}</span>
+          <button type="button" class="flex-shrink-0 opacity-70 hover:opacity-100" aria-label="Tutup pesan" @click="pageMsg = ''">✕</button>
+        </div>
+
         <!-- Catatan tagihan bersama (location_id NULL) -->
         <p
           v-if="filteredTagihanBersama > 0"
@@ -176,6 +186,12 @@
             v-for="tx in filteredTransactions"
             :key="tx.id"
             class="bg-white rounded-[var(--radius-card)] border-2 border-border p-5 flex items-center gap-4 shadow-sm hover:shadow-md transition-all duration-200"
+            :class="tx.tipe === 'keluar' ? 'cursor-pointer active:scale-[0.99]' : ''"
+            :role="tx.tipe === 'keluar' ? 'button' : undefined"
+            :tabindex="tx.tipe === 'keluar' ? 0 : undefined"
+            :aria-label="tx.tipe === 'keluar' ? `Lihat detail pengeluaran ${tx.keterangan}` : undefined"
+            @click="tx.tipe === 'keluar' && openExpenseDetail(tx)"
+            @keydown.enter="tx.tipe === 'keluar' && openExpenseDetail(tx)"
           >
             <!-- Type Icon/Badge -->
             <div
@@ -228,6 +244,125 @@
       </template>
     </div>
 
+    <!-- Modal Detail / Hapus Pengeluaran -->
+    <div
+      v-if="detailTx"
+      class="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center p-4 z-50 print-hide"
+      @click.self="closeExpenseDetail"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="expense-detail-title"
+        class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-100 space-y-4 max-h-[90vh] overflow-y-auto"
+        @keydown.esc="closeExpenseDetail"
+      >
+        <!-- Detail -->
+        <template v-if="!confirmDelete">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h3 id="expense-detail-title" class="text-lg font-black text-text-primary">Detail Pengeluaran</h3>
+              <p class="text-2xl font-black text-expense mt-1">- {{ formatCurrency(detailTx.nominal) }}</p>
+            </div>
+            <button
+              type="button"
+              class="rounded-lg p-1 text-slate-500 hover:bg-slate-100"
+              aria-label="Tutup"
+              :disabled="isDeleting"
+              @click="closeExpenseDetail"
+            >
+              ✕
+            </button>
+          </div>
+
+          <dl class="grid grid-cols-3 gap-x-3 gap-y-2 text-sm">
+            <dt class="font-bold text-text-muted">Tanggal</dt>
+            <dd class="col-span-2 font-semibold text-text-primary">{{ formatDateDisplay(detailTx.tanggal) }}</dd>
+            <dt class="font-bold text-text-muted">Kategori</dt>
+            <dd class="col-span-2 font-semibold text-text-primary">{{ detailTx.kategori }}</dd>
+            <dt class="font-bold text-text-muted">Lokasi</dt>
+            <dd class="col-span-2 font-semibold text-text-primary">
+              <span
+                v-if="detailTx.semuaKos"
+                class="bg-navy/10 text-navy border border-navy/20 px-2 py-0.5 rounded font-bold"
+              >🌐 Tagihan bersama (semua kos)</span>
+              <span v-else>{{ detailTx.lokasiNama }}</span>
+            </dd>
+            <dt class="font-bold text-text-muted">Keterangan</dt>
+            <dd class="col-span-2 font-semibold text-text-primary break-words">{{ detailTx.keteranganAsli || '-' }}</dd>
+          </dl>
+
+          <div>
+            <p class="text-sm font-bold text-text-muted mb-2">Bukti Nota</p>
+            <div v-if="!detailTx.bukti_nota_url" class="text-sm font-semibold text-text-secondary">Tidak ada nota.</div>
+            <div
+              v-else
+              class="w-full rounded-xl border-2 border-border bg-gray-50 overflow-hidden flex items-center justify-center min-h-[8rem]"
+            >
+              <img v-if="detailNotaUrl" :src="detailNotaUrl" alt="Bukti nota" class="w-full max-h-[50vh] object-contain" />
+              <span v-else class="text-sm font-semibold text-text-muted p-6">
+                {{ detailNotaLoading ? 'Memuat nota...' : 'Nota tidak bisa ditampilkan' }}
+              </span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 pt-3 border-t-2 border-border">
+            <button
+              type="button"
+              class="py-3 bg-expense/10 hover:bg-expense/20 text-expense font-bold rounded-xl active:scale-95 transition-transform"
+              @click="confirmDelete = true"
+            >
+              🗑️ Hapus
+            </button>
+            <router-link
+              :to="`/pengeluaran/${detailTx.rawId}/edit`"
+              class="py-3 bg-navy text-white font-bold rounded-xl active:scale-95 transition-transform text-center"
+            >
+              ✏️ Ubah
+            </router-link>
+          </div>
+        </template>
+
+        <!-- Konfirmasi Hapus -->
+        <template v-else>
+          <div class="text-center">
+            <span class="text-4xl">🗑️</span>
+            <h3 id="expense-detail-title" class="text-lg font-bold text-slate-800 mt-2">Hapus pengeluaran ini?</h3>
+          </div>
+          <p class="text-sm text-slate-600 text-center leading-relaxed">
+            Pengeluaran <strong>{{ formatCurrency(detailTx.nominal) }}</strong>
+            tanggal <strong>{{ formatDateDisplay(detailTx.tanggal) }}</strong>
+            ({{ detailTx.kategori }}) akan dihapus dari Buku Besar.
+            <template v-if="detailTx.bukti_nota_url">
+              <br />File <strong>foto nota juga ikut dihapus permanen</strong>.
+            </template>
+            <br />Tindakan ini tidak bisa dibatalkan.
+          </p>
+          <p v-if="deleteError" class="text-sm font-bold text-expense bg-expense-light border border-expense/30 rounded-xl px-3 py-2">
+            {{ deleteError }}
+          </p>
+          <div class="flex gap-3">
+            <button
+              type="button"
+              class="flex-1 border border-slate-300 text-slate-600 rounded-xl py-3 text-sm font-bold hover:bg-slate-50 transition disabled:opacity-50"
+              :disabled="isDeleting"
+              @click="confirmDelete = false"
+            >
+              Batal
+            </button>
+            <button
+              type="button"
+              class="flex-1 bg-expense text-white rounded-xl py-3 text-sm font-bold shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed"
+              :disabled="isDeleting"
+              @click="deleteExpense"
+            >
+              {{ isDeleting ? 'Menghapus...' : 'Ya, Hapus' }}
+            </button>
+          </div>
+        </template>
+      </div>
+    </div>
+
     <!-- Bottom Navigation Bar -->
     <BottomNav />
   </div>
@@ -236,6 +371,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { supabase } from '../supabase.js'
+import { RECEIPT_BUCKET, getSignedUrl, deleteStorageFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
 
 const isLoading = ref(true)
@@ -292,6 +428,7 @@ onMounted(async () => {
         keterangan,
         kategori,
         location_id,
+        bukti_nota_url,
         locations (nama_lokasi)
       `)
 
@@ -332,6 +469,10 @@ onMounted(async () => {
         entitas: `📦 ${item.kategori}`,
         lokasi: semuaKos ? `🌐 ${locName}` : `🏢 ${locName}`,
         lokasiNama: locName,
+        rawId: item.id,
+        kategori: item.kategori,
+        keteranganAsli: item.keterangan || '',
+        bukti_nota_url: item.bukti_nota_url || null,
         location_id: item.location_id,
         semuaKos
       }
@@ -350,6 +491,80 @@ onMounted(async () => {
     isLoading.value = false
   }
 })
+
+// --- Detail, ubah & hapus pengeluaran ---
+const detailTx = ref(null)
+const detailNotaUrl = ref(null)
+const detailNotaLoading = ref(false)
+const confirmDelete = ref(false)
+const isDeleting = ref(false)
+const deleteError = ref('')
+const pageMsg = ref('')
+const pageMsgType = ref('success')
+
+function openExpenseDetail(tx) {
+  detailTx.value = tx
+  confirmDelete.value = false
+  deleteError.value = ''
+  detailNotaUrl.value = null
+  if (tx.bukti_nota_url) {
+    detailNotaLoading.value = true
+    getSignedUrl(RECEIPT_BUCKET, tx.bukti_nota_url)
+      .then((url) => { if (detailTx.value === tx) detailNotaUrl.value = url })
+      .finally(() => { detailNotaLoading.value = false })
+  }
+}
+
+function closeExpenseDetail() {
+  if (isDeleting.value) return
+  detailTx.value = null
+  detailNotaUrl.value = null
+  confirmDelete.value = false
+}
+
+// Hapus BARIS dulu, baru file nota. Urutan ini menjamin tidak pernah ada baris
+// yang menunjuk ke file yang sudah hilang. Bila file gagal dihapus, file menjadi
+// yatim (dicatat di console & diberitahukan ke user), tapi data tetap konsisten.
+async function deleteExpense() {
+  const tx = detailTx.value
+  if (!tx || isDeleting.value) return
+  isDeleting.value = true
+  deleteError.value = ''
+  try {
+    const { data, error } = await supabase
+      .from('expenses')
+      .delete()
+      .eq('id', tx.rawId)
+      .select('id')
+
+    if (error) throw error
+    if (!data || data.length === 0) throw new Error('Data tidak ditemukan atau tidak boleh dihapus.')
+
+    let notaFailed = false
+    if (tx.bukti_nota_url) {
+      try {
+        await deleteStorageFile(RECEIPT_BUCKET, tx.bukti_nota_url)
+      } catch (fileErr) {
+        notaFailed = true
+        console.error('[SimKos] Pengeluaran terhapus, tapi file nota gagal dihapus (file yatim):', tx.bukti_nota_url, fileErr?.message || fileErr)
+      }
+    }
+
+    // Hapus dari daftar; total dihitung ulang otomatis (computed).
+    transactionsList.value = transactionsList.value.filter(t => t.id !== tx.id)
+    pageMsgType.value = notaFailed ? 'error' : 'success'
+    pageMsg.value = notaFailed
+      ? `Pengeluaran ${formatCurrency(tx.nominal)} terhapus, tapi file nota gagal dihapus dari penyimpanan.`
+      : `Pengeluaran ${formatCurrency(tx.nominal)} tanggal ${formatDateDisplay(tx.tanggal)} berhasil dihapus.`
+
+    isDeleting.value = false
+    closeExpenseDetail()
+  } catch (err) {
+    console.error('[SimKos] Gagal menghapus pengeluaran:', err)
+    deleteError.value = `Gagal menghapus: ${err.message || err}`
+    isDeleting.value = false
+  }
+}
 
 // Filter transactions by location and date range
 const filteredTransactions = computed(() => {
