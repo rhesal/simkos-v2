@@ -441,4 +441,32 @@ PASS | S7-04 | 7 policy tabel live lama kembali (auth.role() = 'authenticated')
 PASS | S7-05 | file yang sudah dipindah tetap terbaca u2 lewat policy lama
 PASS | S7-06 | rollback 200: kolom org_id & tabel organisasi hilang
 
+=== S8 Migration 400 inventories ===
+PASS | S8-01 | 4 kolom baru ada, nullable, tipe benar
+PASS | S8-02 | trigger inventories_receipt_path_org terpasang
+PASS | S8-03 | policy inventories tidak berubah (tetap 1: inventories_org_access)
+PASS | S8-04 | migration 400 idempotent (apply kedua lolos)
+
+=== S8 Inventaris setelah migration 400 ===
+PASS | INV-01 | u1 insert barang lengkap (kolom baru) dgn nota di folder org1 | harap=rows:1 | aktual=rows:1
+PASS | INV-02 | u1 insert tanpa nota & tanpa harga (semua kolom baru nullable) | harap=rows:1 | aktual=rows:1
+PASS | INV-03 | nota di root bucket ditolak trigger | harap=denied | aktual=denied
+PASS | INV-04 | nota di folder org2 ditolak trigger | harap=denied | aktual=denied
+PASS | INV-05 | path traversal ditolak | harap=denied | aktual=denied
+PASS | INV-06 | harga negatif ditolak constraint | harap=error:23514 new row for relation "inventories" violates check constraint "inventories_harga_nonnegative" | aktual=error:23514 new row for relation "inventories" violates check constraint "inventories_harga_nonnegative"
+PASS | INV-07 | tipe_fasilitas di luar kamar/umum ditolak | harap=error:23514 new row for relation "inventories" violates check constraint "inventories_tipe_fasilitas_check" | aktual=error:23514 new row for relation "inventories" violates check constraint "inventories_tipe_fasilitas_check"
+PASS | INV-08 | update kolom lain tanpa mengirim receipt_url lolos | harap=rows:1 | aktual=rows:1
+PASS | INV-09 | CAS ganti nota: receipt_url IS NULL cocok -> 1 baris | harap=rows:1 | aktual=rows:1
+PASS | INV-10 | CAS dgn "= NULL" tidak pernah cocok (alasan cabang .is()) | harap=rows:0 | aktual=rows:0
+PASS | INV-11 | u1 hapus barang org1 | harap=rows:1 | aktual=rows:1
+PASS | INV-12 | owner org2 tidak melihat barang org1 (kolom baru tidak membuka akses) | harap=rows:0 | aktual=rows:0
+PASS | INV-13 | owner org2 tidak bisa update receipt_url barang org1 | harap=rows:0 | aktual=rows:0
+PASS | INV-14 | owner org2 insert barang di lokasi org2 dgn nota org2 | harap=rows:1 | aktual=rows:1
+PASS | INV-15 | anon tidak bisa insert inventories | harap=denied | aktual=denied
+--- S8 Inventaris setelah migration 400: 15/15 lulus
+PASS | S8-05 | rollback_400_inventories_columns.sql menolak apply: ERROR:  Rollback dibatalkan: 1 baris inventories sudah berisi data di kolom baru. Backup dulu, lalu hapus guard ini secara sadar bila tetap ingin roll
+PASS | S8-06 | rollback 400: kolom & trigger hilang, data lama utuh
+PASS | S8-07 | migration 400 bisa diterapkan ulang setelah rollback
+PASS | S8-08 | 20261010000400_inventories_missing_columns.sql menolak apply: ERROR:  inventories.org_id tidak ada. Terapkan migration 200 dulu.
+
 TOTAL GAGAL: 0
