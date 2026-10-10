@@ -38,6 +38,12 @@ const routes = [
     component: () => import('../views/TambahPengeluaranView.vue'),
   },
   {
+    path: '/pengeluaran/:id/edit',
+    name: 'EditPengeluaran',
+    component: () => import('../views/TambahPengeluaranView.vue'),
+    props: true,
+  },
+  {
     path: '/tambah-pemasukan',
     name: 'TambahPemasukan',
     component: () => import('../views/TambahPemasukanView.vue'),
