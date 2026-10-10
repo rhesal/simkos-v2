@@ -202,3 +202,21 @@ keuangan) belum ada.
 - **Auth `site_url` = `http://localhost:3000`:** link email (reset password, undangan)
   mengarah ke localhost. Ganti ke domain production di Dashboard → Authentication →
   URL Configuration.
+
+## Urutan hapus/ganti foto KTP dan laporan file yatim
+
+Foto KTP mengikuti aturan yang sama dengan nota pengeluaran (`docs/tagihan-bersama.md`): **BARIS dulu, FILE belakangan.**
+
+- **Ganti KTP:** upload file baru ke `<org_id>/...` → update `tenants.foto_ktp_url` dengan compare-and-set terhadap nilai yang terakhir dilihat (`.is('foto_ktp_url', null)` bila kosong, `.eq(...)` bila ada) → kalau 0 baris, file baru dihapus lagi dan user mendapat pesan "sudah diubah pengguna lain" / "tidak ditemukan" → kalau berhasil, file lama dihapus.
+- **Kosongkan KTP:** kolom dikosongkan dulu (compare-and-set yang sama), baru file dihapus.
+- Gagal menghapus file **tidak** membatalkan aksi; user mendapat pesan sukses dengan tambahan "Sisa file akan dibersihkan saat perawatan berkala." dan path dicatat di console sebagai file yatim.
+
+**Laporan file yatim** (read-only, tidak pernah menghapus):
+
+```bash
+export SUPABASE_URL=https://<ref>.supabase.co
+export SUPABASE_SERVICE_ROLE_KEY=...   # jangan di-commit
+node supabase/scripts/report_orphan_files.mjs --out supabase/scripts/laporan.orphans.json
+```
+
+Skrip memeriksa `ktp_images/<org_id>/` dan `receipt_images/<org_id>/` untuk semua org, lalu melaporkan file yang tidak dirujuk `tenants.foto_ktp_url`, `expenses.bukti_nota_url`, atau `inventories.receipt_url` (dilewati bila kolom belum ada). File yang lebih muda dari 24 jam dilewati (`--min-age-hours`). Hasilnya ditinjau Rhesal sebelum ada file yang dihapus manual.
