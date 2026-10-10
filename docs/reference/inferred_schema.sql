@@ -10,10 +10,16 @@
 --   sumber kebenaran, misalnya dengan:
 --       supabase link --project-ref <ref>
 --       supabase db pull          -- menghasilkan migration dari skema live
---   lalu bandingkan dan GANTI file ini dengan hasil `db pull` bila berbeda.
+--   lalu bandingkan file ini dengan hasil `db pull`.
 --
---   Semua statement memakai IF NOT EXISTS sehingga aman (no-op) bila
---   dijalankan pada database live yang tabelnya sudah ada. File ini TIDAK
+--   STATUS: REFERENSI SAJA — BUKAN MIGRATION. File ini sengaja dipindah dari
+--   supabase/migrations/ ke docs/reference/ supaya tidak masuk riwayat
+--   migration: `create table if not exists` di DB live akan no-op diam-diam
+--   dan menyembunyikan perbedaan dengan skema asli. Baseline skema yang sah
+--   harus berasal dari `supabase db pull`.
+--
+--   Kegunaan: dokumentasi kolom yang dipakai kode, dan setup database lokal
+--   untuk tes (qa/rls). Semua statement memakai IF NOT EXISTS dan tidak
 --   mengubah kolom pada tabel yang sudah ada.
 --
 -- Asumsi utama:
