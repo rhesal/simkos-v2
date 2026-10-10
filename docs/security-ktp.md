@@ -69,7 +69,7 @@ file lama **dipindah** ke folder org dengan `supabase/scripts/move_root_files_to
 |---|---|
 | `supabase/migrations/20261010000200_organizations_and_backfill.sql` | Tabel org + helper + `org_id` + **backfill**: membuat org 'SimKos' dan memasukkan **semua** user `auth.users` sebagai owner. **Gagal bila jumlah user ≠ 2**, kecuali di-override dengan `set simkos.backfill_expected_users = '<n>';`. Semua baris lama diisi `org_id`, lalu dibuat `NOT NULL` dan diberi default. Policy tabel lama belum disentuh, jadi app lama tetap jalan. |
 | `supabase/migrations/20261010000210_org_rls_policies.sql` | Menghapus policy lama di 7 tabel, mengaktifkan RLS di semua (termasuk inventories), mencabut anon, lalu memasang policy org. |
-| `supabase/scripts/move_root_files_to_org.mjs` | Memindah file yang direferensikan ke `<org_id>/<nama sama>`. Idempotent dan bisa resume, dengan log JSON. Urutannya move, lalu update baris. Bila update gagal, file dipindah balik. File root yang tidak direferensikan hanya dilaporkan. |
+| `supabase/scripts/move_root_files_to_org.mjs` | Memindah file yang direferensikan ke `<org_id>/<nama sama>`. Idempotent dan bisa resume, dengan log JSON. Urutannya move, lalu update baris. Bila update gagal, file dipindah balik. File yang sumbernya ada di folder **organisasi lain** ditandai `conflict` dan tidak dipindah. Semua file di luar folder org yang tidak direferensikan (root, `<uid>/`, folder lain) hanya dilaporkan di `unreferenced_outside_org_files`. |
 | `supabase/migrations/20261010000300_private_storage_buckets.sql` | Langkah 0: tolak policy storage permisif generik. Langkah 0b: **tolak bila masih ada baris yang menunjuk file di luar folder org**, artinya move script belum tuntas. Lalu bucket 5 MB + JPEG/PNG/WEBP, policy org, guard RESTRICTIVE, dan trigger path. |
 | `supabase/rollback/rollback_300_storage.sql` | Mengembalikan 2 policy storage live **persis**. Bucket **tetap private**. |
 | `supabase/rollback/rollback_210_org_rls.sql` | Mengembalikan 7 policy tabel live **persis**. Sengaja tidak mengembalikan RLS-off di inventories dan grant anon. |
@@ -124,7 +124,18 @@ node supabase/scripts/move_root_files_to_org.mjs             # jalankan
 unset SUPABASE_SERVICE_ROLE_KEY
 ```
 Skrip harus selesai dengan exit 0 tanpa item `failed`, `conflict`, atau `missing`.
-Kalau terputus, jalankan ulang perintah yang sama. Log ada di
+Kalau terputus, jalankan ulang perintah yang sama.
+
+> **Kalau ada item `failed_needs_attention`:** update baris gagal **dan** file gagal
+> dipindah balik, jadi baris itu sementara menunjuk ke file yang sudah tidak ada di
+> path lamanya (foto KTP tidak tampil). **Segera jalankan ulang skripnya**. Run
+> berikutnya mendeteksi file sudah ada di folder org dan menuntaskan update baris.
+> Jangan lanjut ke migration 300 sebelum item ini hilang dari ringkasan.
+
+File yang tidak direferensikan baris mana pun (di root, `<uid>/`, atau folder lain di
+luar folder org) **tidak dipindah** dan tidak bisa dibuka lewat app setelah migration
+300. Daftarnya ada di `unreferenced_outside_org_files` di log. Bawa daftar ini ke
+Rhesal untuk diputuskan (hapus atau simpan). Log ada di
 `supabase/scripts/move_root_files_to_org.log.json` (di-.gitignore). Cek hasilnya:
 ```sql
 select count(*) from tenants where foto_ktp_url is not null and foto_ktp_url not like org_id || '/%';  -- 0
@@ -148,6 +159,13 @@ guard, dan trigger path.
 ### Rollback
 Urutannya terbalik: `rollback_300_storage.sql`, lalu `rollback_210_org_rls.sql`, lalu
 (opsional) `rollback_200_organizations.sql`. Bucket **tidak pernah** dibuat public.
+
+> **Syarat `rollback_300_storage.sql`: signup harus tetap MATI.** Rollback ini
+> mengembalikan 2 policy storage live yang lama, yang mengizinkan **setiap user yang
+> login** membaca `ktp_images`. Itu hanya aman selama tidak ada akun baru yang bisa
+> mendaftar (Auth → Sign In / Providers → "Allow new users to sign up" nonaktif).
+> Cek pengaturan itu sebelum menjalankan rollback, dan jangan aktifkan signup selama
+> rollback 300 masih berlaku.
 File yang sudah dipindah tidak dipindah balik, tapi tetap terbaca lewat policy lama.
 
 ## 5. Policy storage generik (dicek otomatis di migration 300)

@@ -178,7 +178,13 @@ export function initStorageAuthListener() {
     }
     currentUserId = nextUserId
     // Ambil org_id sekali setelah login supaya upload pertama tidak menunggu.
-    if (nextUserId && event !== 'SIGNED_OUT') getCurrentOrgId().catch(() => {})
+    // Dijalankan lewat setTimeout: memanggil API Supabase (auth.getUser) langsung
+    // di dalam callback onAuthStateChange bisa berebut auth lock dan hang.
+    if (nextUserId && event !== 'SIGNED_OUT') {
+      setTimeout(() => {
+        getCurrentOrgId().catch(() => {})
+      }, 0)
+    }
   })
 }
 

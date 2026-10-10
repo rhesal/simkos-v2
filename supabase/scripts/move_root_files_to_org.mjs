@@ -14,8 +14,11 @@
 // path di baris diperbarui (hanya bila nilainya masih sama). Bila update
 // baris gagal, baris yang sempat diperbarui dikembalikan dan file dipindah
 // balik, jadi baris tidak pernah menunjuk file yang tidak ada.
-// File di root yang tidak direferensikan baris mana pun TIDAK dipindah,
-// hanya dilaporkan.
+// File di luar folder organisasi (di root, di folder "<uid>/", atau folder lain)
+// yang tidak direferensikan baris mana pun TIDAK dipindah, hanya dilaporkan
+// (log.unreferenced_outside_org_files) supaya Rhesal bisa memutuskan sisa KTP.
+// File yang berada di folder ORGANISASI LAIN tidak pernah dipindah: ditandai
+// 'conflict' (mencegah file org A berpindah ke org B lewat baris org B).
 //
 // Pakai (service role key JANGAN di-commit; cukup di environment):
 //   export SUPABASE_URL=https://<ref>.supabase.co
@@ -40,6 +43,14 @@ export const TARGETS = [
 ]
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Segmen folder pertama bila berupa UUID (dinormalisasi huruf kecil), selain itu null. */
+function firstUuidFolder(objectPath) {
+  const slash = objectPath.indexOf('/')
+  if (slash === -1) return null
+  const seg = objectPath.slice(0, slash)
+  return UUID_RE.test(seg) ? seg.toLowerCase() : null
+}
 const PAGE = 1000
 
 /** Nilai di DB (path / URL Supabase lama) -> path objek di bucket. Sama dengan src/lib/storage.js. */
@@ -71,7 +82,7 @@ function isMissingColumnError(error) {
 
 function loadLog(logPath) {
   if (logPath && fs.existsSync(logPath)) return JSON.parse(fs.readFileSync(logPath, 'utf8'))
-  return { version: 1, started_at: new Date().toISOString(), runs: 0, items: {}, events: [], unreferenced_root_files: {} }
+  return { version: 1, started_at: new Date().toISOString(), runs: 0, items: {}, events: [], unreferenced_root_files: {}, unreferenced_outside_org_files: {} }
 }
 
 function saveLog(logPath, log) {
@@ -105,16 +116,50 @@ async function objectExists(supabase, bucket, objectPath) {
   return (data || []).some((o) => o.name === name && o.id !== null)
 }
 
-async function listRootFiles(supabase, bucket) {
-  const files = []
+async function listDir(supabase, bucket, dir) {
+  const entries = []
   for (let offset = 0; ; offset += PAGE) {
-    const { data, error } = await supabase.storage.from(bucket).list('', { limit: PAGE, offset })
-    if (error) throw new Error(`list root ${bucket} gagal: ${error.message || error}`)
-    // Folder muncul dengan id null.
-    files.push(...(data || []).filter((o) => o.id !== null).map((o) => o.name))
+    const { data, error } = await supabase.storage.from(bucket).list(dir, { limit: PAGE, offset })
+    if (error) throw new Error(`list ${bucket}/${dir} gagal: ${error.message || error}`)
+    entries.push(...(data || []))
     if (!data || data.length < PAGE) break
   }
-  return files
+  return entries
+}
+
+/**
+ * Semua file di LUAR folder organisasi: file di root, plus isi (rekursif) folder
+ * top-level yang namanya bukan org_id yang dikenal (mis. "<uid>/").
+ * Mengembalikan { root: [...], all: [...] }.
+ */
+async function listFilesOutsideOrgFolders(supabase, bucket, orgIds) {
+  const root = []
+  const all = []
+  async function walk(dir, depth) {
+    for (const o of await listDir(supabase, bucket, dir)) {
+      const full = dir ? `${dir}/${o.name}` : o.name
+      if (o.id !== null) {
+        all.push(full)
+        if (!dir) root.push(full)
+        continue
+      }
+      // Folder: lewati folder organisasi (hanya di level teratas, huruf kecil persis).
+      if (depth === 0 && orgIds.has(o.name)) continue
+      await walk(full, depth + 1)
+    }
+  }
+  await walk('', 0)
+  return { root, all }
+}
+
+async function fetchOrgIds(supabase) {
+  try {
+    const { data, error } = await supabase.from('organizations').select('id')
+    if (error || !Array.isArray(data)) return []
+    return data.map((r) => String(r.id).toLowerCase())
+  } catch {
+    return []
+  }
 }
 
 /**
@@ -134,6 +179,7 @@ export async function run({ supabase, logPath = null, dryRun = false, logger = c
   // 1. Kumpulkan referensi, dikelompokkan per file sumber.
   const groups = new Map() // bucket::src -> { bucket, src, dst, org, refs }
   const referenced = new Map() // bucket -> Set(path)
+  const orgIds = new Set(await fetchOrgIds(supabase))
   for (const t of TARGETS) {
     const { rows, error } = await fetchAll(supabase, t.table, t.column)
     if (error) {
@@ -153,13 +199,14 @@ export async function run({ supabase, logPath = null, dryRun = false, logger = c
       if (!row.org_id || !UUID_RE.test(row.org_id)) {
         throw new Error(`${t.table} ${row.id} tidak punya org_id. Jalankan migration 200 dulu.`)
       }
+      orgIds.add(String(row.org_id).toLowerCase())
       if (src.startsWith(`${row.org_id}/`) && value === src) {
         summary.alreadyInOrg += 1
         continue
       }
       const dst = src.startsWith(`${row.org_id}/`) ? src : `${row.org_id}/${src.split('/').pop()}`
       const key = `${t.bucket}::${src}`
-      if (!groups.has(key)) groups.set(key, { bucket: t.bucket, src, dst, org: row.org_id, refs: [] })
+      if (!groups.has(key)) groups.set(key, { bucket: t.bucket, src, dst, org: row.org_id, srcFolderOrg: firstUuidFolder(src), refs: [] })
       const g = groups.get(key)
       if (g.org !== row.org_id) g.conflictOrg = true
       g.refs.push({ table: t.table, column: t.column, id: row.id, value })
@@ -180,6 +227,14 @@ export async function run({ supabase, logPath = null, dryRun = false, logger = c
       item.reason = 'file yang sama direferensikan baris dari organisasi berbeda'
       summary.conflicts += 1
       say(`KONFLIK ${key}: ${item.reason}; tidak diproses.`)
+      continue
+    }
+    // Sumber berada di folder organisasi LAIN yang dikenal -> jangan pernah dipindah.
+    if (g.srcFolderOrg && g.srcFolderOrg !== String(g.org).toLowerCase() && orgIds.has(g.srcFolderOrg)) {
+      item.status = 'conflict'
+      item.reason = `file sumber berada di folder organisasi lain (${g.srcFolderOrg}); tidak dipindah`
+      summary.conflicts += 1
+      say(`KONFLIK ${key}: ${item.reason}`)
       continue
     }
 
@@ -261,13 +316,18 @@ export async function run({ supabase, logPath = null, dryRun = false, logger = c
     say(`Selesai ${key}`, { key })
   }
 
-  // 3. Laporkan file root yang tidak direferensikan (tidak dipindah).
+  // 3. Laporkan SEMUA file di luar folder organisasi yang tidak direferensikan
+  //    (root, "<uid>/", folder lain). Tidak dipindah; untuk diputuskan Rhesal.
+  log.unreferenced_outside_org_files ||= {}
   for (const bucket of new Set(TARGETS.map((t) => t.bucket))) {
-    const roots = await listRootFiles(supabase, bucket)
+    const { root, all } = await listFilesOutsideOrgFolders(supabase, bucket, orgIds)
     const refs = referenced.get(bucket) || new Set()
-    const unref = roots.filter((name) => !refs.has(name))
-    log.unreferenced_root_files[bucket] = unref
-    if (unref.length) logger(`INFO ${bucket}: ${unref.length} file di root tidak direferensikan (tidak dipindah): ${unref.join(', ')}`)
+    const unrefAll = all.filter((name) => !refs.has(name))
+    log.unreferenced_root_files[bucket] = root.filter((name) => !refs.has(name))
+    log.unreferenced_outside_org_files[bucket] = unrefAll
+    if (unrefAll.length) {
+      logger(`INFO ${bucket}: ${unrefAll.length} file di luar folder organisasi tidak direferensikan (tidak dipindah): ${unrefAll.join(', ')}`)
+    }
   }
 
   log.finished_at = new Date().toISOString()

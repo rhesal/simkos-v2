@@ -195,7 +195,10 @@ begin
     return false;
   end if;
   seg := split_part(object_name, '/', 1);
-  if seg !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+  -- Hanya UUID huruf kecil (format kanonik Postgres & yang ditulis client).
+  -- Folder huruf besar ditolak supaya sejalan dengan trigger path; kalau tidak,
+  -- upload bisa lolos tapi baris gagal disimpan -> file yatim.
+  if seg !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
     return false;
   end if;
   return public.is_org_member(seg::uuid);

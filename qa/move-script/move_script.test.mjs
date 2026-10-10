@@ -176,3 +176,31 @@ test('dry-run tidak mengubah apa pun dan tidak menulis log', async () => {
   assert.ok(files.ktp_images.has('ktp_1.jpg'))
   assert.ok(!fs.existsSync(logPath))
 })
+
+const ORG_B = '0f000000-0000-0000-0000-00000000000b'
+const UID = '0a000000-0000-0000-0000-0000000000aa'
+
+test('konflik: baris org B merujuk file di folder org A -> tidak dipindah', async () => {
+  const { supabase, db, files } = makeFake()
+  files.ktp_images.add(`${ORG}/ktp_a_only.jpg`)
+  db.tenants.push({ id: 't5', org_id: ORG_B, foto_ktp_url: `${ORG}/ktp_a_only.jpg` })
+  const { summary, log } = await run({ supabase, logPath: tmpLog(), logger: quiet })
+  assert.equal(summary.conflicts, 1)
+  assert.equal(log.items[`ktp_images::${ORG}/ktp_a_only.jpg`].status, 'conflict')
+  assert.equal(db.tenants[4].foto_ktp_url, `${ORG}/ktp_a_only.jpg`, 'baris tidak diubah')
+  assert.ok(files.ktp_images.has(`${ORG}/ktp_a_only.jpg`), 'file tetap di folder org A')
+  assert.ok(!files.ktp_images.has(`${ORG_B}/ktp_a_only.jpg`), 'file tidak berpindah ke org B')
+})
+
+test('laporan mencakup semua file di luar folder org, termasuk <uid>/ yang tak direferensikan', async () => {
+  const { supabase, files } = makeFake()
+  files.ktp_images.add(`${UID}/ktp_stray.jpg`)
+  files.ktp_images.add(`${ORG}/ktp_inorg_orphan.jpg`)
+  const { log } = await run({ supabase, logPath: tmpLog(), logger: quiet })
+  const outside = log.unreferenced_outside_org_files.ktp_images
+  assert.ok(outside.includes('ktp_orphan.jpg'))
+  assert.ok(outside.includes(`${UID}/ktp_stray.jpg`))
+  assert.ok(!outside.some((f) => f.startsWith(`${ORG}/`)), 'file di folder org tidak dilaporkan')
+  assert.deepEqual(log.unreferenced_root_files.ktp_images, ['ktp_orphan.jpg'])
+  assert.ok(files.ktp_images.has(`${UID}/ktp_stray.jpg`), 'tidak dipindah')
+})
