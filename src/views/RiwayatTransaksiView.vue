@@ -671,7 +671,7 @@ function exportToCSV() {
   const rows = filteredTransactions.value.map(tx => [
     formatDateDisplay(tx.tanggal),
     tx.tipe === 'masuk' ? 'Pemasukan' : 'Pengeluaran',
-    String(tx.entitas ?? '').replace(/[👤📦🏢]/g, '').trim(),
+    String(tx.entitas ?? '').replace(/[👤📦🏢]/gu, '').trim(),
     tx.keterangan,
     tx.tipe === 'masuk' ? tx.nominal : null,
     tx.tipe === 'keluar' ? tx.nominal : null,

@@ -1,4 +1,7 @@
 // Tes utilitas ekspor CSV. Jalankan: node --test qa/csv/
+// Paksa zona waktu WIB sebelum Date dipakai, supaya tes 06.00 WIB selalu
+// benar-benar memeriksa (tidak tergantung TZ mesin/CI).
+process.env.TZ = 'Asia/Jakarta'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildCsv, neutralizeFormula, numberCell, textCell, localDateStamp } from '../../src/lib/csv.js'
@@ -47,8 +50,8 @@ test('localDateStamp memakai tanggal lokal, bukan UTC', () => {
 })
 
 test('localDateStamp di Asia/Jakarta jam 06.00 WIB tidak mundur sehari', () => {
-  // Hanya bermakna bila TZ proses = Asia/Jakarta (lihat skrip uji di PR).
-  if (process.env.TZ !== 'Asia/Jakarta') return
+  // TZ dipaksa Asia/Jakarta di baris paling atas file ini.
+  assert.equal(new Date('2026-10-09T23:00:00Z').getTimezoneOffset(), -420)
   const d = new Date('2026-10-09T23:00:00Z') // = 10 Okt 06.00 WIB
   assert.equal(d.toISOString().slice(0, 10), '2026-10-09')
   assert.equal(localDateStamp(d), '2026-10-10')
