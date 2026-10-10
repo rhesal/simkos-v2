@@ -555,18 +555,21 @@ async function deleteExpense() {
       .from('expenses')
       .delete()
       .eq('id', tx.rawId)
-      .select('id')
+      .select('id, bukti_nota_url')
 
     if (error) throw error
     if (!data || data.length === 0) throw new Error('Data tidak ditemukan atau tidak boleh dihapus.')
 
+    // Pakai nilai nota dari baris yang BENAR-BENAR terhapus (hasil .delete().select()),
+    // bukan dari daftar yang mungkin sudah basi (nota bisa sudah diganti user lain).
+    const deletedNota = data[0].bukti_nota_url ?? null
     let notaFailed = false
-    if (tx.bukti_nota_url) {
+    if (deletedNota) {
       try {
-        await deleteStorageFile(RECEIPT_BUCKET, tx.bukti_nota_url)
+        await deleteStorageFile(RECEIPT_BUCKET, deletedNota)
       } catch (fileErr) {
         notaFailed = true
-        console.error('[SimKos] Pengeluaran terhapus, tapi file nota gagal dihapus (file yatim):', tx.bukti_nota_url, fileErr?.message || fileErr)
+        console.error('[SimKos] Pengeluaran terhapus, tapi file nota gagal dihapus (file yatim):', deletedNota, fileErr?.message || fileErr)
       }
     }
 

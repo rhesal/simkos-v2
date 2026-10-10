@@ -56,8 +56,8 @@ alter table public.inventories
   add column if not exists receipt_url text;
 
 comment on column public.inventories.tanggal_pembelian is 'Tanggal pembelian barang (opsional).';
-comment on column public.inventories.harga is 'Harga beli dalam Rupiah, >= 0 (opsional).';
-comment on column public.inventories.tipe_fasilitas is '''kamar'' (fasilitas kamar, room_id terisi) atau ''umum'' (fasilitas umum).';
+comment on column public.inventories.harga is 'Harga beli dalam Rupiah, >= 0. NULL = harga tidak diketahui (beda dengan 0).';
+comment on column public.inventories.tipe_fasilitas is '''kamar'' (fasilitas kamar; room_id biasanya terisi, bisa NULL kalau kamar dihapus) atau ''umum'' (fasilitas umum). NULL diperlakukan app sebagai ''umum''.';
 comment on column public.inventories.receipt_url is 'Path nota di bucket privat receipt_images: "<org_id>/...". Dijaga trigger inventories_receipt_path_org.';
 
 -- 2. Pre-check data sebelum constraint (live: 0 baris, tapi tetap dicek) ------

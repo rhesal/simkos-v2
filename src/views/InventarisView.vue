@@ -119,7 +119,7 @@
             <div class="flex items-center gap-3 flex-shrink-0">
               <div class="text-right text-xs font-semibold text-text-secondary">
                 <p>{{ formatDateDisplay(asset.tanggal_pembelian) }}</p>
-                <p class="text-green-700 font-extrabold mt-0.5">{{ formatCurrency(asset.harga || 0) }}</p>
+                <p class="text-green-700 font-extrabold mt-0.5">{{ formatHarga(asset.harga) }}</p>
               </div>
 
               <!-- Action buttons -->
@@ -171,7 +171,7 @@
           <h3 class="text-xl font-black text-text-primary flex items-center gap-2">
             <span>{{ form.id ? '✏️ Edit Barang' : '➕ Tambah Barang' }}</span>
           </h3>
-          <button @click="showModal = false" class="text-text-muted hover:text-text-primary text-xl font-bold">✕</button>
+          <button @click="tutupModal" class="text-text-muted hover:text-text-primary text-xl font-bold" aria-label="Tutup">✕</button>
         </div>
 
         <!-- Modal Fields -->
@@ -323,17 +323,55 @@
           <div class="space-y-2">
             <label class="block text-sm font-bold text-text-primary">Foto Nota Pembelian (Opsional)</label>
             <div class="flex items-center gap-3">
-              <div v-if="form.receiptPreview" class="relative w-16 h-16 rounded-xl border-2 border-border overflow-hidden">
-                <img :src="form.receiptPreview" class="w-full h-full object-cover" />
+              <!-- (1) File baru dipilih: ✕ hanya membatalkan file baru ini -->
+              <div v-if="receiptFile" class="relative w-16 h-16 rounded-xl border-2 border-border overflow-hidden flex-shrink-0">
+                <img :src="newReceiptPreview" class="w-full h-full object-cover" alt="Pratinjau nota baru" />
                 <button
-                  @click="hapusNotaPreview"
+                  type="button"
+                  @click="batalkanFileBaru"
                   class="absolute -top-1 -right-1 w-5 h-5 bg-red-600 text-white rounded-full flex items-center justify-center text-[10px] font-black"
+                  aria-label="Batalkan file nota baru"
+                  title="Batalkan file baru"
                 >
                   ✕
                 </button>
               </div>
+              <!-- (2) Nota lama ada dan tidak ditandai hapus: tampilkan (loading / error / gambar) -->
+              <div
+                v-else-if="form.original_receipt_path && !notaPendingDelete"
+                class="relative w-16 h-16 rounded-xl border-2 border-border overflow-hidden flex-shrink-0 bg-gray-50"
+              >
+                <img
+                  v-if="existingPreviewStatus === 'ready'"
+                  :src="existingPreviewUrl"
+                  class="w-full h-full object-cover"
+                  alt="Pratinjau nota"
+                  @error="existingPreviewStatus = 'error'"
+                />
+                <div
+                  v-else-if="existingPreviewStatus === 'error'"
+                  class="w-full h-full flex flex-col items-center justify-center text-center text-[9px] font-bold text-red-600 leading-tight px-1"
+                  role="status"
+                >
+                  <span class="text-base leading-none">⚠️</span>
+                  Nota gagal dimuat
+                </div>
+                <div v-else class="w-full h-full flex items-center justify-center" role="status" aria-label="Memuat nota">
+                  <span class="w-5 h-5 animate-spin border-2 border-navy border-t-transparent rounded-full"></span>
+                </div>
+                <button
+                  type="button"
+                  @click="tandaiHapusNota"
+                  class="absolute -top-1 -right-1 w-5 h-5 bg-red-600 text-white rounded-full flex items-center justify-center text-[10px] font-black"
+                  aria-label="Hapus nota"
+                  title="Hapus nota"
+                >
+                  ✕
+                </button>
+              </div>
+              <!-- (3) Unggah: tidak ada nota, atau nota lama ditandai hapus (bisa diganti file baru) -->
               <label
-                v-else
+                v-if="!receiptFile && (!form.original_receipt_path || notaPendingDelete)"
                 class="w-full border-2 border-dashed border-border hover:border-navy rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer text-xs font-bold text-text-secondary transition-all"
               >
                 <span>📷 Klik untuk Unggah Nota</span>
@@ -344,14 +382,40 @@
                   @change="handleFileUpload"
                 />
               </label>
+              <button
+                v-if="existingPreviewStatus === 'error' && form.original_receipt_path && !notaPendingDelete && !receiptFile"
+                type="button"
+                @click="muatPratinjauNota"
+                class="text-xs font-bold text-navy underline"
+              >
+                Coba lagi
+              </button>
             </div>
+            <!-- Penanda: hapus nota baru berlaku saat Simpan -->
+            <div
+              v-if="notaPendingDelete && !receiptFile"
+              class="flex items-center justify-between gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2"
+              role="status"
+            >
+              <span class="text-xs font-bold text-amber-800">🗑️ Nota akan dihapus saat Simpan</span>
+              <button
+                type="button"
+                @click="batalHapusNota"
+                class="text-xs font-black text-navy underline flex-shrink-0"
+              >
+                Batal hapus
+              </button>
+            </div>
+            <p v-else-if="receiptFile && form.original_receipt_path" class="text-xs font-semibold text-text-secondary">
+              Nota lama akan diganti saat Simpan.
+            </p>
           </div>
         </div>
 
         <!-- Modal Footer Actions -->
         <div class="flex gap-3 pt-3 border-t-2 border-border">
           <button
-            @click="showModal = false"
+            @click="tutupModal"
             class="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl active:scale-95 transition-transform"
           >
             Batal
@@ -406,7 +470,7 @@
         </div>
         <p class="text-sm text-slate-600 text-center leading-relaxed">
           <strong>{{ deleteTarget.nama_barang }}</strong>
-          <template v-if="deleteTarget.harga"> ({{ formatCurrency(deleteTarget.harga) }})</template>
+          <template v-if="deleteTarget.harga != null"> ({{ formatCurrency(Number(deleteTarget.harga)) }})</template>
           akan dihapus dari inventaris.
           <template v-if="deleteTarget.receipt_url">
             <br />File <strong>foto nota juga ikut dihapus permanen</strong>.
@@ -443,7 +507,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { supabase } from '../supabase.js'
 import { RECEIPT_BUCKET, IMAGE_ACCEPT, validateImageFile, getSignedUrl, uploadPrivateFile, removeStorageFile, deleteStorageFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
@@ -473,14 +537,20 @@ const form = reactive({
   tanggal_pembelian: localToday(),
   harga: null,
   tipe_fasilitas: 'kamar',
-  receiptPreview: null,
-  // Nilai receipt_url yang tersimpan di DB, APA ADANYA (path objek, atau URL
-  // publik lama). receipt_path = nilai saat ini di form (null bila nota dihapus
-  // di form); original_receipt_path = nilai DB saat form dibuka, dipakai untuk
-  // compare-and-set.
-  receipt_path: null,
+  // Nilai receipt_url di DB saat form dibuka, APA ADANYA (path objek, atau URL
+  // publik lama). Dipakai untuk pratinjau dan compare-and-set saat Simpan.
   original_receipt_path: null
 })
+
+// State nota di form (tidak ada yang menyentuh DB/storage sebelum Simpan):
+// - receiptFile/newReceiptPreview: file baru yang dipilih (blob URL, wajib di-revoke)
+// - notaPendingDelete: nota lama ditandai hapus (berlaku saat Simpan)
+// - existingPreview*: pratinjau nota lama via signed URL (loading/ready/error)
+const newReceiptPreview = ref(null)
+const notaPendingDelete = ref(false)
+const existingPreviewUrl = ref(null)
+const existingPreviewStatus = ref('idle') // 'idle' | 'loading' | 'ready' | 'error'
+let previewRequestSeq = 0
 
 // Tanggal lokal perangkat (YYYY-MM-DD), bukan toISOString() (UTC).
 function localToday() {
@@ -493,9 +563,10 @@ const receiptFile = ref(null)
 const filteredAssets = computed(() => {
   return inventoriesList.value.filter(asset => {
     // Tab Filter
-    const matchesTab = activeTab.value === 'Fasilitas Kamar'
-      ? asset.tipe_fasilitas === 'kamar'
-      : asset.tipe_fasilitas === 'umum'
+    // tipe_fasilitas NULL (baris lama / jalur lain) diperlakukan sebagai 'umum'
+    // supaya tidak "hilang" dari kedua tab.
+    const tipe = asset.tipe_fasilitas ?? 'umum'
+    const matchesTab = activeTab.value === 'Fasilitas Kamar' ? tipe === 'kamar' : tipe !== 'kamar'
     if (!matchesTab) return false
 
     // Location Filter
@@ -553,6 +624,34 @@ onMounted(async () => {
   await loadInventories()
 })
 
+onBeforeUnmount(() => {
+  resetNotaState()
+})
+
+// Bersihkan semua state nota form (dipanggil saat buka/tutup form & unmount).
+function revokeNewPreview() {
+  if (newReceiptPreview.value) URL.revokeObjectURL(newReceiptPreview.value)
+  newReceiptPreview.value = null
+}
+function resetNotaState() {
+  revokeNewPreview()
+  receiptFile.value = null
+  notaPendingDelete.value = false
+  existingPreviewUrl.value = null
+  existingPreviewStatus.value = 'idle'
+  previewRequestSeq++ // abaikan respons signed URL yang masih berjalan
+}
+
+// Form ditutup lewat jalur apa pun -> lepas blob URL. Tidak ada yang tersimpan,
+// jadi nota lama tetap utuh (hapus nota hanya berlaku saat Simpan).
+watch(showModal, (open) => {
+  if (!open) resetNotaState()
+})
+
+function tutupModal() {
+  showModal.value = false
+}
+
 // Action triggers
 function bukaModalTambah() {
   form.id = null
@@ -563,10 +662,8 @@ function bukaModalTambah() {
   form.tanggal_pembelian = localToday()
   form.harga = null
   form.tipe_fasilitas = activeTab.value === 'Fasilitas Kamar' ? 'kamar' : 'umum'
-  form.receiptPreview = null
-  form.receipt_path = null
   form.original_receipt_path = null
-  receiptFile.value = null
+  resetNotaState()
   showModal.value = true
 }
 
@@ -577,23 +674,34 @@ function bukaModalEdit(asset) {
   form.room_id = asset.room_id || ''
   form.kondisi = asset.kondisi
   form.tanggal_pembelian = asset.tanggal_pembelian || ''
+  // NULL tetap NULL (harga tidak diketahui); 0 tetap 0.
   form.harga = asset.harga ?? null
-  form.tipe_fasilitas = asset.tipe_fasilitas
-  form.receiptPreview = null
-  form.receipt_path = asset.receipt_url ?? null
+  // NULL tampil di tab Umum, jadi form juga menampilkannya sebagai Umum.
+  form.tipe_fasilitas = asset.tipe_fasilitas ?? 'umum'
   form.original_receipt_path = asset.receipt_url ?? null
-  receiptFile.value = null
+  resetNotaState()
   showModal.value = true
+  muatPratinjauNota()
+}
 
-  // Bucket nota privat: pratinjau memakai signed URL berumur pendek
-  if (asset.receipt_url) {
-    const editingId = asset.id
-    getSignedUrl(RECEIPT_BUCKET, asset.receipt_url).then((url) => {
-      if (form.id === editingId && !receiptFile.value && form.receipt_path) {
-        form.receiptPreview = url
-      }
+// Bucket nota privat: pratinjau nota lama memakai signed URL berumur pendek.
+function muatPratinjauNota() {
+  const value = form.original_receipt_path
+  if (!value) return
+  const seq = ++previewRequestSeq
+  existingPreviewUrl.value = null
+  existingPreviewStatus.value = 'loading'
+  getSignedUrl(RECEIPT_BUCKET, value)
+    .then((url) => {
+      if (seq !== previewRequestSeq) return // form sudah ditutup/dibuka ulang
+      existingPreviewUrl.value = url || null
+      existingPreviewStatus.value = url ? 'ready' : 'error'
     })
-  }
+    .catch((err) => {
+      if (seq !== previewRequestSeq) return
+      console.warn('[SimKos] Pratinjau nota gagal dimuat:', err?.message || err)
+      existingPreviewStatus.value = 'error'
+    })
 }
 
 // File Upload Handler
@@ -608,14 +716,28 @@ function handleFileUpload(e) {
     return
   }
 
+  revokeNewPreview() // ganti file: lepas blob URL file sebelumnya
   receiptFile.value = file
-  form.receiptPreview = URL.createObjectURL(file)
+  newReceiptPreview.value = URL.createObjectURL(file)
+  e.target.value = ''
 }
 
-function hapusNotaPreview() {
+// ✕ pada file BARU: batalkan file itu saja. Nota lama (bila ada) tampil lagi,
+// atau tetap berstatus "akan dihapus" bila sebelumnya memang sudah ditandai.
+function batalkanFileBaru() {
+  revokeNewPreview()
   receiptFile.value = null
-  form.receiptPreview = null
-  form.receipt_path = null
+}
+
+// ✕ pada nota LAMA (tidak ada file baru): tandai hapus, berlaku saat Simpan.
+function tandaiHapusNota() {
+  if (receiptFile.value) return batalkanFileBaru()
+  notaPendingDelete.value = true
+}
+
+function batalHapusNota() {
+  notaPendingDelete.value = false
+  if (existingPreviewStatus.value !== 'ready') muatPratinjauNota()
 }
 
 async function bukaFotoNota(storedValue) {
@@ -680,12 +802,14 @@ async function handleSubmit() {
       room_id: form.tipe_fasilitas === 'kamar' && form.room_id ? form.room_id : null,
       kondisi: form.kondisi,
       tanggal_pembelian: form.tanggal_pembelian || null,
-      harga: form.harga === null || form.harga === '' ? 0 : Number(form.harga),
+      // Kosong ('' dari v-model.number yang dikosongkan, atau null/undefined dari
+      // form baru / harga NULL) -> NULL = "harga tidak diketahui". 0 tetap 0.
+      harga: form.harga === '' || form.harga == null ? null : Number(form.harga),
       tipe_fasilitas: form.tipe_fasilitas,
     }
 
     const known = form.original_receipt_path // nilai DB saat form dibuka (apa adanya)
-    const notaRemoved = known !== null && form.receipt_path === null && !receiptFile.value
+    const notaRemoved = known !== null && notaPendingDelete.value && !receiptFile.value
 
     // 1. Upload nota baru dulu (file baru belum dirujuk siapa pun).
     if (receiptFile.value) {
@@ -769,12 +893,13 @@ async function hapusAset() {
       .from('inventories')
       .delete()
       .eq('id', asset.id)
-      .select('id')
+      .select('id, receipt_url')
     if (error) throw error
     if (!data || data.length === 0) throw new Error(NOT_FOUND_MSG)
 
-    // 2. FILE belakangan (non-blocking).
-    const note = await hapusFileNotaLama(asset.receipt_url)
+    // 2. FILE belakangan (non-blocking). Pakai receipt_url dari baris yang BENAR-BENAR
+    // terhapus, bukan dari daftar yang mungkin basi (nota bisa sudah diganti user lain).
+    const note = await hapusFileNotaLama(data[0].receipt_url ?? null)
 
     inventoriesList.value = inventoriesList.value.filter(a => a.id !== asset.id)
     isDeleting.value = false
@@ -801,6 +926,13 @@ function formatCurrency(value) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(value)
+}
+
+// Harga NULL = tidak diketahui -> "–"; 0 tetap "Rp 0".
+function formatHarga(value) {
+  if (value === null || value === undefined || value === '') return '–'
+  const n = Number(value)
+  return Number.isFinite(n) ? formatCurrency(n) : '–'
 }
 
 function formatDateDisplay(dateStr) {
