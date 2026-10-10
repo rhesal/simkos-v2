@@ -326,6 +326,9 @@ const router = useRouter()
 // Nilai khusus di dropdown untuk tagihan bersama. Disimpan sebagai location_id = NULL
 // (kolom nullable; RLS expenses_org_access mengizinkan location_id NULL).
 const SEMUA_KOS = '__SEMUA_KOS__'
+const CONFLICT_MSG = 'Data sudah diubah oleh pengguna lain, muat ulang halaman.'
+const NOT_FOUND_MSG = 'Pengeluaran tidak ditemukan. Mungkin sudah dihapus.'
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const DEFAULT_KATEGORI = ['Listrik', 'Air', 'Internet', 'Kebersihan', 'Perbaikan', 'Lainnya']
 
 const isEdit = computed(() => !!props.id)
@@ -391,6 +394,11 @@ async function loadLocations() {
 
 // Edit: muat baris pengeluaran
 async function loadExpense() {
+  // :id bukan UUID -> tampilkan keadaan "tidak ditemukan" tanpa query (TC3-28)
+  if (!UUID_RE.test(props.id || '')) {
+    loadError.value = NOT_FOUND_MSG
+    return
+  }
   isLoadingExpense.value = true
   try {
     const { data, error } = await supabase
@@ -401,7 +409,7 @@ async function loadExpense() {
 
     if (error) throw error
     if (!data) {
-      loadError.value = 'Pengeluaran tidak ditemukan. Mungkin sudah dihapus.'
+      loadError.value = NOT_FOUND_MSG
       return
     }
 
@@ -452,8 +460,22 @@ function removeFile() {
   if (fileInputRef.value) fileInputRef.value.value = ''
 }
 
-// Edit: hapus nota yang tersimpan (pola sama dengan clearKtpDocument).
-// File dihapus DULU; kolom DB baru dikosongkan bila penghapusan file berhasil.
+// Bila update mengenai 0 baris: bedakan "baris sudah tidak ada / tidak boleh diakses"
+// dari "nilai nota sudah diubah orang lain" (syarat compare-and-set tidak cocok).
+async function explainZeroRows() {
+  const { data } = await supabase.from('expenses').select('id').eq('id', props.id).maybeSingle()
+  return data ? CONFLICT_MSG : NOT_FOUND_MSG
+}
+
+// Compare-and-set pada kolom nota: hanya cocok bila nilainya masih sama dengan
+// yang kita ketahui (nilai setelah penghapusan nota di sesi ini, bila ada).
+function whereNotaIs(query, known) {
+  return known === null ? query.is('bukti_nota_url', null) : query.eq('bukti_nota_url', known)
+}
+
+// Edit: hapus nota yang tersimpan.
+// Aturan: BARIS dulu, FILE belakangan. Kolom dikosongkan dulu (dengan syarat nilai
+// masih sama); kegagalan menghapus file hanya peringatan, bukan error.
 async function removeExistingNota() {
   if (!isEdit.value || !existingNotaPath.value || isBusy.value) return
   if (!confirm('Hapus foto nota ini? File nota akan langsung dihapus permanen.')) return
@@ -461,30 +483,29 @@ async function removeExistingNota() {
   isRemovingNota.value = true
   errorMsg.value = ''
   successMsg.value = ''
+  const known = existingNotaPath.value
   try {
-    try {
-      await deleteStorageFile(RECEIPT_BUCKET, existingNotaPath.value)
-    } catch (delErr) {
-      console.error('[SimKos] Gagal menghapus file nota:', delErr?.message || delErr)
-      errorMsg.value = 'Gagal menghapus file nota dari penyimpanan. Data nota tidak diubah. Periksa koneksi lalu coba lagi.'
-      return
-    }
-
-    const { data, error } = await supabase
-      .from('expenses')
-      .update({ bukti_nota_url: null })
-      .eq('id', props.id)
-      .select('id')
+    const { data, error } = await whereNotaIs(
+      supabase.from('expenses').update({ bukti_nota_url: null }).eq('id', props.id),
+      known,
+    ).select('id')
 
     if (error) throw error
-    if (!data || data.length === 0) throw new Error('Data pengeluaran tidak ditemukan atau tidak boleh diubah.')
+    if (!data || data.length === 0) throw new Error(await explainZeroRows())
 
     existingNotaPath.value = null
     existingNotaUrl.value = null
-    successMsg.value = 'Nota berhasil dihapus.'
+
+    try {
+      await deleteStorageFile(RECEIPT_BUCKET, known)
+      successMsg.value = 'Nota berhasil dihapus.'
+    } catch (delErr) {
+      console.error('[SimKos] Kolom nota dikosongkan, tapi file gagal dihapus (file yatim):', known, delErr?.message || delErr)
+      successMsg.value = 'Nota berhasil dihapus. Sisa file nota akan dibersihkan saat perawatan berkala.'
+    }
   } catch (err) {
-    console.error('[SimKos] Gagal mengosongkan kolom nota:', err)
-    errorMsg.value = `File nota sudah terhapus, tapi data pengeluaran gagal diperbarui: ${err.message || err}. Coba hapus nota lagi.`
+    console.error('[SimKos] Gagal menghapus nota:', err)
+    errorMsg.value = `Gagal menghapus nota: ${err.message || err}`
   } finally {
     isRemovingNota.value = false
   }
@@ -522,35 +543,39 @@ async function handleSubmit() {
     }
 
     if (isEdit.value) {
-      // 2a. Update. Kolom nota hanya diubah bila ada file baru.
-      const oldNota = existingNotaPath.value
-      if (receiptPath) payload.bukti_nota_url = receiptPath
+      // 2a. Update. Kolom nota HANYA ikut di payload bila ada file baru, supaya
+      //     nota yang baru ditambahkan partner tidak tertimpa (TC3-33).
+      const known = existingNotaPath.value // nilai terkini (setelah hapus nota di sesi ini)
+      let query = supabase.from('expenses')
+      if (receiptPath) {
+        payload.bukti_nota_url = receiptPath
+        query = whereNotaIs(query.update(payload).eq('id', props.id), known)
+      } else {
+        query = query.update(payload).eq('id', props.id)
+      }
 
-      const { data, error: updateError } = await supabase
-        .from('expenses')
-        .update(payload)
-        .eq('id', props.id)
-        .select('id')
+      const { data, error: updateError } = await query.select('id')
 
       if (updateError || !data || data.length === 0) {
         if (receiptPath) await removeStorageFile(RECEIPT_BUCKET, receiptPath)
-        throw new Error(`Gagal menyimpan perubahan: ${updateError?.message || 'data tidak ditemukan atau tidak boleh diubah'}`)
+        const reason = updateError ? `Gagal menyimpan perubahan: ${updateError.message}` : await explainZeroRows()
+        throw new Error(reason)
       }
 
-      // Nota lama baru dihapus setelah DB menunjuk ke file baru.
-      let warn = ''
-      if (receiptPath && oldNota && oldNota !== receiptPath) {
-        const removed = await removeStorageFile(RECEIPT_BUCKET, oldNota)
+      // Nota lama baru dihapus setelah DB menunjuk ke file baru (baris dulu, file belakangan).
+      let note = ''
+      if (receiptPath && known && known !== receiptPath) {
+        const removed = await removeStorageFile(RECEIPT_BUCKET, known)
         if (!removed) {
-          console.error('[SimKos] Nota lama gagal dihapus (file yatim):', oldNota)
-          warn = ' (catatan: file nota lama gagal dihapus dari penyimpanan)'
+          console.error('[SimKos] Nota lama gagal dihapus (file yatim):', known)
+          note = ' Sisa file nota lama akan dibersihkan saat perawatan berkala.'
         }
       }
 
-      successMsg.value = `Perubahan berhasil disimpan!${warn}`
+      successMsg.value = `Perubahan berhasil disimpan.${note}`
       setTimeout(() => {
         router.push('/riwayat-transaksi')
-      }, warn ? 3000 : 1500)
+      }, note ? 3000 : 1500)
     } else {
       // 2b. Insert to expenses table
       const { error: insertError } = await supabase

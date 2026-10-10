@@ -190,8 +190,9 @@
             :role="tx.tipe === 'keluar' ? 'button' : undefined"
             :tabindex="tx.tipe === 'keluar' ? 0 : undefined"
             :aria-label="tx.tipe === 'keluar' ? `Lihat detail pengeluaran ${tx.keterangan}` : undefined"
-            @click="tx.tipe === 'keluar' && openExpenseDetail(tx)"
-            @keydown.enter="tx.tipe === 'keluar' && openExpenseDetail(tx)"
+            @click="tx.tipe === 'keluar' && openExpenseDetail(tx, $event)"
+            @keydown.enter="tx.tipe === 'keluar' && openExpenseDetail(tx, $event)"
+            @keydown.space.prevent="tx.tipe === 'keluar' && openExpenseDetail(tx, $event)"
           >
             <!-- Type Icon/Badge -->
             <div
@@ -239,6 +240,13 @@
                 </span>
               </div>
             </div>
+
+            <!-- Penanda baris pengeluaran bisa diketuk -->
+            <span
+              v-if="tx.tipe === 'keluar'"
+              class="flex-shrink-0 text-2xl font-black text-text-muted leading-none -mr-1 print-hide"
+              aria-hidden="true"
+            >›</span>
           </div>
         </div>
       </template>
@@ -251,11 +259,13 @@
       @click.self="closeExpenseDetail"
     >
       <div
+        ref="dialogEl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="expense-detail-title"
-        class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-100 space-y-4 max-h-[90vh] overflow-y-auto"
-        @keydown.esc="closeExpenseDetail"
+        tabindex="-1"
+        class="outline-none bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-100 space-y-4 max-h-[90vh] overflow-y-auto"
+        @keydown.esc.prevent="closeExpenseDetail"
       >
         <!-- Detail -->
         <template v-if="!confirmDelete">
@@ -369,7 +379,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { supabase } from '../supabase.js'
 import { RECEIPT_BUCKET, getSignedUrl, deleteStorageFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
@@ -502,7 +512,11 @@ const deleteError = ref('')
 const pageMsg = ref('')
 const pageMsgType = ref('success')
 
-function openExpenseDetail(tx) {
+const dialogEl = ref(null)
+let lastFocusedRow = null
+
+function openExpenseDetail(tx, event) {
+  lastFocusedRow = event?.currentTarget || null
   detailTx.value = tx
   confirmDelete.value = false
   deleteError.value = ''
@@ -513,6 +527,8 @@ function openExpenseDetail(tx) {
       .then((url) => { if (detailTx.value === tx) detailNotaUrl.value = url })
       .finally(() => { detailNotaLoading.value = false })
   }
+  // Pindahkan fokus ke dialog supaya Esc langsung berfungsi
+  nextTick(() => dialogEl.value?.focus())
 }
 
 function closeExpenseDetail() {
@@ -520,6 +536,10 @@ function closeExpenseDetail() {
   detailTx.value = null
   detailNotaUrl.value = null
   confirmDelete.value = false
+  // Kembalikan fokus ke baris asal (bila masih ada di DOM)
+  const row = lastFocusedRow
+  lastFocusedRow = null
+  nextTick(() => { if (row && row.isConnected) row.focus() })
 }
 
 // Hapus BARIS dulu, baru file nota. Urutan ini menjamin tidak pernah ada baris
@@ -552,9 +572,10 @@ async function deleteExpense() {
 
     // Hapus dari daftar; total dihitung ulang otomatis (computed).
     transactionsList.value = transactionsList.value.filter(t => t.id !== tx.id)
-    pageMsgType.value = notaFailed ? 'error' : 'success'
+    // Kegagalan hapus file hanya peringatan (baris sudah terhapus, data konsisten).
+    pageMsgType.value = 'success'
     pageMsg.value = notaFailed
-      ? `Pengeluaran ${formatCurrency(tx.nominal)} terhapus, tapi file nota gagal dihapus dari penyimpanan.`
+      ? `Pengeluaran ${formatCurrency(tx.nominal)} berhasil dihapus. Sisa file nota akan dibersihkan saat perawatan berkala.`
       : `Pengeluaran ${formatCurrency(tx.nominal)} tanggal ${formatDateDisplay(tx.tanggal)} berhasil dihapus.`
 
     isDeleting.value = false
@@ -635,7 +656,7 @@ const selectedLocationFilterName = computed(() => {
 })
 
 function exportToCSV() {
-  const headers = ['Tanggal', 'Tipe', 'Lokasi/Kamar', 'Keterangan', 'Nominal', 'Lokasi', 'Dihitung di total kos ini']
+  const headers = ['Tanggal', 'Tipe', 'Entitas', 'Keterangan', 'Nominal', 'Lokasi', 'Dihitung di total kos ini']
   
   const rows = filteredTransactions.value.map(tx => [
     formatDateDisplay(tx.tanggal),

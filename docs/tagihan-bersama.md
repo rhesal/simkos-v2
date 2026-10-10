@@ -15,20 +15,32 @@ Pengeluaran yang berlaku untuk semua kos, misalnya internet, dicatat **sekali** 
 
 Ini berlaku untuk semua pengeluaran, baik per kos maupun tagihan bersama.
 
-- **Lihat:** buka Buku Besar (`/riwayat-transaksi`), lalu ketuk baris pengeluaran. Modal detail menampilkan tanggal, kategori, lokasi, keterangan, dan foto nota (lewat signed URL).
-- **Ubah:** di modal detail, tombol "✏️ Ubah" membuka `/pengeluaran/:id/edit`. Form-nya memakai ulang `TambahPengeluaranView.vue`, dan semua field bisa diubah, termasuk lokasi kos atau tagihan bersama.
-  - **Ganti nota:** file baru di-upload ke `<org_id>/receipt_...` dulu, lalu baris diperbarui. Nota lama baru dihapus setelah update DB berhasil. Kalau update gagal, file baru yang sudah ter-upload dihapus lagi.
-  - **Hapus nota:** file dihapus dulu, lalu kolom `bukti_nota_url` dikosongkan hanya kalau penghapusan file berhasil. Polanya sama dengan `clearKtpDocument`.
-  - Validasi file sama dengan saat input: JPG/PNG/WEBP, maksimal 5 MB.
-- **Hapus:** tombol "🗑️ Hapus" di modal detail memunculkan konfirmasi berisi nominal, tanggal, dan peringatan bahwa nota ikut terhapus permanen.
-  - **Baris dihapus dulu, baru file nota.** Dengan urutan ini, tidak akan pernah ada baris yang menunjuk ke file yang sudah hilang.
-  - Kalau file gagal dihapus, error dicatat di console (file jadi yatim) dan user diberi tahu.
+**Aturan umum file dan baris: BARIS dulu, FILE belakangan.**
+- Perubahan di DB selalu dilakukan lebih dulu. File di Storage baru dihapus setelah DB berhasil berubah, supaya tidak pernah ada baris yang menunjuk ke file yang sudah hilang.
+- Kalau penghapusan file gagal, itu bukan error yang memblokir. Kegagalannya dicatat di console sebagai file yatim, dan user mendapat pesan bergaya sukses: "... Sisa file nota akan dibersihkan saat perawatan berkala."
+- File yatim aman, karena bucket-nya private dan hanya bisa diakses anggota org.
+
+**Alur per aksi:**
+- **Lihat:** buka Buku Besar (`/riwayat-transaksi`), lalu ketuk baris pengeluaran. Baris yang bisa diketuk ditandai `›`, dan juga bisa dibuka lewat Enter atau Spasi. Modal detail menampilkan tanggal, kategori, lokasi, keterangan, dan foto nota (lewat signed URL). Saat modal terbuka, fokus pindah ke dialog sehingga Esc bisa menutupnya. Setelah ditutup, fokus kembali ke baris asal.
+- **Ubah:** buka `/pengeluaran/:id/edit`. Form-nya memakai ulang `TambahPengeluaranView.vue`. Kalau `:id` bukan UUID, atau barisnya tidak ada atau tidak bisa diakses, yang tampil adalah "Pengeluaran tidak ditemukan".
+  - **Nota tidak diubah:** `bukti_nota_url` **tidak ikut** dikirim di payload update, supaya nota yang baru ditambahkan partner tidak tertimpa.
+  - **Ganti nota:**
+    1. File baru di-upload ke `<org_id>/...`.
+    2. Baris diperbarui dengan **compare-and-set** terhadap nilai nota yang terakhir diketahui: `.is('bukti_nota_url', null)` atau `.eq('bukti_nota_url', known)`. Nilai `known` adalah nilai setelah penghapusan nota di sesi yang sama, kalau ada.
+    3. Kalau 0 baris berubah, muncul pesan "Data sudah diubah oleh pengguna lain, muat ulang halaman.", atau "tidak ditemukan" kalau barisnya sudah dihapus. File baru lalu dihapus lagi.
+    4. Kalau berhasil, file nota lama dihapus (non-blocking).
+  - **Hapus nota:** kolom dikosongkan dulu dengan compare-and-set yang sama, baru file-nya dihapus (non-blocking).
+  - Validasi file: JPG/PNG/WEBP, maksimal 5 MB.
+- **Hapus pengeluaran:**
+  - Ada konfirmasi berisi nominal dan tanggal, plus peringatan bahwa nota ikut terhapus permanen.
+  - Baris dihapus dulu, baru file nota (non-blocking).
   - Total di layar langsung dihitung ulang.
-- **RLS:** tidak perlu migration.
-  - Policy `expenses_org_access` (migration 210) berlaku `for all` dengan `is_org_member(org_id)`, jadi update dan delete diizinkan untuk anggota org. `location_id` NULL juga lolos `with check`.
-  - Trigger `expenses_nota_path_org` mengizinkan nilai yang tidak berubah, `NULL`, dan path baru berprefiks `<org_id>/`.
-  - Policy storage `simkos_private_images_delete_org` mengizinkan anggota org menghapus file di folder org-nya.
-  - Update dan delete memakai `.select('id')`, supaya penolakan RLS yang tidak memunculkan error (0 baris) tetap terdeteksi sebagai gagal.
+
+**RLS:** tidak perlu migration.
+- Policy `expenses_org_access` (migration 210) berlaku `for all` dengan `is_org_member(org_id)`, jadi update dan delete diizinkan untuk anggota org. `location_id` NULL juga lolos `with check`.
+- Trigger `expenses_nota_path_org` mengizinkan nilai yang tidak berubah, `NULL`, dan path baru berprefiks `<org_id>/`.
+- Policy storage `simkos_private_images_delete_org` mengizinkan anggota org menghapus file di folder org-nya.
+- Update dan delete memakai `.select('id')`, supaya penolakan RLS atau konflik yang menghasilkan 0 baris tetap terdeteksi.
 
 ## Opsi ke depan
 
