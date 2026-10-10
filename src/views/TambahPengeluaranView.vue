@@ -247,6 +247,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '../supabase.js'
+import { RECEIPT_BUCKET, uploadPrivateFile, removeStorageFile } from '../lib/storage.js'
 
 const router = useRouter()
 
@@ -330,19 +331,11 @@ async function handleSubmit() {
   try {
     // 1. Upload receipt if exists
     if (receiptFile.value) {
-      const timestamp = Date.now()
-      const ext = receiptFile.value.name.split('.').pop()
-      const fileName = `receipt_${timestamp}.${ext}`
-
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('receipt_images')
-        .upload(fileName, receiptFile.value, {
-          cacheControl: '3600',
-          upsert: false,
-        })
-
-      if (uploadError) throw new Error(`Gagal unggah nota: ${uploadError.message}`)
-      receiptPath = uploadData.path
+      try {
+        receiptPath = await uploadPrivateFile(RECEIPT_BUCKET, 'receipt', receiptFile.value)
+      } catch (uploadError) {
+        throw new Error(`Gagal unggah nota: ${uploadError.message}`)
+      }
     }
 
     // 2. Insert to expenses table
@@ -360,7 +353,7 @@ async function handleSubmit() {
     if (insertError) {
       // Cleanup uploaded file if DB insert fails
       if (receiptPath) {
-        await supabase.storage.from('receipt_images').remove([receiptPath])
+        await removeStorageFile(RECEIPT_BUCKET, receiptPath)
       }
       throw new Error(`Gagal menyimpan data pengeluaran: ${insertError.message}`)
     }

@@ -564,10 +564,10 @@
           <div class="mt-4">
             <label class="text-xs font-semibold text-slate-600 block mb-1">🪪 Dokumen KTP Penyewa</label>
             <!-- Jika sudah ada KTP -->
-            <div v-if="selectedRoom?.foto_ktp" class="flex items-center justify-between bg-slate-50 p-2 rounded-xl border border-slate-100 mt-1">
+            <div v-if="selectedRoom?.activeRental?.tenants?.foto_ktp_url" class="flex items-center justify-between bg-slate-50 p-2 rounded-xl border border-slate-100 mt-1">
               <div class="flex items-center space-x-2">
                 <span class="text-xs text-green-600 font-medium">✓ KTP Tersimpan</span>
-                <a :href="selectedRoom.foto_ktp" target="_blank" class="text-xs text-blue-500 underline hover:text-blue-700">Lihat Foto</a>
+                <button type="button" @click="lihatFotoKtp" class="text-xs text-blue-500 underline hover:text-blue-700">Lihat Foto</button>
               </div>
               <!-- Tombol Koreksi Berkas -->
               <button type="button" @click="clearKtpDocument" class="text-xs text-red-500 hover:text-red-700 font-medium transition p-1">
@@ -737,6 +737,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { supabase } from '../supabase.js'
+import { KTP_BUCKET, getSignedUrl, uploadPrivateFile, removeStorageFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
 
 const isLoading = ref(true)
@@ -832,17 +833,14 @@ async function loadRoomsAndRentals() {
     // Post-process to map active rental and days left
     roomsList.value = (data || []).map(room => {
       const activeRental = room.rentals?.find(r => r.status_aktif === true) || null
-      let fotoKtp = null
       if (activeRental) {
         activeRental.diffDays = getDiffDays(activeRental.tanggal_jatuh_tempo)
-        if (activeRental.tenants?.foto_ktp_url) {
-          fotoKtp = getKtpPublicUrl(activeRental.tenants.foto_ktp_url)
-        }
       }
+      // Foto KTP TIDAK lagi di-resolve ke URL publik di sini.
+      // Signed URL dibuat on-demand saat tombol "Lihat Foto" ditekan (lihatFotoKtp).
       return {
         ...room,
-        activeRental,
-        foto_ktp: fotoKtp
+        activeRental
       }
     })
   } catch (err) {
@@ -916,11 +914,6 @@ function handleRoomClick(room) {
   isEditingDates.value = false
   editStartDate.value = ''
   editDueDate.value = ''
-  if (room.activeRental?.tenants?.foto_ktp_url) {
-    room.foto_ktp = getKtpPublicUrl(room.activeRental.tenants.foto_ktp_url)
-  } else {
-    room.foto_ktp = null
-  }
   selectedRoom.value = room
   if (room.activeRental) {
     showDetailModal.value = true
@@ -1337,12 +1330,25 @@ async function updateRentalDates() {
   }
 }
 
-// Get public URL for KTP photo
-function getKtpPublicUrl(path) {
-  if (!path) return null
-  if (path.startsWith('http://') || path.startsWith('https://')) return path
-  const { data } = supabase.storage.from('ktp_images').getPublicUrl(path)
-  return data?.publicUrl || null
+// Buka foto KTP lewat signed URL berumur pendek (bucket ktp_images privat).
+// Mendukung baris lama yang masih menyimpan URL publik penuh.
+async function lihatFotoKtp() {
+  const stored = selectedRoom.value?.activeRental?.tenants?.foto_ktp_url
+  if (!stored) return
+  // Buka tab dulu secara sinkron agar tidak diblokir popup blocker
+  const win = window.open('', '_blank')
+  const url = await getSignedUrl(KTP_BUCKET, stored)
+  if (!url) {
+    if (win) win.close()
+    alert('Foto KTP tidak dapat dimuat. Coba lagi nanti.')
+    return
+  }
+  if (win) {
+    win.opener = null
+    win.location.href = url
+  } else {
+    window.location.href = url
+  }
 }
 
 // Handle KTP file change & upload
@@ -1363,41 +1369,29 @@ async function handleKtpFileChange(e) {
   isLoading.value = true
 
   try {
-    // 1. Generate unique file name
-    const fileExtension = file.name.split('.').pop()
-    const uniqueFileName = `ktp_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExtension}`
-
-    // 2. Upload to Supabase Storage bucket 'ktp_images'
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('ktp_images')
-      .upload(uniqueFileName, file, {
-        cacheControl: '3600',
-        upsert: false
-      })
-
-    if (uploadError) throw uploadError
-
-    const ktpPath = uploadData.path
-
-    // 3. Get Public URL
-    const publicUrl = getKtpPublicUrl(ktpPath)
-
-    // 4. Update tenants table
     const tenantId = editForm.tenantId || selectedRoom.value?.activeRental?.tenant_id
     if (!tenantId) {
       throw new Error('ID Penghuni tidak ditemukan!')
     }
 
+    // 1. Upload ke bucket privat 'ktp_images' dengan path "<user_id>/ktp_...".
+    //    DB hanya menyimpan path objek, bukan URL publik.
+    const ktpPath = await uploadPrivateFile(KTP_BUCKET, 'ktp', file)
+
+    // 2. Update tenants table
     const { error: updateError } = await supabase
       .from('tenants')
       .update({ foto_ktp_url: ktpPath })
       .eq('id', tenantId)
 
-    if (updateError) throw updateError
+    if (updateError) {
+      // Rollback file yang sudah terunggah
+      await removeStorageFile(KTP_BUCKET, ktpPath)
+      throw updateError
+    }
 
-    // 5. Update local state
+    // 3. Update local state
     if (selectedRoom.value) {
-      selectedRoom.value.foto_ktp = publicUrl
       if (selectedRoom.value.activeRental?.tenants) {
         selectedRoom.value.activeRental.tenants.foto_ktp_url = ktpPath
       }
@@ -1406,7 +1400,6 @@ async function handleKtpFileChange(e) {
     // Update in roomsList
     const localRoom = roomsList.value.find(r => r.id === selectedRoom.value?.id)
     if (localRoom) {
-      localRoom.foto_ktp = publicUrl
       if (localRoom.activeRental?.tenants) {
         localRoom.activeRental.tenants.foto_ktp_url = ktpPath
       }
@@ -1433,6 +1426,8 @@ async function clearKtpDocument() {
     }
 
     isLoading.value = true
+    const oldKtp = selectedRoom.value?.activeRental?.tenants?.foto_ktp_url || null
+
     const { error } = await supabase
       .from('tenants')
       .update({ foto_ktp_url: null })
@@ -1440,9 +1435,13 @@ async function clearKtpDocument() {
 
     if (error) throw error
 
+    // Hapus file KTP lama dari storage (best effort) agar data pribadi tidak tertinggal
+    if (oldKtp) {
+      await removeStorageFile(KTP_BUCKET, oldKtp)
+    }
+
     // Sinkronisasi State Frontend secara instan agar input file muncul kembali
     if (selectedRoom.value) {
-      selectedRoom.value.foto_ktp = null
       if (selectedRoom.value.activeRental?.tenants) {
         selectedRoom.value.activeRental.tenants.foto_ktp_url = null
       }
@@ -1450,7 +1449,6 @@ async function clearKtpDocument() {
 
     const localRoom = roomsList.value.find(r => r.id === selectedRoom.value?.id)
     if (localRoom) {
-      localRoom.foto_ktp = null
       if (localRoom.activeRental?.tenants) {
         localRoom.activeRental.tenants.foto_ktp_url = null
       }
