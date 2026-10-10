@@ -3,9 +3,15 @@
 // Aturan:
 // - Database HANYA menyimpan path objek di bucket (mis. "<user_id>/ktp_<uuid>.jpg"),
 //   bukan URL publik.
-// - Untuk menampilkan file, gunakan signed URL berumur pendek:
-//     ktp_images     -> 5 menit, TIDAK di-cache
+// - Foto KTP ditampilkan lewat downloadPrivateFile() -> Blob -> blob URL di
+//   modal (components/KtpViewerModal.vue). Tidak ada URL yang bisa dibagikan
+//   atau masuk riwayat browser.
+// - Nota ditampilkan lewat signed URL:
+//     ktp_images     -> 5 menit, TIDAK di-cache (cadangan; UI memakai download)
 //     receipt_images -> 1 jam, di-cache di memori (dibuang sebelum kedaluwarsa)
+// - Upload KTP memakai cacheControl '0' (header "max-age=0") agar response
+//   download tidak disimpan lama di cache HTTP browser. Catatan: storage-js
+//   selalu mengirim `max-age=<nilai>`, jadi 'no-store' TIDAK valid di sini.
 // - Cache signed URL dikosongkan saat logout / user berganti (lihat
 //   initStorageAuthListener, dipanggil dari main.js).
 // - Baris lama yang masih menyimpan URL publik penuh tetap didukung:
@@ -43,11 +49,13 @@ export function validateImageFile(file) {
 }
 
 // Konfigurasi per bucket: masa berlaku signed URL (detik) & boleh di-cache atau tidak.
+// uploadCacheControl: detik untuk header Cache-Control objek (storage-js
+// mengirimnya sebagai `max-age=<nilai>`).
 const BUCKET_CONFIG = {
-  [KTP_BUCKET]: { ttl: 5 * 60, cache: false },
-  [RECEIPT_BUCKET]: { ttl: 60 * 60, cache: true },
+  [KTP_BUCKET]: { ttl: 5 * 60, cache: false, uploadCacheControl: '0' },
+  [RECEIPT_BUCKET]: { ttl: 60 * 60, cache: true, uploadCacheControl: '3600' },
 }
-const DEFAULT_CONFIG = { ttl: 5 * 60, cache: false }
+const DEFAULT_CONFIG = { ttl: 5 * 60, cache: false, uploadCacheControl: '0' }
 
 export function signedUrlTtl(bucket) {
   return (BUCKET_CONFIG[bucket] || DEFAULT_CONFIG).ttl
@@ -92,6 +100,17 @@ export function clearSignedUrlCache() {
 
 let authListenerStarted = false
 let currentUserId = null
+const signedOutHandlers = new Set()
+
+/**
+ * Daftarkan callback yang dipanggil saat user logout atau berganti.
+ * Mengembalikan fungsi untuk melepas callback (panggil di onUnmounted).
+ * Dipakai modal KTP untuk menutup diri & membuang blob.
+ */
+export function onStorageSignedOut(handler) {
+  signedOutHandlers.add(handler)
+  return () => signedOutHandlers.delete(handler)
+}
 
 /**
  * Pasang listener auth: cache signed URL dikosongkan saat SIGNED_OUT atau
@@ -105,6 +124,13 @@ export function initStorageAuthListener() {
     const nextUserId = session?.user?.id || null
     if (event === 'SIGNED_OUT' || nextUserId !== currentUserId) {
       clearSignedUrlCache()
+      for (const handler of [...signedOutHandlers]) {
+        try {
+          handler(event)
+        } catch (err) {
+          console.warn('[SimKos] Handler logout gagal:', err?.message || err)
+        }
+      }
     }
     currentUserId = nextUserId
   })
@@ -161,12 +187,26 @@ export async function uploadPrivateFile(bucket, prefix, file) {
   if (invalid) throw new Error(invalid)
   const path = await buildUploadPath(prefix, file)
   const { data, error } = await supabase.storage.from(bucket).upload(path, file, {
-    cacheControl: '3600',
+    cacheControl: (BUCKET_CONFIG[bucket] || DEFAULT_CONFIG).uploadCacheControl,
     upsert: false,
     contentType: file.type,
   })
   if (error) throw error
   return data.path
+}
+
+/**
+ * Unduh file privat sebagai Blob memakai token sesi user (tetap dijaga RLS).
+ * Dipakai untuk menampilkan KTP lewat blob URL tanpa signed URL.
+ * Melempar error bila gagal, supaya UI bisa menampilkan tombol coba lagi.
+ */
+export async function downloadPrivateFile(bucket, value) {
+  const path = toStoragePath(bucket, value)
+  if (!path) throw new Error('File tidak ditemukan.')
+  const { data, error } = await supabase.storage.from(bucket).download(path)
+  if (error) throw error
+  if (!data) throw new Error('File kosong.')
+  return data
 }
 
 /**

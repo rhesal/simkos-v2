@@ -567,7 +567,7 @@
             <div v-if="selectedRoom?.activeRental?.tenants?.foto_ktp_url" class="flex items-center justify-between bg-slate-50 p-2 rounded-xl border border-slate-100 mt-1">
               <div class="flex items-center space-x-2">
                 <span class="text-xs text-green-600 font-medium">✓ KTP Tersimpan</span>
-                <button type="button" @click="lihatFotoKtp" class="text-xs text-blue-500 underline hover:text-blue-700">Lihat Foto</button>
+                <button type="button" @click="lihatFotoKtp" class="text-xs text-blue-500 underline hover:text-blue-700">Lihat KTP</button>
               </div>
               <!-- Tombol Koreksi Berkas -->
               <button type="button" @click="clearKtpDocument" class="text-xs text-red-500 hover:text-red-700 font-medium transition p-1">
@@ -729,6 +729,14 @@
       </div>
     </div>
 
+    <!-- Modal Lihat KTP (download + blob URL, tanpa tab baru / signed URL) -->
+    <KtpViewerModal
+      :open="showKtpViewer"
+      :stored-value="ktpViewerValue"
+      :tenant-name="ktpViewerName"
+      @close="closeKtpViewer"
+    />
+
     <!-- Bottom Navigation Bar -->
     <BottomNav />
   </div>
@@ -737,8 +745,9 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { supabase } from '../supabase.js'
-import { KTP_BUCKET, IMAGE_ACCEPT, validateImageFile, getSignedUrl, uploadPrivateFile, removeStorageFile, deleteStorageFile } from '../lib/storage.js'
+import { KTP_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile, removeStorageFile, deleteStorageFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
+import KtpViewerModal from '../components/KtpViewerModal.vue'
 
 const isLoading = ref(true)
 const roomsList = ref([])
@@ -1330,25 +1339,26 @@ async function updateRentalDates() {
   }
 }
 
-// Buka foto KTP lewat signed URL berumur pendek (bucket ktp_images privat).
-// Mendukung baris lama yang masih menyimpan URL publik penuh.
-async function lihatFotoKtp() {
-  const stored = selectedRoom.value?.activeRental?.tenants?.foto_ktp_url
+// Buka foto KTP di modal dalam aplikasi. File diambil lewat download()
+// (token sesi, dijaga RLS) dan ditampilkan sebagai blob URL, sehingga tidak
+// ada URL yang masuk riwayat browser. Lihat components/KtpViewerModal.vue.
+const showKtpViewer = ref(false)
+const ktpViewerValue = ref('')
+const ktpViewerName = ref('')
+
+function lihatFotoKtp() {
+  const tenant = selectedRoom.value?.activeRental?.tenants
+  const stored = tenant?.foto_ktp_url
   if (!stored) return
-  // Buka tab dulu secara sinkron agar tidak diblokir popup blocker
-  const win = window.open('', '_blank')
-  const url = await getSignedUrl(KTP_BUCKET, stored)
-  if (!url) {
-    if (win) win.close()
-    alert('Foto KTP tidak dapat dimuat. Coba lagi nanti.')
-    return
-  }
-  if (win) {
-    win.opener = null
-    win.location.href = url
-  } else {
-    window.location.href = url
-  }
+  ktpViewerValue.value = stored
+  ktpViewerName.value = tenant?.nama_lengkap || ''
+  showKtpViewer.value = true
+}
+
+function closeKtpViewer() {
+  showKtpViewer.value = false
+  ktpViewerValue.value = ''
+  ktpViewerName.value = ''
 }
 
 // Handle KTP file change & upload

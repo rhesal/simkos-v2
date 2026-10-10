@@ -18,10 +18,11 @@ serta langkah **manual** yang harus dilakukan di Supabase. Perubahan kode saja
 ### Kode frontend
 | File | Perubahan |
 |---|---|
-| `src/lib/storage.js` (baru) | Helper: `uploadPrivateFile`, `getSignedUrl(s)`, `toStoragePath` (ekstrak path dari URL lama), `removeStorageFile` (best effort), `deleteStorageFile` (melempar error), `validateImageFile`. Signed URL per bucket: **`ktp_images` 5 menit, tanpa cache**; **`receipt_images` 1 jam**, di-cache dan dibuang saat sisa umurnya < 20% TTL. Cache dikosongkan saat `SIGNED_OUT` / user berganti (`initStorageAuthListener`, dipasang di `main.js`) dan saat tombol logout. |
+| `src/lib/storage.js` (baru) | Helper: `uploadPrivateFile`, `getSignedUrl(s)`, `toStoragePath` (ekstrak path dari URL lama), `removeStorageFile` (best effort), `deleteStorageFile` (melempar error), `validateImageFile`. Upload KTP memakai `cacheControl: '0'` (header `max-age=0`; storage-js selalu mengirim `max-age=<nilai>` sehingga `'no-store'` tidak valid), nota tetap `3600`. Signed URL per bucket: **`ktp_images` 5 menit, tanpa cache** (cadangan, UI KTP memakai download); **`receipt_images` 1 jam**, di-cache dan dibuang saat sisa umurnya < 20% TTL. Cache dikosongkan saat `SIGNED_OUT` / user berganti (`initStorageAuthListener`, dipasang di `main.js`) dan saat tombol logout. |
 | Validasi file (semua form upload) | Hanya `image/jpeg`, `image/png`, `image/webp`, maks 5 MB (SVG ditolak). Atribut `accept` ikut dibatasi. Nama file `<user_id>/<prefix>_<UUID acak>.<ext>`, ekstensi dari MIME type — nama file asli tidak dipakai. |
 | `src/views/TambahPenghuniView.vue` | Upload KTP ke path `<user_id>/ktp_<uuid>.<ext>`. |
-| `src/views/DaftarPenghuniView.vue` | Tidak lagi `getPublicUrl`. "Lihat Foto" membuat signed URL saat diklik. **Hapus/Ganti KTP:** file dihapus dari storage dulu; kolom `foto_ktp_url` baru dikosongkan bila penghapusan berhasil, kalau gagal user mendapat pesan error dan data tidak diubah. **Unggah KTP pengganti:** file lama dihapus setelah path baru tersimpan (user diberi tahu bila gagal). |
+| `src/components/KtpViewerModal.vue` (baru) | Modal "Lihat KTP": file diambil dengan `downloadPrivateFile()` (`storage.download`, token sesi, dijaga RLS), ditampilkan sebagai blob URL, dan `revokeObjectURL` dipanggil saat modal ditutup (X, Tutup, Esc, klik backdrop). Saat `SIGNED_OUT`/ganti user, modal langsung tertutup dan blob dibuang (`onStorageSignedOut`). Tidak ada signed URL/tab baru, jadi URL tidak masuk riwayat browser. |
+| `src/views/DaftarPenghuniView.vue` | Tidak lagi `getPublicUrl`. "Lihat KTP" membuka `KtpViewerModal`. **Hapus/Ganti KTP:** file dihapus dari storage dulu; kolom `foto_ktp_url` baru dikosongkan bila penghapusan berhasil, kalau gagal user mendapat pesan error dan data tidak diubah. **Unggah KTP pengganti:** file lama dihapus setelah path baru tersimpan (user diberi tahu bila gagal). |
 | `src/views/InventarisView.vue` | Menyimpan **path** (bukan URL publik). Pratinjau & tombol 📷 memakai signed URL. Nota lama dihapus saat diganti / aset dihapus. |
 | `src/views/TambahPengeluaranView.vue` | Upload nota ke path ber-prefix user id. |
 
@@ -122,7 +123,12 @@ SELECT/INSERT/UPDATE/DELETE/ALL yang:
 
 Policy yang menyebut `ktp_images`/`receipt_images` tidak dicek karena memang dihapus
 oleh migration. Pemeriksaannya berbasis teks: ekspresi seperti
-`bucket_id = 'x' OR true` tidak terdeteksi, jadi tetap baca hasil query di bawah.
+`bucket_id = 'x' OR true` atau `owner is not null and auth.uid() is not null` tidak
+terdeteksi. Karena itu migration 300 juga memasang **guard RESTRICTIVE**
+`simkos_private_images_guard` (digabung AND dengan semua policy permisif): objek di
+`ktp_images`/`receipt_images` tetap hanya bisa diakses pemiliknya, apa pun isi policy
+permisif lain. Bucket lain tidak terpengaruh. Pemeriksaan teks tetap dipakai sebagai
+peringatan dini, dan hasil query di bawah tetap perlu dibaca.
 
 1. Lihat semua policy storage:
    ```sql
@@ -175,7 +181,9 @@ group by bucket_id;
 
 Aplikasi (login sebagai pemilik):
 - [ ] Beranda, Keuangan, Riwayat, Inventaris, Daftar Penghuni menampilkan data seperti sebelumnya.
-- [ ] Detail kamar → Edit → "Lihat Foto" KTP membuka foto (URL berisi `/object/sign/` dan `token=`).
+- [ ] Detail kamar → Edit → "Lihat KTP" membuka modal di dalam app (bukan tab baru); di tab Network terlihat request `GET /storage/v1/object/ktp_images/...` dengan header `Authorization`, bukan `/object/sign/`.
+- [ ] Tutup modal, lalu buka URL `blob:` lama di tab baru → harus gagal.
+- [ ] Logout saat modal KTP terbuka → modal langsung tertutup.
 - [ ] Daftar penghuni baru dengan foto KTP berhasil.
 - [ ] Ganti KTP → unggah ulang berhasil.
 - [ ] Tambah pengeluaran dengan nota, tambah/edit aset dengan nota, tombol 📷 menampilkan foto.

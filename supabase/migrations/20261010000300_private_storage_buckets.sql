@@ -29,6 +29,11 @@
 --                   diakses pemiliknya (backward compatible).
 --      Signed URL (createSignedUrl) membutuhkan izin SELECT ini.
 --   Role `anon` tidak mendapat akses apa pun.
+--   4. Guard RESTRICTIVE `simkos_private_images_guard`: digabung AND dengan
+--      SEMUA policy permisif lain, jadi objek di kedua bucket hanya bisa
+--      diakses pemiliknya walaupun ada policy permisif yang lolos pemeriksaan
+--      langkah 0 (mis. `bucket_id = 'x' or true`). Bucket lain tidak
+--      terpengaruh. Langkah 0 tetap dipakai sebagai peringatan dini.
 --
 -- Cek setelah migrasi: file lama dengan owner_id NULL tidak akan bisa
 -- diakses lewat aplikasi — lihat docs/security-ktp.md bagian verifikasi.
@@ -51,7 +56,9 @@
 -- bisa ditambahkan by name ke array `allowed` di bawah.
 --
 -- Keterbatasan: pemeriksaan berbasis teks, bukan parser SQL. Ekspresi seperti
--- `bucket_id = 'x' or true` tidak terdeteksi — tetap tinjau dump pg_policies
+-- `bucket_id = 'x' or true` atau `owner is not null and auth.uid() is not null`
+-- tidak terdeteksi. Perlindungan sebenarnya ada di guard RESTRICTIVE langkah 4;
+-- langkah ini hanya peringatan dini. Tetap tinjau dump pg_policies
 -- (docs/security-ktp.md, Langkah 1).
 do $$
 declare
@@ -178,4 +185,24 @@ create policy simkos_private_images_delete_own on storage.objects
       (storage.foldername(name))[1] = (select auth.uid())::text
       or owner_id = (select auth.uid())::text
     )
+  );
+
+-- 4. Guard RESTRICTIVE untuk kedua bucket privat.
+--    Policy RESTRICTIVE digabung AND dengan policy permisif, jadi apa pun isi
+--    policy permisif lain, akses ke ktp_images/receipt_images tetap dibatasi
+--    ke pemilik. anon tertolak karena auth.uid() NULL. Bucket lain lolos lewat
+--    klausa pertama dan tidak terpengaruh.
+drop policy if exists simkos_private_images_guard on storage.objects;
+create policy simkos_private_images_guard on storage.objects
+  as restrictive
+  for all
+  to public
+  using (
+    bucket_id not in ('ktp_images', 'receipt_images')
+    or (storage.foldername(name))[1] = (select auth.uid())::text
+    or owner_id = (select auth.uid())::text
+  )
+  with check (
+    bucket_id not in ('ktp_images', 'receipt_images')
+    or (storage.foldername(name))[1] = (select auth.uid())::text
   );
