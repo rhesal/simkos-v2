@@ -253,9 +253,9 @@
     </div>
 
     <!-- Modal Detail / Hapus Pengeluaran -->
-    <div
+    <BaseModal
       v-if="detailTx"
-      class="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center p-4 z-50 print-hide"
+      class="bg-black/50 print-hide"
       @click.self="closeExpenseDetail"
     >
       <div
@@ -264,59 +264,63 @@
         aria-modal="true"
         aria-labelledby="expense-detail-title"
         tabindex="-1"
-        class="outline-none bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-100 space-y-4 max-h-[90vh] overflow-y-auto"
+        class="outline-none bg-white rounded-2xl max-w-md w-full shadow-xl border border-slate-100 max-h-[85dvh] flex flex-col overflow-hidden"
         @keydown.esc.prevent="closeExpenseDetail"
       >
         <!-- Detail -->
         <template v-if="!confirmDelete">
-          <div class="flex items-start justify-between gap-3">
+          <div class="min-h-0 flex-1 overflow-y-auto p-6 pb-4 space-y-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <h3 id="expense-detail-title" class="text-lg font-black text-text-primary">Detail Pengeluaran</h3>
+                <p class="text-2xl font-black text-expense mt-1">- {{ formatCurrency(detailTx.nominal) }}</p>
+              </div>
+              <button
+                type="button"
+                class="rounded-lg p-1 text-slate-500 hover:bg-slate-100"
+                aria-label="Tutup"
+                :disabled="isDeleting"
+                @click="closeExpenseDetail"
+              >
+                ✕
+              </button>
+            </div>
+
+            <dl class="grid grid-cols-3 gap-x-3 gap-y-2 text-sm">
+              <dt class="font-bold text-text-muted">Tanggal</dt>
+              <dd class="col-span-2 font-semibold text-text-primary">{{ formatDateDisplay(detailTx.tanggal) }}</dd>
+              <dt class="font-bold text-text-muted">Kategori</dt>
+              <dd class="col-span-2 font-semibold text-text-primary">{{ detailTx.kategori }}</dd>
+              <dt class="font-bold text-text-muted">Lokasi</dt>
+              <dd class="col-span-2 font-semibold text-text-primary">
+                <span
+                  v-if="detailTx.semuaKos"
+                  class="bg-navy/10 text-navy border border-navy/20 px-2 py-0.5 rounded font-bold"
+                >🌐 Tagihan bersama (semua kos)</span>
+                <span v-else>{{ detailTx.lokasiNama }}</span>
+              </dd>
+              <dt class="font-bold text-text-muted">Keterangan</dt>
+              <dd class="col-span-2 font-semibold text-text-primary break-words">{{ detailTx.keteranganAsli || '-' }}</dd>
+            </dl>
+
             <div>
-              <h3 id="expense-detail-title" class="text-lg font-black text-text-primary">Detail Pengeluaran</h3>
-              <p class="text-2xl font-black text-expense mt-1">- {{ formatCurrency(detailTx.nominal) }}</p>
+              <p class="text-sm font-bold text-text-muted mb-2">Bukti Nota</p>
+              <div v-if="!detailTx.bukti_nota_url" class="text-sm font-semibold text-text-secondary">Tidak ada nota.</div>
+              <div
+                v-else
+                class="w-full rounded-xl border-2 border-border bg-gray-50 overflow-hidden flex items-center justify-center min-h-[8rem]"
+              >
+                <img v-if="detailNotaUrl" :src="detailNotaUrl" alt="Bukti nota" class="w-full max-h-[50vh] object-contain" />
+                <span v-else class="text-sm font-semibold text-text-muted p-6">
+                  {{ detailNotaLoading ? 'Memuat nota...' : 'Nota tidak bisa ditampilkan' }}
+                </span>
+              </div>
             </div>
-            <button
-              type="button"
-              class="rounded-lg p-1 text-slate-500 hover:bg-slate-100"
-              aria-label="Tutup"
-              :disabled="isDeleting"
-              @click="closeExpenseDetail"
-            >
-              ✕
-            </button>
+
           </div>
 
-          <dl class="grid grid-cols-3 gap-x-3 gap-y-2 text-sm">
-            <dt class="font-bold text-text-muted">Tanggal</dt>
-            <dd class="col-span-2 font-semibold text-text-primary">{{ formatDateDisplay(detailTx.tanggal) }}</dd>
-            <dt class="font-bold text-text-muted">Kategori</dt>
-            <dd class="col-span-2 font-semibold text-text-primary">{{ detailTx.kategori }}</dd>
-            <dt class="font-bold text-text-muted">Lokasi</dt>
-            <dd class="col-span-2 font-semibold text-text-primary">
-              <span
-                v-if="detailTx.semuaKos"
-                class="bg-navy/10 text-navy border border-navy/20 px-2 py-0.5 rounded font-bold"
-              >🌐 Tagihan bersama (semua kos)</span>
-              <span v-else>{{ detailTx.lokasiNama }}</span>
-            </dd>
-            <dt class="font-bold text-text-muted">Keterangan</dt>
-            <dd class="col-span-2 font-semibold text-text-primary break-words">{{ detailTx.keteranganAsli || '-' }}</dd>
-          </dl>
-
-          <div>
-            <p class="text-sm font-bold text-text-muted mb-2">Bukti Nota</p>
-            <div v-if="!detailTx.bukti_nota_url" class="text-sm font-semibold text-text-secondary">Tidak ada nota.</div>
-            <div
-              v-else
-              class="w-full rounded-xl border-2 border-border bg-gray-50 overflow-hidden flex items-center justify-center min-h-[8rem]"
-            >
-              <img v-if="detailNotaUrl" :src="detailNotaUrl" alt="Bukti nota" class="w-full max-h-[50vh] object-contain" />
-              <span v-else class="text-sm font-semibold text-text-muted p-6">
-                {{ detailNotaLoading ? 'Memuat nota...' : 'Nota tidak bisa ditampilkan' }}
-              </span>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-2 gap-3 pt-3 border-t-2 border-border">
+          <!-- Tombol selalu terlihat di bawah panel, isi di atasnya yang di-scroll -->
+          <div class="grid grid-cols-2 gap-3 px-6 py-4 border-t-2 border-border bg-white shrink-0">
             <button
               type="button"
               class="py-3 bg-expense/10 hover:bg-expense/20 text-expense font-bold rounded-xl active:scale-95 transition-transform"
@@ -335,43 +339,45 @@
 
         <!-- Konfirmasi Hapus -->
         <template v-else>
-          <div class="text-center">
-            <span class="text-4xl">🗑️</span>
-            <h3 id="expense-detail-title" class="text-lg font-bold text-slate-800 mt-2">Hapus pengeluaran ini?</h3>
-          </div>
-          <p class="text-sm text-slate-600 text-center leading-relaxed">
-            Pengeluaran <strong>{{ formatCurrency(detailTx.nominal) }}</strong>
-            tanggal <strong>{{ formatDateDisplay(detailTx.tanggal) }}</strong>
-            ({{ detailTx.kategori }}) akan dihapus dari Buku Besar.
-            <template v-if="detailTx.bukti_nota_url">
-              <br />File <strong>foto nota juga ikut dihapus permanen</strong>.
-            </template>
-            <br />Tindakan ini tidak bisa dibatalkan.
-          </p>
-          <p v-if="deleteError" class="text-sm font-bold text-expense bg-expense-light border border-expense/30 rounded-xl px-3 py-2">
-            {{ deleteError }}
-          </p>
-          <div class="flex gap-3">
-            <button
-              type="button"
-              class="flex-1 border border-slate-300 text-slate-600 rounded-xl py-3 text-sm font-bold hover:bg-slate-50 transition disabled:opacity-50"
-              :disabled="isDeleting"
-              @click="confirmDelete = false"
-            >
-              Batal
-            </button>
-            <button
-              type="button"
-              class="flex-1 bg-expense text-white rounded-xl py-3 text-sm font-bold shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed"
-              :disabled="isDeleting"
-              @click="deleteExpense"
-            >
-              {{ isDeleting ? 'Menghapus...' : 'Ya, Hapus' }}
-            </button>
+          <div class="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
+            <div class="text-center">
+              <span class="text-4xl">🗑️</span>
+              <h3 id="expense-detail-title" class="text-lg font-bold text-slate-800 mt-2">Hapus pengeluaran ini?</h3>
+            </div>
+            <p class="text-sm text-slate-600 text-center leading-relaxed">
+              Pengeluaran <strong>{{ formatCurrency(detailTx.nominal) }}</strong>
+              tanggal <strong>{{ formatDateDisplay(detailTx.tanggal) }}</strong>
+              ({{ detailTx.kategori }}) akan dihapus dari Buku Besar.
+              <template v-if="detailTx.bukti_nota_url">
+                <br />File <strong>foto nota juga ikut dihapus permanen</strong>.
+              </template>
+              <br />Tindakan ini tidak bisa dibatalkan.
+            </p>
+            <p v-if="deleteError" class="text-sm font-bold text-expense bg-expense-light border border-expense/30 rounded-xl px-3 py-2">
+              {{ deleteError }}
+            </p>
+            <div class="flex gap-3">
+              <button
+                type="button"
+                class="flex-1 border border-slate-300 text-slate-600 rounded-xl py-3 text-sm font-bold hover:bg-slate-50 transition disabled:opacity-50"
+                :disabled="isDeleting"
+                @click="confirmDelete = false"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                class="flex-1 bg-expense text-white rounded-xl py-3 text-sm font-bold shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed"
+                :disabled="isDeleting"
+                @click="deleteExpense"
+              >
+                {{ isDeleting ? 'Menghapus...' : 'Ya, Hapus' }}
+              </button>
+            </div>
           </div>
         </template>
       </div>
-    </div>
+    </BaseModal>
 
     <!-- Bottom Navigation Bar -->
     <BottomNav />
@@ -379,6 +385,7 @@
 </template>
 
 <script setup>
+import BaseModal from '../components/BaseModal.vue'
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { supabase } from '../supabase.js'
 import { RECEIPT_BUCKET, getSignedUrl, deleteStorageFile } from '../lib/storage.js'
