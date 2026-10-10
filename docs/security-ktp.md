@@ -37,13 +37,13 @@ flowchart LR
 
 | Komponen | Isi |
 |---|---|
-| `organizations` | `id, name, created_at`. Anggota bisa membaca, owner bisa ganti nama. Buat/hapus org hanya lewat SQL/dashboard. |
-| `organization_members` | `org_id, user_id → auth.users (on delete cascade), role ('owner','staff', default 'owner')`, PK `(org_id,user_id)`, **`unique(user_id)`**, jadi satu user hanya bisa di satu org. |
-| `is_org_member(org)`, `is_org_owner(org)` | `SECURITY DEFINER STABLE`, `search_path = ''`. Dipakai semua policy. Policy `organization_members` hanya memakai helper ini (tidak query tabelnya langsung), jadi tidak terjadi rekursi RLS. |
+| `organizations` | `id, name, created_at`. Anggota bisa membaca, admin atau owner bisa ganti nama. Buat/hapus org hanya lewat SQL/dashboard. |
+| `organization_members` | `org_id, user_id → auth.users (on delete cascade), role ('admin','owner','staff', default 'staff'; sejak migration 500)`, PK `(org_id,user_id)`, **`unique(user_id)`**, jadi satu user hanya bisa di satu org. |
+| `is_org_member(org)`, `is_org_owner(org)`, `is_org_admin(org)` (migration 500) | `SECURITY DEFINER STABLE`, `search_path = ''`. Dipakai semua policy. Policy `organization_members` hanya memakai helper ini (tidak query tabelnya langsung), jadi tidak terjadi rekursi RLS. |
 | `current_org_id()` | Org milik user yang login. ERROR (42501) bila tidak login, bukan anggota, atau >1 org. Dipakai sebagai **default `org_id`**, jadi frontend tidak perlu mengirim `org_id` saat insert. |
 | 7 tabel aplikasi | Kolom `org_id uuid not null references organizations`, index, default `current_org_id()`. Satu policy `<tabel>_org_access` untuk `authenticated`. **USING** `is_org_member(org_id)`. **WITH CHECK** `is_org_member(org_id)` plus setiap induk yang diisi (FK tidak NULL) harus satu org (`rooms→locations`, `rentals→rooms,tenants`, `incomes→rentals`, `expenses→locations`, `inventories→locations,rooms`). FK NULL tetap boleh, karena di live memang nullable. |
 | `anon` | Semua grant di 9 tabel dicabut. RLS `inventories` diaktifkan. |
-| Anggota | Semua anggota bisa melihat daftar anggota org-nya. Tambah/ubah/hapus anggota hanya oleh **owner org itu**, dan **tidak untuk barisnya sendiri**: tidak bisa join sendiri, tidak bisa mengubah org atau role sendiri, tidak bisa keluar sendiri. Staff tidak bisa mengelola anggota. Belum ada UI undangan; kelola lewat SQL (bagian 6). |
+| Anggota | Semua anggota bisa melihat daftar anggota org-nya. Sejak migration 500: tambah/ubah/hapus anggota hanya oleh **admin org itu**, **tidak untuk barisnya sendiri** dan **tidak untuk admin lain**; peran yang bisa diberikan lewat API hanya owner/staff. Owner dan staff tidak bisa mengelola anggota. Admin terakhir dijaga trigger. Rincian: `docs/org-roles.md`. Belum ada UI undangan; kelola lewat SQL (bagian 6). |
 | Storage | Hanya path `<org_id>/<prefix>_<uuid>.<ext>` dengan `is_org_member(<folder pertama>)`. Tidak ada akses ke objek di root. Guard **RESTRICTIVE** `simkos_private_images_guard` (to public) menahan policy permisif lain. Bucket private, maks 5 MB, hanya JPEG/PNG/WEBP. |
 | Trigger path | `tenants.foto_ktp_url`, `expenses.bukti_nota_url`, dan `inventories.receipt_url` (bila kolomnya ada) yang baru atau berubah **wajib** diawali `<org_id baris itu>/` dan tidak boleh berisi `..`. Nilai yang tidak berubah dibiarkan. Ini mencegah orang menautkan file milik org lain ke baris sendiri. |
 
@@ -180,7 +180,7 @@ where schemaname = 'storage' and tablename = 'objects' order by policyname;
 ```
 
 ## 6. Kelola anggota (sementara, tanpa UI)
-Lewat SQL Editor (service role), atau oleh owner lewat API:
+Lewat SQL Editor (service role), atau oleh **admin** lewat API (sejak migration 500; resep org baru & ganti admin di `docs/org-roles.md`):
 ```sql
 -- tambah staff (user harus sudah diundang lewat Dashboard → Authentication → Invite)
 insert into organization_members (org_id, user_id, role)

@@ -1,0 +1,55 @@
+=== S9 Migration 500 peran admin ===
+PASS | ADM-01 | admin menurunkan owner (u2) jadi staff | harap=rows:1 | aktual=rows:1
+PASS | ADM-02 | admin TIDAK bisa menaikkan anggota jadi admin | harap=denied | aktual=denied
+PASS | ADM-03 | admin tidak bisa mengubah perannya sendiri | harap=rows:0 | aktual=rows:0
+PASS | ADM-04 | admin tidak bisa memindah org_id anggota (hanya kolom role yang boleh) | harap=denied | aktual=denied
+PASS | ADM-05 | admin tidak bisa mengganti user_id anggota | harap=denied | aktual=denied
+PASS | ADM-06 | admin mengeluarkan owner (u2) | harap=rows:1 | aktual=rows:1
+PASS | ADM-07 | admin tidak bisa keluar sendiri | harap=rows:0 | aktual=rows:0
+PASS | ADM-08 | admin menambah user baru sebagai owner | harap=rows:1 | aktual=rows:1
+PASS | ADM-09 | admin menambah user baru sebagai staff | harap=rows:1 | aktual=rows:1
+PASS | ADM-10 | admin TIDAK bisa menambah user sebagai admin | harap=denied | aktual=denied
+PASS | ADM-11 | insert tanpa role -> default staff (least-privilege) | harap=rows:1 | aktual=rows:1
+PASS | ADM-11b | admin tidak bisa mengisi created_at saat insert (grant kolom) | harap=denied | aktual=denied
+PASS | ADM-12 | admin org1 tidak bisa menambah anggota ke org2 | harap=denied | aktual=denied
+PASS | ADM-13 | admin org1 tidak bisa mengubah/menghapus anggota org2 | harap=rows:0 | aktual=rows:0
+PASS | ADM-14 | admin tetap bisa membaca data kos (penghuni org1) | harap=rows:1 | aktual=rows:1
+PASS | ADM-15 | admin boleh ganti nama org | harap=rows:1 | aktual=rows:1
+PASS | ADM-16 | admin membaca daftar anggota org1 | harap=rows:2 | aktual=rows:2
+PASS | OWN-01 | owner TIDAK bisa menurunkan admin | harap=rows:0 | aktual=rows:0
+PASS | OWN-02 | owner TIDAK bisa mengeluarkan admin | harap=rows:0 | aktual=rows:0
+PASS | OWN-03 | owner TIDAK bisa menaikkan dirinya jadi admin | harap=rows:0 | aktual=rows:0
+PASS | OWN-04 | owner TIDAK bisa menambah anggota | harap=denied | aktual=denied
+PASS | OWN-05 | owner TIDAK bisa keluar sendiri | harap=rows:0 | aktual=rows:0
+PASS | OWN-06 | owner tetap bisa membaca & mengubah data kos | harap=rows:1 | aktual=rows:1
+PASS | OWN-07 | owner tetap boleh ganti nama org | harap=rows:1 | aktual=rows:1
+PASS | ORG2-01 | owner org2 (tanpa admin) tidak bisa menambah anggota | harap=denied | aktual=denied
+PASS | ORG2-02 | owner org2 tidak bisa menurunkan staff/ menaikkan diri | harap=rows:0 | aktual=rows:0
+PASS | ORG2-03 | staff tidak bisa menaikkan dirinya jadi owner/admin | harap=rows:0 | aktual=rows:0
+PASS | ANON-01 | anon tidak bisa membaca anggota | harap=denied | aktual=denied
+PASS | DEF-01 | default role kolom = staff | harap=rows:1 | aktual=rows:1
+PASS | GRD-01 | service role tidak bisa menghapus admin terakhir org1 | harap=denied | aktual=denied
+PASS | GRD-02 | service role tidak bisa menurunkan admin terakhir | harap=denied | aktual=denied
+PASS | GRD-03 | service role tidak bisa memindah admin terakhir ke org lain | harap=denied | aktual=denied
+PASS | GRD-04 | hapus auth user admin terakhir (cascade) juga ditahan | harap=denied | aktual=denied
+PASS | GRD-05 | ganti admin lewat SQL: naikkan u2 dulu, lalu turunkan u1 -> boleh | harap=rows:0 | aktual=rows:0
+PASS | GRD-06 | hapus org yang hanya berisi admin (cascade) tidak ditahan guard | harap=rows:1 | aktual=rows:1
+PASS | GRD-07 | role di luar admin/owner/staff ditolak constraint | harap=error:23514 new row for relation "organization_members" violates check constraint "organization_members_role_check" | aktual=error:23514 new row for relation "organization_members" violates check constraint "organization_members_role_check"
+--- S9 Migration 500 peran admin: 36/36 lulus
+PASS | S9-02 | 500 dijalankan ulang (idempotent): org1 tetap 1 admin, policy tidak dobel
+
+=== S9 Rollback 500 ===
+PASS | S9-R1 | rollback: semua admin kembali owner, constraint & policy lama kembali
+PASS | S9-R2 | rollback: owner kembali bisa menurunkan owner lain (perilaku lama)
+PASS | S9-R3 | 500 bisa diterapkan ulang setelah rollback
+
+=== S9r Race guard admin terakhir (2 sesi) ===
+PASS | S9r-01 | dua admin diturunkan bersamaan -> minimal 1 admin tersisa
+PASS | S9r-02 | hapus akun auth admin A sambil admin B diturunkan -> minimal 1 admin tersisa
+
+=== S9b Migration 500: calon admin tidak ada ===
+PASS | S9b-01 | 20261010000500_org_admin_role.sql menolak apply: ERROR:  simkos.admin_user_id belum di-set.
+PASS | S9b-03 | .m500bad.sql menolak apply: ERROR:  Calon admin dddddddd-0000-0000-0000-00000000000d bukan anggota organisasi mana pun.
+PASS | S9b-02 | setelah ditolak tidak ada sisa
+
+TOTAL GAGAL: 0
