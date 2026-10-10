@@ -167,11 +167,11 @@
     </div>
 
     <!-- Modal: Tambah / Edit Barang -->
-    <div
+    <BaseModal
       v-if="showModal"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 pb-24 bg-navy/60 backdrop-blur-sm animate-fade-in"
+      class="bg-navy/60 backdrop-blur-sm animate-fade-in"
     >
-      <div class="bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl w-full max-w-md p-6 space-y-4 max-h-[80vh] overflow-y-auto pb-8 animate-fade-in-up">
+      <div class="bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl w-full max-w-md p-6 space-y-4 max-h-[85dvh] overflow-y-auto pb-8 animate-fade-in-up">
         <!-- Modal Header -->
         <div class="flex items-center justify-between border-b-2 border-border pb-3">
           <h3 class="text-xl font-black text-text-primary flex items-center gap-2">
@@ -436,12 +436,12 @@
           </button>
         </div>
       </div>
-    </div>
+    </BaseModal>
 
     <!-- Modal 2: Lihat Foto Nota -->
-    <div
+    <BaseModal
       v-if="showImageModal"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy/80 backdrop-blur-sm"
+      class="bg-navy/80 backdrop-blur-sm"
       @click="showImageModal = false"
     >
       <div class="relative bg-white rounded-2xl p-2 border-2 border-border shadow-2xl max-w-sm w-full" @click.stop>
@@ -456,12 +456,12 @@
         </button>
         <img :src="selectedImageUrl" alt="Foto nota pembelian" class="w-full rounded-xl object-contain max-h-[75vh]" />
       </div>
-    </div>
+    </BaseModal>
 
     <!-- Modal 3: Konfirmasi Hapus Barang (langkah terpisah, seperti hapus pengeluaran) -->
-    <div
+    <BaseModal
       v-if="deleteTarget"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 pb-24 bg-navy/60 backdrop-blur-sm"
+      class="bg-navy/60 backdrop-blur-sm"
       @click.self="tutupKonfirmasiHapus"
       @keydown.esc="tutupKonfirmasiHapus"
     >
@@ -508,7 +508,7 @@
           </button>
         </div>
       </div>
-    </div>
+    </BaseModal>
 
     <!-- Bottom Navigation Bar -->
     <BottomNav />
@@ -516,6 +516,7 @@
 </template>
 
 <script setup>
+import BaseModal from '../components/BaseModal.vue'
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { supabase } from '../supabase.js'
 import { RECEIPT_BUCKET, IMAGE_ACCEPT, validateImageFile, getSignedUrl, uploadPrivateFile, removeStorageFile, deleteStorageFile } from '../lib/storage.js'

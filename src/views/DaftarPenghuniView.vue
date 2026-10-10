@@ -215,11 +215,11 @@
     </div>
 
     <!-- Modal 1: Detail Penghuni (Terisi) -->
-    <div
+    <BaseModal
       v-if="showDetailModal"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 pb-24 bg-navy/60 backdrop-blur-sm animate-fade-in"
+      class="bg-navy/60 backdrop-blur-sm animate-fade-in"
     >
-      <div class="bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl w-full max-w-md p-6 space-y-5 max-h-[80vh] overflow-y-auto pb-8 animate-fade-in-up">
+      <div class="bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl w-full max-w-md p-6 space-y-5 max-h-[85dvh] overflow-y-auto pb-8 animate-fade-in-up">
         <!-- Modal Header -->
         <div class="flex items-center justify-between border-b-2 border-border pb-3">
           <div v-if="isEditingRoomNumber" class="flex-1">
@@ -370,14 +370,14 @@
           </div>
         </div>
       </div>
-    </div>
+    </BaseModal>
 
     <!-- Modal 2: Kamar Kosong (Siap Huni) -->
-    <div
+    <BaseModal
       v-if="showEmptyModal"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 pb-24 bg-navy/60 backdrop-blur-sm animate-fade-in"
+      class="bg-navy/60 backdrop-blur-sm animate-fade-in"
     >
-      <div class="bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl w-full max-w-md p-6 space-y-5 max-h-[80vh] overflow-y-auto pb-8 animate-fade-in-up">
+      <div class="bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl w-full max-w-md p-6 space-y-5 max-h-[85dvh] overflow-y-auto pb-8 animate-fade-in-up">
         <!-- Modal Header -->
         <div class="flex items-center justify-between border-b-2 border-border pb-3">
           <div v-if="isEditingRoomNumber" class="flex-1">
@@ -487,14 +487,14 @@
           </router-link>
         </div>
       </div>
-    </div>
+    </BaseModal>
 
     <!-- Modal 3: Edit Data Sewa (Terisi) -->
-    <div
+    <BaseModal
       v-if="showEditModal"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 pb-24 bg-navy/60 backdrop-blur-sm animate-fade-in"
+      class="bg-navy/60 backdrop-blur-sm animate-fade-in"
     >
-      <div class="bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl w-full max-w-md p-6 space-y-4 max-h-[80vh] overflow-y-auto pb-8 animate-fade-in-up">
+      <div class="bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl w-full max-w-md p-6 space-y-4 max-h-[85dvh] overflow-y-auto pb-8 animate-fade-in-up">
         <!-- Modal Header -->
         <div class="flex items-center justify-between border-b-2 border-border pb-3">
           <h3 class="text-xl font-black text-text-primary flex items-center gap-2">
@@ -595,10 +595,10 @@
           </button>
         </div>
       </div>
-    </div>
+    </BaseModal>
 
     <!-- Modal 4: Edukasi Hapus Aset Finansial -->
-    <div v-if="showModalEdukasiHapus" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-fade-in">
+    <BaseModal v-if="showModalEdukasiHapus" class="bg-black/50 animate-fade-in">
       <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl border border-slate-100 animate-fade-in-up">
         <div class="text-center mb-4">
           <span class="text-4xl">🔐</span>
@@ -616,10 +616,10 @@
           </button>
         </div>
       </div>
-    </div>
+    </BaseModal>
 
     <!-- Modal 5: Konfirmasi Checkout & Penilaian Reputasi -->
-    <div v-if="showCheckoutModal" class="fixed inset-0 bg-navy/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+    <BaseModal v-if="showCheckoutModal" class="bg-navy/60 backdrop-blur-sm animate-fade-in">
       <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 animate-fade-in-up">
         <div class="text-center mb-4">
           <span class="text-4xl">🚪</span>
@@ -653,11 +653,11 @@
           </button>
         </div>
       </div>
-    </div>
+    </BaseModal>
 
     <!-- Modal 6: Pusat Data Blacklist Mantan Penghuni -->
-    <div v-if="showBlacklistModal" class="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-      <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-md p-6 max-h-[80vh] flex flex-col shadow-xl animate-fade-in-up">
+    <BaseModal v-if="showBlacklistModal" class="bg-black/50 backdrop-blur-sm animate-fade-in">
+      <div class="bg-white rounded-2xl w-full max-w-md p-6 max-h-[85dvh] flex flex-col shadow-xl animate-fade-in-up">
         <!-- Header Modal -->
         <div class="flex justify-between items-center mb-4 border-b border-border pb-3">
           <h3 class="text-sm font-bold text-slate-800">🚨 Pusat Data Blacklist Mantan Penghuni</h3>
@@ -684,10 +684,10 @@
           </div>
         </div>
       </div>
-    </div>
+    </BaseModal>
 
     <!-- Modal 7: Edukasi Hapus Sewa (Hard Delete Protection) -->
-    <div v-if="showHapusEdukasiModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+    <BaseModal v-if="showHapusEdukasiModal" class="bg-black/60 backdrop-blur-sm">
       <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm p-6 text-center shadow-2xl animate-fade-in">
         <!-- Icon Peringatan -->
         <div class="w-12 h-12 bg-red-500/10 border border-red-500/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 text-xl">
@@ -727,7 +727,7 @@
           </button>
         </div>
       </div>
-    </div>
+    </BaseModal>
 
     <!-- Modal Lihat KTP (download + blob URL, tanpa tab baru / signed URL) -->
     <KtpViewerModal
@@ -743,6 +743,7 @@
 </template>
 
 <script setup>
+import BaseModal from '../components/BaseModal.vue'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { supabase } from '../supabase.js'
 import { KTP_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile, removeStorageFile, deleteStorageFile } from '../lib/storage.js'
