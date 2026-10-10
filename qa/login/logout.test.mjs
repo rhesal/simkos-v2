@@ -30,9 +30,11 @@ test('logout saat signOut melempar exception: sesi lokal tetap dihapus', async (
 })
 
 test('supabase-js terpasang masih punya auth._removeSession (cek saat upgrade)', async () => {
-  const { createClient } = await import('@supabase/supabase-js')
-  const client = createClient('https://example.supabase.co', 'anon', { auth: { persistSession: false, autoRefreshToken: false } })
-  assert.equal(typeof client.auth._removeSession, 'function',
+  // auth-js dipakai langsung (dependensi supabase-js) supaya tes tidak butuh
+  // WebSocket realtime yang belum ada di Node 20.
+  const { GoTrueClient } = await import('@supabase/auth-js')
+  const client = new GoTrueClient({ url: 'https://example.supabase.co/auth/v1', persistSession: false, autoRefreshToken: false })
+  assert.equal(typeof client._removeSession, 'function',
     'supabase-js tidak lagi punya _removeSession: perbarui src/lib/auth.js')
 })
 
