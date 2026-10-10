@@ -1,9 +1,13 @@
 # QA SimKos v2
 
-- `test-plan-ktp-tahap1.md` — test plan KTP tahap 1 (PR #1)
-- `archive/rls-per-user/run_local.sh` — tes RLS negatif otomatis di Postgres lokal (3 skenario). Keluar kode 1 bila ada yang gagal.
-- `rls/results_latest.txt` — hasil terakhir
-- Laporan bug disimpan di luar repo.
+Semua tes jalan lokal tanpa akses ke Supabase live. Data uji sintetis (`@example.test`, UUID dummy).
 
-Menjalankan: `sudo pg_ctlcluster 17 main start` lalu `./qa/archive/rls-per-user/run_local.sh` dari root repo.
-Catatan: belum di-commit ke branch PR (sesuai arahan Project Lead).
+| Folder | Isi | Cara jalan |
+|---|---|---|
+| `independent/` | Suite RLS independen QA untuk model organisasi (migration 200-500): akses lintas org, storage, path nota/KTP, inventaris, peran admin, guard admin terakhir, rollback | `./qa/independent/run.sh` |
+| `rls/org/` | Suite RLS dari tim dev (Project Lead / System Architect) | `./qa/rls/org/run_local_org.sh` |
+| `csv/`, `date/`, `inventaris/`, `move-script/` | Unit test JavaScript | `node --test qa/` |
+| `archive/rls-per-user/` | Riwayat tes model per-user (sudah diganti model organisasi) | tidak perlu dijalankan |
+| `test-plan-ktp-tahap1.md` | Test plan KTP + ringkasan hasil per tahap | - |
+
+Postgres lokal harus jalan (`pg_isready`). Laporan bug dan langkah reproduksi celah disimpan di luar repo.

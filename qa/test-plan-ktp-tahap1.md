@@ -90,3 +90,9 @@ Uji mutasi: tanpa guard RESTRICTIVE dan trigger path, 10 tes gagal (tes benar-be
 Semua temuan dari tahap per-user sudah ditutup oleh PR #1. Laporan bug disimpan di luar repo.
 Belum dicakup (butuh staging / tes di app): Storage API, signed URL, modal KTP, PWA.
 
+## 11. Pembaruan suite independen (2026-10-10, setelah PR #4-#10)
+`./qa/independent/run.sh` di `main` (sampai migration 400): 237/237 lulus. Dengan migration 500 (PR #11): 313/313 lulus.
+- Inventaris (migration 400): simpan aset dengan nota, path nota di luar folder org ditolak, constraint harga/tipe, hapus kamar, guard rollback.
+- Peran admin (migration 500): hanya admin yang mengelola anggota; owner/staff tidak bisa menaikkan diri; peran admin tidak bisa diberikan lewat API; guard admin terakhir (termasuk race dua sesi, dicek manual).
+- Uji manual alur nota Inventaris (TC6-N1 sampai N7) sudah dicoba Rhesal di live.
+

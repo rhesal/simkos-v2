@@ -75,7 +75,7 @@ PASS | P-POS-04 | Partner melihat nota org A | harap=rows:1 | aktual=rows:1
 PASS | P-POS-05 | Partner bisa hapus file KTP org A | harap=rows:1 | aktual=rows:1
 PASS | P-NEG-01 | Partner tidak melihat file yatim di root | harap=rows:0 | aktual=rows:0
 PASS | P-NEG-02 | Partner tidak bisa hapus dirinya sendiri | harap=rows:0 | aktual=rows:0
-PASS | P-INFO-01 | [desain] Partner BISA menghapus Rhesal dari org (perlu konfirmasi Rhesal) | harap=rows:1 | aktual=rows:1
+PASS | P-INFO-01 | Partner menghapus Rhesal: bisa sebelum migration 500, ditolak sesudahnya | harap=rows:1 | aktual=rows:1
 PASS | R-POS-01 | Rhesal bisa menambah U sebagai staff | harap=rows:1 | aktual=rows:1
 PASS | R-NEG-01 | Rhesal tidak bisa menarik X (anggota org B) | harap=error:23505 duplicate key value violates unique constraint "organization_members_user_id_key" | aktual=error:23505 duplicate key value violates unique constraint "organization_members_user_id_key"
 PASS | R-NEG-02 | Rhesal tidak bisa memindah T ke org B | harap=denied | aktual=denied
@@ -94,10 +94,29 @@ PASS | U-NEG-04 | Akun tanpa org tidak bisa menjadikan dirinya anggota | harap=d
 PASS | CFG-01 | Bucket private, 5 MB, JPEG/PNG/WEBP | harap=rows:2 | aktual=rows:2
 PASS | CFG-02 | RLS aktif di 7 tabel + 2 tabel org | harap=rows:9 | aktual=rows:9
 PASS | CFG-03 | Policy live lama "Hanya user login..." & "Izinkan ... KTP" sudah hilang | harap=rows:0 | aktual=rows:0
-PASS | CFG-04 | Kedua akun live jadi owner org SimKos | harap=rows:2 | aktual=rows:2
+PASS | CFG-04 | Kedua akun live anggota pengelola org SimKos (admin+owner) | harap=rows:2 | aktual=rows:2
 PASS | CFG-05 | Tidak ada referensi file di luar folder org | harap=rows:0 | aktual=rows:0
 PASS | CFG-06 | Fungsi helper SECURITY DEFINER pakai search_path kosong | harap=rows:3 | aktual=rows:3
---- M tes RLS org: 96/96
+PASS | INV-POS-01 | Rhesal bisa simpan aset lengkap dengan nota (dulu gagal di production) | harap=rows:1 | aktual=rows:1
+PASS | INV-POS-02 | Aset umum tanpa kamar, tanpa harga, tanpa nota | harap=rows:1 | aktual=rows:1
+PASS | INV-POS-03 | Harga 0 diterima | harap=rows:1 | aktual=rows:1
+PASS | INV-POS-04 | Ubah aset lama tanpa menyentuh nota tetap jalan | harap=rows:1 | aktual=rows:1
+PASS | INV-NEG-01 | Harga negatif ditolak | harap=error:23514 new row for relation "inventories" violates check constraint "inventories_harga_nonnegative" | aktual=error:23514 new row for relation "inventories" violates check constraint "inventories_harga_nonnegative"
+PASS | INV-NEG-02 | tipe_fasilitas di luar kamar/umum ditolak | harap=error:23514 new row for relation "inventories" violates check constraint "inventories_tipe_fasilitas_check" | aktual=error:23514 new row for relation "inventories" violates check constraint "inventories_tipe_fasilitas_check"
+PASS | INV-NEG-03 | receipt_url di root ditolak | harap=denied | aktual=denied
+PASS | INV-NEG-04 | receipt_url folder uid lama ditolak | harap=denied | aktual=denied
+PASS | INV-NEG-05 | Org B tidak bisa isi receipt_url dengan nota org A | harap=denied | aktual=denied
+PASS | INV-NEG-06 | Org B: receipt_url dengan ../ ditolak | harap=denied | aktual=denied
+PASS | INV-NEG-07 | Org B tidak melihat aset org A | harap=rows:0 | aktual=rows:0
+PASS | INV-NEG-08 | Org B tidak bisa ubah harga aset org A | harap=rows:0 | aktual=rows:0
+PASS | INV-POS-05 | Org B bisa simpan aset dengan nota di folder sendiri | harap=rows:1 | aktual=rows:1
+PASS | INV-DEL-01 | Hapus kamar berisi aset tipe kamar berhasil | harap=rows:1 | aktual=rows:1
+PASS | INV-H-01 | Anggota org melihat aset harga NULL sebagai NULL | harap=rows:1 | aktual=rows:1
+PASS | INV-H-02 | Harga 0 tetap 0, bukan NULL | harap=rows:1 | aktual=rows:1
+PASS | INV-H-03 | Edit dengan payload harga NULL diterima | harap=rows:1 | aktual=rows:1
+PASS | INV-T-01 | Aset tipe_fasilitas NULL terlihat anggota org | harap=rows:1 | aktual=rows:1
+PASS | INV-T-02 | Edit aset NULL -> umum berhasil | harap=rows:1 | aktual=rows:1
+--- M tes RLS org: 115/115
 === G: policy storage 'or true' + 'owner is not null' sebelum 300 ===
 === G guard RESTRICTIVE ===
 PASS | AN-T-locations | anon tidak bisa baca locations | harap=denied | aktual=denied
@@ -174,7 +193,7 @@ PASS | P-POS-04 | Partner melihat nota org A | harap=rows:1 | aktual=rows:1
 PASS | P-POS-05 | Partner bisa hapus file KTP org A | harap=rows:1 | aktual=rows:1
 PASS | P-NEG-01 | Partner tidak melihat file yatim di root | harap=rows:0 | aktual=rows:0
 PASS | P-NEG-02 | Partner tidak bisa hapus dirinya sendiri | harap=rows:0 | aktual=rows:0
-PASS | P-INFO-01 | [desain] Partner BISA menghapus Rhesal dari org (perlu konfirmasi Rhesal) | harap=rows:1 | aktual=rows:1
+PASS | P-INFO-01 | Partner menghapus Rhesal: bisa sebelum migration 500, ditolak sesudahnya | harap=rows:1 | aktual=rows:1
 PASS | R-POS-01 | Rhesal bisa menambah U sebagai staff | harap=rows:1 | aktual=rows:1
 PASS | R-NEG-01 | Rhesal tidak bisa menarik X (anggota org B) | harap=error:23505 duplicate key value violates unique constraint "organization_members_user_id_key" | aktual=error:23505 duplicate key value violates unique constraint "organization_members_user_id_key"
 PASS | R-NEG-02 | Rhesal tidak bisa memindah T ke org B | harap=denied | aktual=denied
@@ -193,10 +212,29 @@ PASS | U-NEG-04 | Akun tanpa org tidak bisa menjadikan dirinya anggota | harap=d
 PASS | CFG-01 | Bucket private, 5 MB, JPEG/PNG/WEBP | harap=rows:2 | aktual=rows:2
 PASS | CFG-02 | RLS aktif di 7 tabel + 2 tabel org | harap=rows:9 | aktual=rows:9
 PASS | CFG-03 | Policy live lama "Hanya user login..." & "Izinkan ... KTP" sudah hilang | harap=rows:0 | aktual=rows:0
-PASS | CFG-04 | Kedua akun live jadi owner org SimKos | harap=rows:2 | aktual=rows:2
+PASS | CFG-04 | Kedua akun live anggota pengelola org SimKos (admin+owner) | harap=rows:2 | aktual=rows:2
 PASS | CFG-05 | Tidak ada referensi file di luar folder org | harap=rows:0 | aktual=rows:0
 PASS | CFG-06 | Fungsi helper SECURITY DEFINER pakai search_path kosong | harap=rows:3 | aktual=rows:3
---- G guard RESTRICTIVE: 96/96
+PASS | INV-POS-01 | Rhesal bisa simpan aset lengkap dengan nota (dulu gagal di production) | harap=rows:1 | aktual=rows:1
+PASS | INV-POS-02 | Aset umum tanpa kamar, tanpa harga, tanpa nota | harap=rows:1 | aktual=rows:1
+PASS | INV-POS-03 | Harga 0 diterima | harap=rows:1 | aktual=rows:1
+PASS | INV-POS-04 | Ubah aset lama tanpa menyentuh nota tetap jalan | harap=rows:1 | aktual=rows:1
+PASS | INV-NEG-01 | Harga negatif ditolak | harap=error:23514 new row for relation "inventories" violates check constraint "inventories_harga_nonnegative" | aktual=error:23514 new row for relation "inventories" violates check constraint "inventories_harga_nonnegative"
+PASS | INV-NEG-02 | tipe_fasilitas di luar kamar/umum ditolak | harap=error:23514 new row for relation "inventories" violates check constraint "inventories_tipe_fasilitas_check" | aktual=error:23514 new row for relation "inventories" violates check constraint "inventories_tipe_fasilitas_check"
+PASS | INV-NEG-03 | receipt_url di root ditolak | harap=denied | aktual=denied
+PASS | INV-NEG-04 | receipt_url folder uid lama ditolak | harap=denied | aktual=denied
+PASS | INV-NEG-05 | Org B tidak bisa isi receipt_url dengan nota org A | harap=denied | aktual=denied
+PASS | INV-NEG-06 | Org B: receipt_url dengan ../ ditolak | harap=denied | aktual=denied
+PASS | INV-NEG-07 | Org B tidak melihat aset org A | harap=rows:0 | aktual=rows:0
+PASS | INV-NEG-08 | Org B tidak bisa ubah harga aset org A | harap=rows:0 | aktual=rows:0
+PASS | INV-POS-05 | Org B bisa simpan aset dengan nota di folder sendiri | harap=rows:1 | aktual=rows:1
+PASS | INV-DEL-01 | Hapus kamar berisi aset tipe kamar berhasil | harap=rows:1 | aktual=rows:1
+PASS | INV-H-01 | Anggota org melihat aset harga NULL sebagai NULL | harap=rows:1 | aktual=rows:1
+PASS | INV-H-02 | Harga 0 tetap 0, bukan NULL | harap=rows:1 | aktual=rows:1
+PASS | INV-H-03 | Edit dengan payload harga NULL diterima | harap=rows:1 | aktual=rows:1
+PASS | INV-T-01 | Aset tipe_fasilitas NULL terlihat anggota org | harap=rows:1 | aktual=rows:1
+PASS | INV-T-02 | Edit aset NULL -> umum berhasil | harap=rows:1 | aktual=rows:1
+--- G guard RESTRICTIVE: 115/115
 === B: 3 user saat migration 200 ===
 PASS | B-01 | 20261010000200_organizations_and_backfill.sql ditolak: ERROR:  Backfill dibatalkan: auth.users berisi 3 user, diharapkan 2.
 PASS | B-02 | tidak ada sisa tabel organizations
@@ -206,4 +244,4 @@ PASS | R-02 | bucket tetap private
 PASS | R-03 | anon tidak melihat file
 PASS | R-04 | partner masih bisa membuka KTP setelah rollback
 
-TOTAL: 199/199 lulus, 0 gagal
+TOTAL: 237/237 lulus, 0 gagal

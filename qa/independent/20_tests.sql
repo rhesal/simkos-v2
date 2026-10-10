@@ -45,11 +45,11 @@ select qa.expect('X-PATH-05', 'X tidak bisa set bukti_nota_url ke nota org A', $
 select qa.expect('X-PATH-06', 'X boleh simpan ulang baris tanpa mengubah path', $q$update public.tenants set nama_lengkap = 'Penghuni B2' where id = 'b0000000-0000-0000-0000-000000000003'$q$, 'rows:1');
 -- Keanggotaan
 select qa.expect('X-MEM-01', 'X tidak bisa memasukkan dirinya ke org A', $q$insert into public.organization_members (org_id, user_id, role) values ((select org_a from qa.ids), '33333333-0000-0000-0000-000000000003', 'owner')$q$, 'denied');
-select qa.expect('X-MEM-02', 'X tidak bisa memindah keanggotaannya ke org A', $q$update public.organization_members set org_id = (select org_a from qa.ids) where user_id = '33333333-0000-0000-0000-000000000003'$q$, 'rows:0');
+select qa.expect('X-MEM-02', 'X tidak bisa memindah keanggotaannya ke org A', $q$update public.organization_members set org_id = (select org_a from qa.ids) where user_id = '33333333-0000-0000-0000-000000000003'$q$, (case when to_regprocedure('public.is_org_admin(uuid)') is null then 'rows:0' else 'denied' end));
 select qa.expect('X-MEM-03', 'X tidak bisa menambah U ke org A', $q$insert into public.organization_members (org_id, user_id, role) values ((select org_a from qa.ids), '55555555-0000-0000-0000-000000000005', 'staff')$q$, 'denied');
 select qa.expect('X-MEM-04', 'X tidak melihat anggota org A', $q$select * from public.organization_members where org_id = (select org_a from qa.ids)$q$, 'rows:0');
 select qa.expect('X-MEM-05', 'X tidak bisa hapus anggota org A', $q$delete from public.organization_members where org_id = (select org_a from qa.ids)$q$, 'rows:0');
-select qa.expect('X-MEM-06', 'X tidak bisa memindah anggota org B ke org A', $q$update public.organization_members set org_id = (select org_a from qa.ids) where org_id = 'b0000000-0000-0000-0000-00000000000b'$q$, 'rows:0');
+select qa.expect('X-MEM-06', 'X tidak bisa memindah anggota org B ke org A', $q$update public.organization_members set org_id = (select org_a from qa.ids) where org_id = 'b0000000-0000-0000-0000-00000000000b'$q$, (case when to_regprocedure('public.is_org_admin(uuid)') is null then 'rows:0' else 'denied' end));
 select qa.expect('X-ORG-01', 'X tidak melihat organisasi A', $q$select * from public.organizations where id = (select org_a from qa.ids)$q$, 'rows:0');
 select qa.expect('X-ORG-02', 'X tidak bisa ganti nama org A', $q$update public.organizations set name = 'hacked' where id = (select org_a from qa.ids)$q$, 'rows:0');
 select qa.expect('X-ORG-03', 'X tidak bisa membuat organisasi', $q$insert into public.organizations (name) values ('baru')$q$, 'denied');
@@ -76,7 +76,7 @@ select qa.expect('P-POS-04', 'Partner melihat nota org A', $q$select * from stor
 select qa.expect('P-POS-05', 'Partner bisa hapus file KTP org A', $q$delete from storage.objects where name = (select org_a from qa.ids) || '/ktp_1700000000002.jpg'$q$, 'rows:1');
 select qa.expect('P-NEG-01', 'Partner tidak melihat file yatim di root', $q$select * from storage.objects where name = 'ktp_yatim_1600000000000.jpg'$q$, 'rows:0');
 select qa.expect('P-NEG-02', 'Partner tidak bisa hapus dirinya sendiri', $q$delete from public.organization_members where user_id = '22222222-0000-0000-0000-000000000002'$q$, 'rows:0');
-select qa.expect('P-INFO-01', '[desain] Partner BISA menghapus Rhesal dari org (perlu konfirmasi Rhesal)', $q$delete from public.organization_members where user_id = '11111111-0000-0000-0000-000000000001'$q$, 'rows:1');
+select qa.expect('P-INFO-01', 'Partner menghapus Rhesal: bisa sebelum migration 500, ditolak sesudahnya', $q$delete from public.organization_members where user_id = '11111111-0000-0000-0000-000000000001'$q$, (case when to_regprocedure('public.is_org_admin(uuid)') is null then 'rows:1' else 'rows:0' end));
 reset role;
 
 -- ---------------- R (owner org A) ----------------
@@ -116,7 +116,7 @@ select qa.expect('CFG-02', 'RLS aktif di 7 tabel + 2 tabel org',
   $q$select * from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relrowsecurity and c.relname in ('locations','rooms','tenants','rentals','incomes','expenses','inventories','organizations','organization_members')$q$, 'rows:9');
 select qa.expect('CFG-03', 'Policy live lama "Hanya user login..." & "Izinkan ... KTP" sudah hilang',
   $q$select * from pg_policies where policyname like 'Hanya user login%' or policyname like 'Izinkan%'$q$, 'rows:0');
-select qa.expect('CFG-04', 'Kedua akun live jadi owner org SimKos', $q$select * from public.organization_members where role = 'owner' and org_id = (select org_a from qa.ids) and user_id in ('11111111-0000-0000-0000-000000000001','22222222-0000-0000-0000-000000000002')$q$, 'rows:2');
+select qa.expect('CFG-04', 'Kedua akun live anggota pengelola org SimKos (admin+owner)', $q$select * from public.organization_members where role in ('admin','owner') and org_id = (select org_a from qa.ids) and user_id in ('11111111-0000-0000-0000-000000000001','22222222-0000-0000-0000-000000000002')$q$, 'rows:2');
 select qa.expect('CFG-05', 'Tidak ada referensi file di luar folder org', $q$select * from public.tenants where foto_ktp_url is not null and foto_ktp_url not like org_id::text || '/%'$q$, 'rows:0');
 select qa.expect('CFG-06', 'Fungsi helper SECURITY DEFINER pakai search_path kosong',
   $q$select * from pg_proc where proname in ('is_org_member','is_org_owner','current_org_id') and prosecdef and proconfig @> array['search_path=""']$q$, 'rows:3');
