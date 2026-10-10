@@ -561,7 +561,10 @@ async function handleLogout() {
   clearOrgIdCache()
   // Saat offline, sesi di perangkat tetap dihapus supaya tombol Keluar
   // selalu berhasil membawa user ke halaman login.
-  await signOutWithLocalFallback(supabase.auth)
-  router.replace('/login')
+  try {
+    await signOutWithLocalFallback(supabase.auth)
+  } finally {
+    router.replace('/login')
+  }
 }
 </script>

@@ -21,13 +21,26 @@ export async function signOutWithLocalFallback(auth) {
   if (!serverError) return { local: false }
 
   console.warn('[Supabase Auth] Logout ke server gagal, sesi di perangkat tetap dihapus:', serverError?.message || serverError)
-  // _removeSession: menghapus sesi tersimpan + menandai agar refresh token
-  // yang sedang berjalan tidak menyimpan sesi lagi (supabase-js 2.x).
-  if (typeof auth._removeSession === 'function') {
-    await auth._removeSession()
-  } else if (auth.storageKey && globalThis.localStorage) {
-    globalThis.localStorage.removeItem(auth.storageKey)
-    globalThis.localStorage.removeItem(`${auth.storageKey}-code-verifier`)
+  try {
+    // _removeSession: menghapus sesi tersimpan, memicu SIGNED_OUT, dan menandai
+    // agar refresh token yang sedang berjalan tidak menyimpan sesi lagi
+    // (supabase-js 2.x; dijaga tes qa/login/logout.test.mjs).
+    if (typeof auth._removeSession === 'function') {
+      await auth._removeSession()
+    } else {
+      await removeStoredSession(auth)
+    }
+  } catch (err) {
+    console.warn('[Supabase Auth] Gagal menghapus sesi di perangkat:', err?.message || err)
   }
   return { local: true }
+}
+
+/** Cadangan bila _removeSession tidak ada: hapus key yang sama dengan library. */
+async function removeStoredSession(auth) {
+  const storage = auth.storage || globalThis.localStorage
+  if (!auth.storageKey || !storage) return
+  for (const suffix of ['', '-code-verifier', '-user']) {
+    await storage.removeItem(auth.storageKey + suffix)
+  }
 }
