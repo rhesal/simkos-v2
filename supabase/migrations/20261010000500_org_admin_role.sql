@@ -17,11 +17,18 @@
 --      lewat migration / SQL Editor / service role.
 --   4. Kolom yang boleh di-UPDATE oleh authenticated: hanya `role`
 --      (user_id/org_id tidak bisa dipindah lewat API).
+--   4b. INSERT lewat API hanya kolom org_id, user_id, role; default role
+--      anggota baru 'staff' (least-privilege; admin memilih peran eksplisit).
 --   5. Trigger guard: admin terakhir sebuah org tidak bisa dihapus,
 --      diturunkan, atau dipindah org, oleh siapa pun (termasuk service role),
---      kecuali org-nya sendiri sedang dihapus.
+--      kecuali org-nya sendiri sedang dihapus. Baris org dikunci
+--      (FOR NO KEY UPDATE) supaya dua perubahan bersamaan tidak lolos.
 --   6. organizations UPDATE (ganti nama org): admin atau owner (tetap).
---   7. Data: user `simkos.admin_user_id` (default: Rhesal di live) jadi admin.
+--   7. Data: user `simkos.admin_user_id` jadi admin. Default
+--      60a57117-71f1-46e1-87cb-f328f1911fcf = akun Rhesal di live (admin awal,
+--      dicek Project Lead 2026-10-10).
+--
+-- Idempotent: aman dijalankan ulang (drop ... if exists / create or replace).
 --
 -- TIDAK berubah: policy data kos (is_org_member), storage, frontend.
 -- is_org_owner() tetap ada (dipakai rollback & kompatibilitas), tidak lagi
@@ -47,19 +54,19 @@ begin
       message = format('Calon admin %s bukan anggota organisasi mana pun.', admin_uid),
       hint    = 'Set `simkos.admin_user_id` ke user_id yang benar sebelum migration ini.';
   end if;
-  select count(*) into n from public.organization_members where role not in ('owner', 'staff');
+  select count(*) into n from public.organization_members where role not in ('admin', 'owner', 'staff');
   if n > 0 then
-    raise exception 'Ada % anggota dengan role di luar owner/staff. Periksa manual.', n;
+    raise exception 'Ada % anggota dengan role di luar admin/owner/staff. Periksa manual.', n;
   end if;
 end $$;
 
 -- 1. Constraint role ---------------------------------------------------------
-alter table public.organization_members drop constraint organization_members_role_check;
+alter table public.organization_members drop constraint if exists organization_members_role_check;
 alter table public.organization_members
   add constraint organization_members_role_check check (role in ('admin', 'owner', 'staff'));
 
 -- 2. Helper ------------------------------------------------------------------
-create function public.is_org_admin(org uuid)
+create or replace function public.is_org_admin(org uuid)
 returns boolean
 language sql stable security definer
 set search_path = ''
@@ -73,9 +80,12 @@ revoke all on function public.is_org_admin(uuid) from public;
 grant execute on function public.is_org_admin(uuid) to anon, authenticated, service_role;
 
 -- 3. Policy organization_members --------------------------------------------
-drop policy organization_members_insert_owner on public.organization_members;
-drop policy organization_members_update_owner on public.organization_members;
-drop policy organization_members_delete_owner on public.organization_members;
+drop policy if exists organization_members_insert_owner on public.organization_members;
+drop policy if exists organization_members_update_owner on public.organization_members;
+drop policy if exists organization_members_delete_owner on public.organization_members;
+drop policy if exists organization_members_insert_admin on public.organization_members;
+drop policy if exists organization_members_update_admin on public.organization_members;
+drop policy if exists organization_members_delete_admin on public.organization_members;
 
 -- Admin menambah anggota baru sebagai owner/staff (bukan admin, bukan dirinya).
 create policy organization_members_insert_admin on public.organization_members
@@ -101,12 +111,15 @@ create policy organization_members_delete_admin on public.organization_members
          and user_id <> (select auth.uid())
          and role <> 'admin');
 
--- 4. Hanya kolom role yang bisa di-UPDATE lewat API --------------------------
-revoke update on public.organization_members from authenticated;
+-- 4. Kolom yang bisa ditulis lewat API ----------------------------------------
+--    UPDATE hanya role; INSERT hanya org_id, user_id, role (created_at dari default).
+revoke update, insert on public.organization_members from authenticated;
 grant update (role) on public.organization_members to authenticated;
+grant insert (org_id, user_id, role) on public.organization_members to authenticated;
+alter table public.organization_members alter column role set default 'staff';
 
 -- 5. Guard admin terakhir (berlaku juga untuk service role / dashboard) -------
-create function public.guard_last_org_admin()
+create or replace function public.guard_last_org_admin()
 returns trigger
 language plpgsql security definer
 set search_path = ''
@@ -118,8 +131,11 @@ begin
   if tg_op = 'UPDATE' and new.role = 'admin' and new.org_id = old.org_id then
     return new;
   end if;
-  -- Org-nya sendiri sedang dihapus (cascade): biarkan.
-  if not exists (select 1 from public.organizations o where o.id = old.org_id) then
+  -- Kunci baris org: perubahan admin di org yang sama diserialkan, sehingga
+  -- dua transaksi bersamaan tidak bisa sama-sama melihat "masih ada admin lain".
+  -- Org-nya sendiri sedang dihapus (cascade): baris tidak ditemukan -> biarkan.
+  perform 1 from public.organizations o where o.id = old.org_id for no key update;
+  if not found then
     return coalesce(new, old);
   end if;
   if not exists (select 1 from public.organization_members m
@@ -132,12 +148,14 @@ begin
 end $$;
 revoke all on function public.guard_last_org_admin() from public;
 
+drop trigger if exists organization_members_last_admin_guard on public.organization_members;
 create trigger organization_members_last_admin_guard
   before update or delete on public.organization_members
   for each row execute function public.guard_last_org_admin();
 
 -- 6. Ganti nama org: admin atau owner ---------------------------------------
-drop policy organizations_update_owner on public.organizations;
+drop policy if exists organizations_update_owner on public.organizations;
+drop policy if exists organizations_update_admin_owner on public.organizations;
 create policy organizations_update_admin_owner on public.organizations
   for update to authenticated
   using (public.is_org_admin(id) or public.is_org_owner(id))
@@ -150,7 +168,8 @@ declare
                              '60a57117-71f1-46e1-87cb-f328f1911fcf')::uuid;
   n int;
 begin
-  update public.organization_members set role = 'admin' where user_id = admin_uid;
+  update public.organization_members set role = 'admin'
+   where user_id = admin_uid;  -- tetap 1 baris bila sudah admin (jalan ulang)
   get diagnostics n = row_count;
   if n <> 1 then
     raise exception 'Gagal menetapkan admin (% baris).', n;

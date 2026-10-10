@@ -161,6 +161,8 @@ apply $DB "$MIG/20261010000200_organizations_and_backfill.sql" "$MIG/20261010000
     check $DB S9-01 "u1 jadi admin, u2 tetap owner, org2 tidak berubah" \
       "select (select role from public.organization_members where user_id='11111111-0000-0000-0000-000000000001')='admin' and (select role from public.organization_members where user_id='22222222-0000-0000-0000-000000000002')='owner' and (select count(*) from public.organization_members where role='admin')=1"
     apply $DB "$HERE/50_org_admin_500_tests.sql" && report $DB "S9 Migration 500 peran admin"
+    admin500 $DB && check $DB S9-02 "500 dijalankan ulang (idempotent): org1 tetap 1 admin, policy tidak dobel" \
+      "select (select count(*) from public.organization_members where role='admin' and user_id in ('11111111-0000-0000-0000-000000000001','22222222-0000-0000-0000-000000000002'))=1 and (select count(*) from pg_policies where tablename='organization_members')=4 and (select count(*) from pg_trigger where tgname='organization_members_last_admin_guard')=1"
     apply $DB "$RB/rollback_500_org_admin_role.sql" && {
       echo; echo "=== S9 Rollback 500 ==="
       check $DB S9-R1 "rollback: semua admin kembali owner, constraint & policy lama kembali" \
@@ -171,6 +173,27 @@ apply $DB "$MIG/20261010000200_organizations_and_backfill.sql" "$MIG/20261010000
         "select count(*)=1 from public.organization_members where role='admin'"
     }
   }
+# S9r: race guard admin terakhir -> dua sesi bersamaan tidak boleh menghabiskan admin
+race500() {  # $1=db $2=id $3=deskripsi $4=sql sesi A (ditahan 2 dtk) $5=sql sesi B
+  local db=$1
+  psql -X -q -d $db -c "update public.organization_members set role='admin' where user_id in ('11111111-0000-0000-0000-000000000001','22222222-0000-0000-0000-000000000002')" >/dev/null
+  ( psql -X -q -d $db -c "begin; $4; select pg_sleep(2); commit;" >/dev/null 2>"$HERE/.raceA" ) &
+  sleep 0.7
+  psql -X -q -d $db -c "begin; $5; commit;" >/dev/null 2>"$HERE/.raceB"
+  wait
+  check $db "$2" "$3" "select count(*) >= 1 from public.organization_members where role='admin' and org_id = (select id from public.organizations where name='SimKos')"
+  rm -f "$HERE/.raceA" "$HERE/.raceB"
+}
+DB=qa_org_s9r; live_base $DB
+apply $DB "$MIG/20261010000200_organizations_and_backfill.sql" "$MIG/20261010000210_org_rls_policies.sql" && admin500 $DB && {
+  echo; echo "=== S9r Race guard admin terakhir (2 sesi) ==="
+  race500 $DB S9r-01 "dua admin diturunkan bersamaan -> minimal 1 admin tersisa" \
+    "update public.organization_members set role='owner' where user_id='11111111-0000-0000-0000-000000000001'" \
+    "update public.organization_members set role='owner' where user_id='22222222-0000-0000-0000-000000000002'"
+  race500 $DB S9r-02 "hapus akun auth admin A sambil admin B diturunkan -> minimal 1 admin tersisa" \
+    "delete from auth.users where id='11111111-0000-0000-0000-000000000001'" \
+    "update public.organization_members set role='owner' where user_id='22222222-0000-0000-0000-000000000002'"
+}
 # S9b: 500 tanpa admin_user_id yang valid -> ditolak, tanpa sisa
 DB=qa_org_s9b; live_base $DB
 apply $DB "$MIG/20261010000200_organizations_and_backfill.sql" "$MIG/20261010000210_org_rls_policies.sql" && {

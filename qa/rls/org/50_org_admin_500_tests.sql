@@ -29,8 +29,10 @@ select qa.expect('ADM-09', 'admin menambah user baru sebagai staff',
   format($q$insert into public.organization_members (org_id, user_id, role) values ('%s','%s','staff')$q$, qa.id('org1'), qa.id('d')), 'rows:1');
 select qa.expect('ADM-10', 'admin TIDAK bisa menambah user sebagai admin',
   format($q$insert into public.organization_members (org_id, user_id, role) values ('%s','%s','admin')$q$, qa.id('org1'), qa.id('d')), 'denied');
-select qa.expect('ADM-11', 'insert tanpa role (default owner) tetap boleh',
-  format($q$insert into public.organization_members (org_id, user_id) values ('%s','%s')$q$, qa.id('org1'), qa.id('d')), 'rows:1');
+select qa.expect('ADM-11', 'insert tanpa role -> default staff (least-privilege)',
+  format($q$with x as (insert into public.organization_members (org_id, user_id) values ('%s','%s') returning role) select 1 from x where role = 'staff'$q$, qa.id('org1'), qa.id('d')), 'rows:1');
+select qa.expect('ADM-11b', 'admin tidak bisa mengisi created_at saat insert (grant kolom)',
+  format($q$insert into public.organization_members (org_id, user_id, role, created_at) values ('%s','%s','staff','2000-01-01')$q$, qa.id('org1'), qa.id('d')), 'denied');
 select qa.expect('ADM-12', 'admin org1 tidak bisa menambah anggota ke org2',
   format($q$insert into public.organization_members (org_id, user_id, role) values ('%s','%s','owner')$q$, qa.id('org2'), qa.id('d')), 'denied');
 select qa.expect('ADM-13', 'admin org1 tidak bisa mengubah/menghapus anggota org2',
@@ -75,6 +77,8 @@ select qa.expect('ANON-01', 'anon tidak bisa membaca anggota',
   'select * from public.organization_members', 'denied');
 reset role;
 select set_config('request.jwt.claims', '', false);
+select qa.expect('DEF-01', 'default role kolom = staff',
+  $q$select 1 where (select column_default from information_schema.columns where table_schema='public' and table_name='organization_members' and column_name='role') = '''staff''::text'$q$, 'rows:1');
 
 -- Guard admin terakhir (superuser / service role) --------------------------------------
 select qa.expect('GRD-01', 'service role tidak bisa menghapus admin terakhir org1',
