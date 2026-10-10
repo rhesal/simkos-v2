@@ -335,6 +335,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '../supabase.js'
+import { clearSignedUrlCache, clearOrgIdCache } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
 
 const router = useRouter()
@@ -533,6 +534,9 @@ function formatDateDisplay(dateStr) {
 
 async function handleLogout() {
   isSettingsOpen.value = false
+  // Buang signed URL yang tersimpan di memori sebelum sesi ditutup
+  clearSignedUrlCache()
+  clearOrgIdCache()
   const { error } = await supabase.auth.signOut()
   if (error) {
     console.error('[Supabase Auth] Gagal logout:', error)

@@ -218,7 +218,7 @@
           <input
             ref="fileInputRef"
             type="file"
-            accept="image/*"
+            :accept="IMAGE_ACCEPT"
             class="hidden"
             @change="handleFileSelect"
           />
@@ -358,6 +358,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { supabase } from '../supabase.js'
+import { KTP_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile, removeStorageFile } from '../lib/storage.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -502,12 +503,10 @@ function handleFileSelect(e) {
   if (!file) return
 
   // Validasi: hanya gambar, maks 5MB
-  if (!file.type.startsWith('image/')) {
-    errorMsg.value = 'File harus berupa gambar (JPG, PNG, dll).'
-    return
-  }
-  if (file.size > 5 * 1024 * 1024) {
-    errorMsg.value = 'Ukuran file melebihi 5MB.'
+  const invalid = validateImageFile(file)
+  if (invalid) {
+    errorMsg.value = invalid
+    e.target.value = ''
     return
   }
 
@@ -540,20 +539,12 @@ async function handleSubmit() {
     // === STEP 1: Upload KTP ===
     submitSteps.value[0].active = true
 
-    const timestamp = Date.now()
-    const ext = ktpFile.value.name.split('.').pop()
-    const fileName = `ktp_${timestamp}.${ext}`
-
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('ktp_images')
-      .upload(fileName, ktpFile.value, {
-        cacheControl: '3600',
-        upsert: false,
-      })
-
-    if (uploadError) throw new Error(`Gagal unggah KTP: ${uploadError.message}`)
-
-    ktpPath = uploadData.path
+    // Path disimpan sebagai "<org_id>/ktp_<uuid>.<ext>" (bucket privat)
+    try {
+      ktpPath = await uploadPrivateFile(KTP_BUCKET, 'ktp', ktpFile.value)
+    } catch (uploadError) {
+      throw new Error(`Gagal unggah KTP: ${uploadError.message}`)
+    }
     submitSteps.value[0].active = false
     submitSteps.value[0].done = true
 
@@ -626,7 +617,7 @@ async function handleSubmit() {
     // Cleanup: jika KTP sudah terunggah tapi proses selanjutnya gagal
     if (ktpPath) {
       console.log('[SimKos] Rollback: menghapus KTP yang sudah terunggah...')
-      await supabase.storage.from('ktp_images').remove([ktpPath])
+      await removeStorageFile(KTP_BUCKET, ktpPath)
     }
 
     // Cleanup: jika tenant sudah ter-insert tapi rental/room gagal

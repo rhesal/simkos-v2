@@ -174,7 +174,7 @@
           <input
             ref="fileInputRef"
             type="file"
-            accept="image/*"
+            :accept="IMAGE_ACCEPT"
             class="hidden"
             @change="handleFileSelect"
           />
@@ -247,6 +247,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '../supabase.js'
+import { RECEIPT_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile, removeStorageFile } from '../lib/storage.js'
 
 const router = useRouter()
 
@@ -297,12 +298,10 @@ function handleFileSelect(e) {
   const file = e.target.files?.[0]
   if (!file) return
 
-  if (!file.type.startsWith('image/')) {
-    errorMsg.value = 'Nota harus berupa file gambar.'
-    return
-  }
-  if (file.size > 5 * 1024 * 1024) {
-    errorMsg.value = 'Ukuran berkas melebihi 5MB.'
+  const invalid = validateImageFile(file)
+  if (invalid) {
+    errorMsg.value = invalid
+    e.target.value = ''
     return
   }
 
@@ -330,19 +329,11 @@ async function handleSubmit() {
   try {
     // 1. Upload receipt if exists
     if (receiptFile.value) {
-      const timestamp = Date.now()
-      const ext = receiptFile.value.name.split('.').pop()
-      const fileName = `receipt_${timestamp}.${ext}`
-
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('receipt_images')
-        .upload(fileName, receiptFile.value, {
-          cacheControl: '3600',
-          upsert: false,
-        })
-
-      if (uploadError) throw new Error(`Gagal unggah nota: ${uploadError.message}`)
-      receiptPath = uploadData.path
+      try {
+        receiptPath = await uploadPrivateFile(RECEIPT_BUCKET, 'receipt', receiptFile.value)
+      } catch (uploadError) {
+        throw new Error(`Gagal unggah nota: ${uploadError.message}`)
+      }
     }
 
     // 2. Insert to expenses table
@@ -360,7 +351,7 @@ async function handleSubmit() {
     if (insertError) {
       // Cleanup uploaded file if DB insert fails
       if (receiptPath) {
-        await supabase.storage.from('receipt_images').remove([receiptPath])
+        await removeStorageFile(RECEIPT_BUCKET, receiptPath)
       }
       throw new Error(`Gagal menyimpan data pengeluaran: ${insertError.message}`)
     }

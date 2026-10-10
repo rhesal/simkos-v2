@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# QA PR #1 (model multi-pemilik / organisasi) — tes RLS di Postgres lokal (bukan Supabase).
+# Pakai: ./qa/rls/org/run_local_org.sh   (butuh psql + Postgres lokal; user = superuser)
+# Fixture memakai baseline LIVE (docs/reference/live_schema_public.sql) + kondisi
+# policy/grant live (05_live_legacy_state.sql). Setiap migration dijalankan dengan
+# `psql -1` (satu transaksi), sama seperti SQL Editor / supabase db push.
+# Keluar dengan kode 1 bila ada tes yang gagal.
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$HERE/../../.."
+MIG="$ROOT/supabase/migrations"
+RB="$ROOT/supabase/rollback"
+SCHEMA="$ROOT/docs/reference/live_schema_public.sql"
+PSQL="psql -X -q -v ON_ERROR_STOP=1 --set=client_min_messages=warning"
+export PGDATABASE="${PGDATABASE:-postgres}"
+FAILS=0
+pg_isready -q || { echo "Postgres lokal tidak jalan. Jalankan: sudo pg_ctlcluster 17 main start"; exit 2; }
+
+fresh_db() { dropdb --if-exists "$1" >/dev/null 2>&1; createdb "$1" || exit 2; $PSQL -d "$1" -f "$HERE/00_supabase_stub.sql" >/dev/null; }
+apply() { local db=$1; shift; for f in "$@"; do $PSQL -1 -d "$db" -f "$f" >/dev/null 2>"$HERE/.last_err" || { echo "  GAGAL apply $(basename "$f"):"; cat "$HERE/.last_err"; FAILS=$((FAILS+1)); return 1; }; done; }
+report() {
+  local db=$1 title=$2
+  echo; echo "=== $title ==="
+  psql -X -d "$db" -tA -F ' | ' -c "select case when pass then 'PASS' else 'FAIL' end, test_id, descr, 'harap=' || expected, 'aktual=' || actual from qa.results order by seq"
+  local n t; n=$(psql -X -d "$db" -tAc "select count(*) from qa.results where not pass"); t=$(psql -X -d "$db" -tAc "select count(*) from qa.results")
+  echo "--- $title: $((t-n))/$t lulus"
+  FAILS=$((FAILS+n))
+}
+expect_reject() {  # $1=db $2=file $3=id $4=pola error yang diharapkan
+  local db=$1 f=$2 id=$3 pat=$4
+  if $PSQL -1 -d "$db" -f "$f" >/dev/null 2>"$HERE/.last_err"; then
+    echo "FAIL | $id | $(basename "$f") seharusnya menolak apply, tapi lolos"; FAILS=$((FAILS+1))
+  elif grep -q -- "$pat" "$HERE/.last_err"; then
+    echo "PASS | $id | $(basename "$f") menolak apply: $(grep -m1 -o 'ERROR:.*' "$HERE/.last_err" | cut -c1-150)"
+  else
+    echo "FAIL | $id | ditolak dengan error tak terduga: $(grep -m1 -o 'ERROR:.*' "$HERE/.last_err")"; FAILS=$((FAILS+1))
+  fi
+}
+check() {  # $1=db $2=id $3=deskripsi $4=sql yang harus mengembalikan 't'
+  local r; r=$(psql -X -q -d "$1" -tAc "$4" 2>&1 | tail -n1)
+  if [ "$r" = "t" ]; then echo "PASS | $2 | $3"; else echo "FAIL | $2 | $3 (hasil: $r)"; FAILS=$((FAILS+1)); fi
+}
+live_base() {  # DB baru = kondisi live + data contoh 2 user
+  fresh_db "$1"
+  apply "$1" "$SCHEMA" "$HERE/05_live_legacy_state.sql" "$HERE/15_harness.sql" "$HERE/06_live_data.sql"
+}
+
+# S1: alur deploy lengkap: 200 -> 210 -> (move script) -> 300, lalu org2 + tes
+DB=qa_org_s1; live_base $DB
+apply $DB "$MIG/20261010000200_organizations_and_backfill.sql" "$MIG/20261010000210_org_rls_policies.sql" \
+  "$HERE/07_simulated_move.sql" "$MIG/20261010000300_private_storage_buckets.sql" \
+  "$HERE/10_seed_org2.sql" "$HERE/20_org_tests.sql" && report $DB "S1 Deploy normal (2 owner, org kedua, user tanpa org, anon)"
+
+# S2: jumlah user != 2 -> migration 200 menolak; dengan override -> semua user jadi owner
+echo; echo "=== S2 Backfill: jumlah user di auth.users ==="
+DB=qa_org_s2; live_base $DB
+$PSQL -d $DB -c "insert into auth.users(id,email) values ('33333333-0000-0000-0000-000000000003','ketiga@example.test')" >/dev/null
+expect_reject $DB "$MIG/20261010000200_organizations_and_backfill.sql" S2-01 "Backfill dibatalkan: auth.users berisi 3 user"
+check $DB S2-02 "setelah ditolak tidak ada sisa (transaksi di-rollback)" "select to_regclass('public.organizations') is null and not exists (select 1 from information_schema.columns where column_name='org_id')"
+{ echo "set simkos.backfill_expected_users = '3';"; cat "$MIG/20261010000200_organizations_and_backfill.sql"; } > "$HERE/.override.sql"
+apply $DB "$HERE/.override.sql" && \
+  check $DB S2-03 "override: 3 user jadi owner org SimKos, semua baris punya org_id" \
+  "select (select count(*) from public.organization_members where role='owner') = 3 and (select count(*) from public.organizations) = 1 and not exists (select 1 from public.tenants where org_id is null)"
+rm -f "$HERE/.override.sql"
+DB=qa_org_s2b; live_base $DB
+apply $DB "$MIG/20261010000200_organizations_and_backfill.sql" && {
+  check $DB S2-04 "2 user (seperti live) -> keduanya owner org 'SimKos', org_id NOT NULL di 7 tabel" \
+    "select (select count(*) from public.organization_members m join public.organizations o on o.id=m.org_id where o.name='SimKos' and m.role='owner') = 2 and (select count(*) from information_schema.columns where table_schema='public' and column_name='org_id' and is_nullable='NO' and table_name <> 'organization_members') = 7"
+  check $DB S2-05 "hanya migration 200: policy lama masih ada (app lama tetap jalan)" "select count(*) = 7 from pg_policies where policyname like 'Hanya user login%'"
+  expect_reject $DB "$MIG/20261010000200_organizations_and_backfill.sql" S2-06 "already exists"
+}
+
+# S3: migration 300 sebelum move script -> menolak (tidak ada jendela file tak terbaca)
+echo; echo "=== S3 Migration 300 sebelum file dipindah ==="
+DB=qa_org_s3; live_base $DB
+apply $DB "$MIG/20261010000200_organizations_and_backfill.sql" "$MIG/20261010000210_org_rls_policies.sql" && \
+  expect_reject $DB "$MIG/20261010000300_private_storage_buckets.sql" S3-01 "masih menunjuk file di luar folder"
+check $DB S3-02 "policy storage lama masih utuh setelah penolakan" "select count(*) = 2 from pg_policies where policyname like 'Izinkan%KTP'"
+
+# S4: policy storage generik using(true) -> step 0 menolak
+echo; echo "=== S4 Policy storage generik 'using (true)' ==="
+DB=qa_org_s4; live_base $DB
+apply $DB "$HERE/06_legacy_generic_storage_policy.sql" "$MIG/20261010000200_organizations_and_backfill.sql" \
+  "$MIG/20261010000210_org_rls_policies.sql" "$HERE/07_simulated_move.sql" && \
+  expect_reject $DB "$MIG/20261010000300_private_storage_buckets.sql" S4-01 "policy storage.objects permisif"
+
+# S5: policy permisif yang lolos cek teks ('x or true', 'owner not null') + bucket lain -> guard menahan
+DB=qa_org_s5; live_base $DB
+apply $DB "$HERE/07_legacy_or_true_policy.sql" "$HERE/08_legacy_owner_not_null_policy.sql" \
+  "$MIG/20261010000200_organizations_and_backfill.sql" "$MIG/20261010000210_org_rls_policies.sql" \
+  "$HERE/07_simulated_move.sql" "$MIG/20261010000300_private_storage_buckets.sql" \
+  "$HERE/09_other_bucket.sql" "$HERE/10_seed_org2.sql" "$HERE/20_org_tests.sql" "$HERE/25_other_bucket_tests.sql" && \
+  report $DB "S5 Policy permisif 'x or true' + 'owner not null' + guard RESTRICTIVE (dengan user org lain)"
+
+# S6: S5 TANPA guard -> membuktikan guard yang menahan kebocoran (kontrol)
+DB=qa_org_s6; live_base $DB
+apply $DB "$HERE/07_legacy_or_true_policy.sql" "$MIG/20261010000200_organizations_and_backfill.sql" \
+  "$MIG/20261010000210_org_rls_policies.sql" "$HERE/07_simulated_move.sql" "$MIG/20261010000300_private_storage_buckets.sql" \
+  "$HERE/10_seed_org2.sql" && {
+  psql -X -q -d $DB -c "drop policy simkos_private_images_guard on storage.objects" >/dev/null
+  echo; echo "=== S6 Kontrol: tanpa guard, policy 'x or true' membocorkan ==="
+  check $DB S6-01 "tanpa guard, owner org2 melihat KTP org1 (bukti guard diperlukan)" \
+    "begin; set local role authenticated; select qa.as_user('c'); select count(*) > 0 from storage.objects where name like (select qa.id('org1'))::text || '/%'" 2>/dev/null
+}
+
+# S7: rollback 300 -> 210 -> 200 mengembalikan policy live, bucket tetap private
+echo; echo "=== S7 Rollback ==="
+DB=qa_org_s7; live_base $DB
+apply $DB "$MIG/20261010000200_organizations_and_backfill.sql" "$MIG/20261010000210_org_rls_policies.sql" \
+  "$HERE/07_simulated_move.sql" "$MIG/20261010000300_private_storage_buckets.sql" && {
+  expect_reject $DB "$RB/rollback_200_organizations.sql" S7-01 "Jalankan rollback_300_storage.sql dulu"
+  apply $DB "$RB/rollback_300_storage.sql" "$RB/rollback_210_org_rls.sql" && {
+    check $DB S7-02 "policy storage live lama kembali persis, tanpa policy simkos" \
+      "select (select count(*) from pg_policies where schemaname='storage' and policyname in ('Izinkan lihat KTP','Izinkan upload KTP')) = 2 and not exists (select 1 from pg_policies where policyname like 'simkos_%')"
+    check $DB S7-03 "bucket tetap private" "select bool_and(not public) from storage.buckets where id in ('ktp_images','receipt_images')"
+    check $DB S7-04 "7 policy tabel live lama kembali (auth.role() = 'authenticated')" \
+      "select count(*) = 7 from pg_policies where schemaname='public' and policyname like 'Hanya user login%' and qual = '(auth.role() = ''authenticated''::text)'"
+    check $DB S7-05 "file yang sudah dipindah tetap terbaca u2 lewat policy lama" \
+      "begin; set local role authenticated; select qa.as_user('u2'); select count(*) = 2 from storage.objects where bucket_id='ktp_images' and name like '%/ktp_%'"
+    apply $DB "$RB/rollback_200_organizations.sql" && \
+      check $DB S7-06 "rollback 200: kolom org_id & tabel organisasi hilang" \
+        "select to_regclass('public.organizations') is null and not exists (select 1 from information_schema.columns where table_schema='public' and column_name='org_id')"
+  }
+}
+
+rm -f "$HERE/.last_err"
+echo; echo "TOTAL GAGAL: $FAILS"
+[ "$FAILS" -eq 0 ]

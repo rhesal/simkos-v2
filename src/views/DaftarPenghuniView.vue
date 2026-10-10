@@ -564,10 +564,10 @@
           <div class="mt-4">
             <label class="text-xs font-semibold text-slate-600 block mb-1">🪪 Dokumen KTP Penyewa</label>
             <!-- Jika sudah ada KTP -->
-            <div v-if="selectedRoom?.foto_ktp" class="flex items-center justify-between bg-slate-50 p-2 rounded-xl border border-slate-100 mt-1">
+            <div v-if="selectedRoom?.activeRental?.tenants?.foto_ktp_url" class="flex items-center justify-between bg-slate-50 p-2 rounded-xl border border-slate-100 mt-1">
               <div class="flex items-center space-x-2">
                 <span class="text-xs text-green-600 font-medium">✓ KTP Tersimpan</span>
-                <a :href="selectedRoom.foto_ktp" target="_blank" class="text-xs text-blue-500 underline hover:text-blue-700">Lihat Foto</a>
+                <button type="button" @click="lihatFotoKtp" class="text-xs text-blue-500 underline hover:text-blue-700">Lihat KTP</button>
               </div>
               <!-- Tombol Koreksi Berkas -->
               <button type="button" @click="clearKtpDocument" class="text-xs text-red-500 hover:text-red-700 font-medium transition p-1">
@@ -575,7 +575,7 @@
               </button>
             </div>
             <!-- Jika belum ada KTP (Opsi Unggah) -->
-            <input v-else type="file" accept="image/*" @change="handleKtpFileChange" class="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" />
+            <input v-else type="file" :accept="IMAGE_ACCEPT" @change="handleKtpFileChange" class="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" />
           </div>
         </div>
 
@@ -729,6 +729,14 @@
       </div>
     </div>
 
+    <!-- Modal Lihat KTP (download + blob URL, tanpa tab baru / signed URL) -->
+    <KtpViewerModal
+      :open="showKtpViewer"
+      :stored-value="ktpViewerValue"
+      :tenant-name="ktpViewerName"
+      @close="closeKtpViewer"
+    />
+
     <!-- Bottom Navigation Bar -->
     <BottomNav />
   </div>
@@ -737,7 +745,9 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { supabase } from '../supabase.js'
+import { KTP_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile, removeStorageFile, deleteStorageFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
+import KtpViewerModal from '../components/KtpViewerModal.vue'
 
 const isLoading = ref(true)
 const roomsList = ref([])
@@ -832,17 +842,14 @@ async function loadRoomsAndRentals() {
     // Post-process to map active rental and days left
     roomsList.value = (data || []).map(room => {
       const activeRental = room.rentals?.find(r => r.status_aktif === true) || null
-      let fotoKtp = null
       if (activeRental) {
         activeRental.diffDays = getDiffDays(activeRental.tanggal_jatuh_tempo)
-        if (activeRental.tenants?.foto_ktp_url) {
-          fotoKtp = getKtpPublicUrl(activeRental.tenants.foto_ktp_url)
-        }
       }
+      // Foto KTP TIDAK lagi di-resolve ke URL publik di sini.
+      // Signed URL dibuat on-demand saat tombol "Lihat Foto" ditekan (lihatFotoKtp).
       return {
         ...room,
-        activeRental,
-        foto_ktp: fotoKtp
+        activeRental
       }
     })
   } catch (err) {
@@ -916,11 +923,6 @@ function handleRoomClick(room) {
   isEditingDates.value = false
   editStartDate.value = ''
   editDueDate.value = ''
-  if (room.activeRental?.tenants?.foto_ktp_url) {
-    room.foto_ktp = getKtpPublicUrl(room.activeRental.tenants.foto_ktp_url)
-  } else {
-    room.foto_ktp = null
-  }
   selectedRoom.value = room
   if (room.activeRental) {
     showDetailModal.value = true
@@ -1337,12 +1339,26 @@ async function updateRentalDates() {
   }
 }
 
-// Get public URL for KTP photo
-function getKtpPublicUrl(path) {
-  if (!path) return null
-  if (path.startsWith('http://') || path.startsWith('https://')) return path
-  const { data } = supabase.storage.from('ktp_images').getPublicUrl(path)
-  return data?.publicUrl || null
+// Buka foto KTP di modal dalam aplikasi. File diambil lewat download()
+// (token sesi, dijaga RLS) dan ditampilkan sebagai blob URL, sehingga tidak
+// ada URL yang masuk riwayat browser. Lihat components/KtpViewerModal.vue.
+const showKtpViewer = ref(false)
+const ktpViewerValue = ref('')
+const ktpViewerName = ref('')
+
+function lihatFotoKtp() {
+  const tenant = selectedRoom.value?.activeRental?.tenants
+  const stored = tenant?.foto_ktp_url
+  if (!stored) return
+  ktpViewerValue.value = stored
+  ktpViewerName.value = tenant?.nama_lengkap || ''
+  showKtpViewer.value = true
+}
+
+function closeKtpViewer() {
+  showKtpViewer.value = false
+  ktpViewerValue.value = ''
+  ktpViewerName.value = ''
 }
 
 // Handle KTP file change & upload
@@ -1350,12 +1366,10 @@ async function handleKtpFileChange(e) {
   const file = e.target.files?.[0]
   if (!file) return
 
-  if (!file.type.startsWith('image/')) {
-    alert('File harus berupa gambar!')
-    return
-  }
-  if (file.size > 5 * 1024 * 1024) {
-    alert('Ukuran file maksimal 5MB!')
+  const invalid = validateImageFile(file)
+  if (invalid) {
+    alert(invalid)
+    e.target.value = ''
     return
   }
 
@@ -1363,41 +1377,45 @@ async function handleKtpFileChange(e) {
   isLoading.value = true
 
   try {
-    // 1. Generate unique file name
-    const fileExtension = file.name.split('.').pop()
-    const uniqueFileName = `ktp_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExtension}`
-
-    // 2. Upload to Supabase Storage bucket 'ktp_images'
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('ktp_images')
-      .upload(uniqueFileName, file, {
-        cacheControl: '3600',
-        upsert: false
-      })
-
-    if (uploadError) throw uploadError
-
-    const ktpPath = uploadData.path
-
-    // 3. Get Public URL
-    const publicUrl = getKtpPublicUrl(ktpPath)
-
-    // 4. Update tenants table
     const tenantId = editForm.tenantId || selectedRoom.value?.activeRental?.tenant_id
     if (!tenantId) {
       throw new Error('ID Penghuni tidak ditemukan!')
     }
 
+    // Path KTP lama (bila ada) — dihapus setelah path baru tersimpan di DB
+    const oldKtp = selectedRoom.value?.activeRental?.tenants?.foto_ktp_url || null
+
+    // 1. Upload ke bucket privat 'ktp_images' dengan path "<org_id>/ktp_...".
+    //    DB hanya menyimpan path objek, bukan URL publik.
+    const ktpPath = await uploadPrivateFile(KTP_BUCKET, 'ktp', file)
+
+    // 2. Update tenants table
     const { error: updateError } = await supabase
       .from('tenants')
       .update({ foto_ktp_url: ktpPath })
       .eq('id', tenantId)
 
-    if (updateError) throw updateError
+    if (updateError) {
+      // Rollback file yang sudah terunggah
+      await removeStorageFile(KTP_BUCKET, ktpPath)
+      throw updateError
+    }
 
-    // 5. Update local state
+    // 3. Hapus file KTP lama agar data pribadi tidak tertinggal di bucket.
+    //    DB sudah menunjuk ke file baru, jadi kegagalan di sini tidak merusak
+    //    data — tapi user tetap diberi tahu.
+    let oldDeleteFailed = false
+    if (oldKtp && oldKtp !== ktpPath) {
+      try {
+        await deleteStorageFile(KTP_BUCKET, oldKtp)
+      } catch (delErr) {
+        oldDeleteFailed = true
+        console.error('[SimKos] Gagal menghapus file KTP lama:', delErr?.message || delErr)
+      }
+    }
+
+    // 4. Update local state
     if (selectedRoom.value) {
-      selectedRoom.value.foto_ktp = publicUrl
       if (selectedRoom.value.activeRental?.tenants) {
         selectedRoom.value.activeRental.tenants.foto_ktp_url = ktpPath
       }
@@ -1406,13 +1424,16 @@ async function handleKtpFileChange(e) {
     // Update in roomsList
     const localRoom = roomsList.value.find(r => r.id === selectedRoom.value?.id)
     if (localRoom) {
-      localRoom.foto_ktp = publicUrl
       if (localRoom.activeRental?.tenants) {
         localRoom.activeRental.tenants.foto_ktp_url = ktpPath
       }
     }
 
-    alert('Foto KTP berhasil diunggah!')
+    alert(
+      oldDeleteFailed
+        ? 'Foto KTP baru berhasil diunggah, tetapi file KTP lama gagal dihapus dari penyimpanan. Silakan hubungi admin.'
+        : 'Foto KTP berhasil diunggah!'
+    )
   } catch (err) {
     alert(`Gagal mengunggah KTP: ${err.message}`)
     console.error('[SimKos] Upload KTP error:', err)
@@ -1433,6 +1454,21 @@ async function clearKtpDocument() {
     }
 
     isLoading.value = true
+    const oldKtp = selectedRoom.value?.activeRental?.tenants?.foto_ktp_url || null
+
+    // 1. Hapus file KTP dari storage DULU. Bila gagal, kolom DB tidak diubah
+    //    supaya file tidak menjadi yatim (tak direferensikan) tanpa diketahui.
+    if (oldKtp) {
+      try {
+        await deleteStorageFile(KTP_BUCKET, oldKtp)
+      } catch (delErr) {
+        console.error('[SimKos] Gagal menghapus file KTP:', delErr?.message || delErr)
+        alert('Gagal menghapus file KTP dari penyimpanan. Data KTP tidak diubah. Periksa koneksi lalu coba lagi.')
+        return
+      }
+    }
+
+    // 2. Baru kosongkan kolom setelah file benar-benar terhapus
     const { error } = await supabase
       .from('tenants')
       .update({ foto_ktp_url: null })
@@ -1442,7 +1478,6 @@ async function clearKtpDocument() {
 
     // Sinkronisasi State Frontend secara instan agar input file muncul kembali
     if (selectedRoom.value) {
-      selectedRoom.value.foto_ktp = null
       if (selectedRoom.value.activeRental?.tenants) {
         selectedRoom.value.activeRental.tenants.foto_ktp_url = null
       }
@@ -1450,7 +1485,6 @@ async function clearKtpDocument() {
 
     const localRoom = roomsList.value.find(r => r.id === selectedRoom.value?.id)
     if (localRoom) {
-      localRoom.foto_ktp = null
       if (localRoom.activeRental?.tenants) {
         localRoom.activeRental.tenants.foto_ktp_url = null
       }

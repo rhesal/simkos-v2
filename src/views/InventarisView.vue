@@ -338,7 +338,7 @@
                 <span>📷 Klik untuk Unggah Nota</span>
                 <input
                   type="file"
-                  accept="image/*"
+                  :accept="IMAGE_ACCEPT"
                   class="hidden"
                   @change="handleFileUpload"
                 />
@@ -392,6 +392,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { supabase } from '../supabase.js'
+import { RECEIPT_BUCKET, IMAGE_ACCEPT, validateImageFile, getSignedUrl, toStoragePath, uploadPrivateFile, removeStorageFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
 
 const isLoading = ref(true)
@@ -419,7 +420,10 @@ const form = reactive({
   tanggal_pembelian: new Date().toISOString().split('T')[0],
   harga: null,
   tipe_fasilitas: 'kamar',
-  receiptPreview: null
+  receiptPreview: null,
+  // Nilai receipt_url yang tersimpan di DB (path objek, atau URL publik lama)
+  receipt_path: null,
+  original_receipt_path: null
 })
 const receiptFile = ref(null)
 
@@ -498,6 +502,8 @@ function bukaModalTambah() {
   form.harga = null
   form.tipe_fasilitas = activeTab.value === 'Fasilitas Kamar' ? 'kamar' : 'umum'
   form.receiptPreview = null
+  form.receipt_path = null
+  form.original_receipt_path = null
   receiptFile.value = null
   showModal.value = true
 }
@@ -511,9 +517,21 @@ function bukaModalEdit(asset) {
   form.tanggal_pembelian = asset.tanggal_pembelian
   form.harga = asset.harga
   form.tipe_fasilitas = asset.tipe_fasilitas
-  form.receiptPreview = asset.receipt_url
+  form.receiptPreview = null
+  form.receipt_path = asset.receipt_url || null
+  form.original_receipt_path = asset.receipt_url || null
   receiptFile.value = null
   showModal.value = true
+
+  // Bucket nota privat: pratinjau memakai signed URL berumur pendek
+  if (asset.receipt_url) {
+    const editingId = asset.id
+    getSignedUrl(RECEIPT_BUCKET, asset.receipt_url).then((url) => {
+      if (form.id === editingId && !receiptFile.value && form.receipt_path) {
+        form.receiptPreview = url
+      }
+    })
+  }
 }
 
 // File Upload Handler
@@ -521,12 +539,10 @@ function handleFileUpload(e) {
   const file = e.target.files?.[0]
   if (!file) return
 
-  if (!file.type.startsWith('image/')) {
-    alert('File harus berupa gambar!')
-    return
-  }
-  if (file.size > 5 * 1024 * 1024) {
-    alert('Ukuran file maksimal 5MB!')
+  const invalid = validateImageFile(file)
+  if (invalid) {
+    alert(invalid)
+    e.target.value = ''
     return
   }
 
@@ -537,9 +553,15 @@ function handleFileUpload(e) {
 function hapusNotaPreview() {
   receiptFile.value = null
   form.receiptPreview = null
+  form.receipt_path = null
 }
 
-function bukaFotoNota(url) {
+async function bukaFotoNota(storedValue) {
+  const url = await getSignedUrl(RECEIPT_BUCKET, storedValue)
+  if (!url) {
+    alert('Foto nota tidak dapat dimuat. Coba lagi nanti.')
+    return
+  }
   selectedImageUrl.value = url
   showImageModal.value = true
 }
@@ -552,30 +574,15 @@ async function handleSubmit() {
   }
 
   isSubmitting.value = true
-  let receiptPath = form.receiptPreview // keep original url if not updated
+  // Simpan path objek (bukan URL). Nilai lama berupa URL publik dinormalisasi menjadi path.
+  let receiptPath = form.receipt_path ? toStoragePath(RECEIPT_BUCKET, form.receipt_path) : null
+  let uploadedPath = null
 
   try {
     // 1. Upload new receipt image if selected
     if (receiptFile.value) {
-      const timestamp = Date.now()
-      const ext = receiptFile.value.name.split('.').pop()
-      const fileName = `receipt_${timestamp}.${ext}`
-
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('receipt_images')
-        .upload(fileName, receiptFile.value, {
-          cacheControl: '3600',
-          upsert: false
-        })
-
-      if (uploadError) throw uploadError
-
-      // Resolve public URL for display
-      const { data: publicUrlData } = supabase.storage
-        .from('receipt_images')
-        .getPublicUrl(uploadData.path)
-
-      receiptPath = publicUrlData.publicUrl
+      uploadedPath = await uploadPrivateFile(RECEIPT_BUCKET, 'receipt', receiptFile.value)
+      receiptPath = uploadedPath
     }
 
     const payload = {
@@ -608,9 +615,19 @@ async function handleSubmit() {
       alert('Aset berhasil ditambahkan!')
     }
 
+    // Nota lama diganti/dihapus: bersihkan file lamanya dari storage (best effort)
+    const oldPath = toStoragePath(RECEIPT_BUCKET, form.original_receipt_path)
+    if (form.id && oldPath && oldPath !== receiptPath) {
+      await removeStorageFile(RECEIPT_BUCKET, oldPath)
+    }
+
     showModal.value = false
     await loadInventories()
   } catch (err) {
+    // Rollback file yang baru terunggah bila penyimpanan DB gagal
+    if (uploadedPath) {
+      await removeStorageFile(RECEIPT_BUCKET, uploadedPath)
+    }
     alert(`Gagal menyimpan aset: ${err.message}`)
     console.error('[SimKos] Save asset error:', err)
   } finally {
@@ -631,6 +648,9 @@ async function hapusAset(asset) {
       .eq('id', asset.id)
 
     if (error) throw error
+    if (asset.receipt_url) {
+      await removeStorageFile(RECEIPT_BUCKET, asset.receipt_url)
+    }
     alert('Aset berhasil dihapus!')
     await loadInventories()
   } catch (err) {
