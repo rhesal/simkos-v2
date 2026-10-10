@@ -110,6 +110,7 @@
                   <!-- View Receipt Button -->
                   <button
                     v-if="asset.receipt_url"
+                    type="button"
                     @click="bukaFotoNota(asset.receipt_url)"
                     class="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-sm border border-blue-100 active:scale-95 transition-transform"
                     :title="`Lihat nota ${asset.nama_barang}`"
@@ -118,6 +119,7 @@
                     <span aria-hidden="true">📷</span>
                   </button>
                   <button
+                    type="button"
                     @click="bukaModalEdit(asset)"
                     class="p-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm border border-gray-200 active:scale-95 transition-transform"
                     :title="`Ubah ${asset.nama_barang}`"
@@ -126,6 +128,7 @@
                     <span aria-hidden="true">✏️</span>
                   </button>
                   <button
+                    type="button"
                     @click="bukaKonfirmasiHapus(asset)"
                     class="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-sm border border-red-200 active:scale-95 transition-transform"
                     :title="`Hapus ${asset.nama_barang}`"
@@ -153,7 +156,7 @@
             <!-- Location Overlay: tetap di area pt-5, dipotong kalau nama lokasi panjang -->
             <span
               v-if="asset.locations?.nama_lokasi"
-              class="absolute right-3 top-1 max-w-[50%] truncate text-[10px] leading-none font-bold text-text-muted opacity-70"
+              class="absolute right-3 top-1 max-w-[50%] truncate text-[10px] leading-none font-bold text-text-secondary"
               :title="asset.locations.nama_lokasi"
             >
               {{ asset.locations.nama_lokasi }}
@@ -443,12 +446,15 @@
     >
       <div class="relative bg-white rounded-2xl p-2 border-2 border-border shadow-2xl max-w-sm w-full" @click.stop>
         <button
+          type="button"
           @click="showImageModal = false"
           class="absolute -top-3 -right-3 w-8 h-8 bg-white border-2 border-border hover:bg-gray-50 text-navy font-bold rounded-full flex items-center justify-center shadow-lg"
+          title="Tutup foto nota"
+          aria-label="Tutup foto nota"
         >
-          ✕
+          <span aria-hidden="true">✕</span>
         </button>
-        <img :src="selectedImageUrl" class="w-full rounded-xl object-contain max-h-[75vh]" />
+        <img :src="selectedImageUrl" alt="Foto nota pembelian" class="w-full rounded-xl object-contain max-h-[75vh]" />
       </div>
     </div>
 
