@@ -16,8 +16,28 @@
   </Teleport>
 </template>
 
+<script>
+// Jumlah modal yang sedang terbuka (modal bisa bertumpuk, mis. KTP di atas
+// Detail Penghuni). Scroll body dikunci selama masih ada yang terbuka.
+let openCount = 0
+let savedOverflow = ''
+</script>
+
 <script setup>
+import { onMounted, onUnmounted } from 'vue'
+
 defineOptions({ inheritAttrs: false })
+
+// Kunci scroll halaman di belakang modal; dilepas saat modal ditutup.
+onMounted(() => {
+  if (openCount++ === 0) {
+    savedOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+  }
+})
+onUnmounted(() => {
+  if (--openCount === 0) document.body.style.overflow = savedOverflow
+})
 </script>
 
 <style scoped>
