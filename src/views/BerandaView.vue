@@ -338,6 +338,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '../supabase.js'
+import { signOutWithLocalFallback } from '../lib/auth.js'
 import { clearSignedUrlCache, clearOrgIdCache } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
 
@@ -558,11 +559,9 @@ async function handleLogout() {
   // Buang signed URL yang tersimpan di memori sebelum sesi ditutup
   clearSignedUrlCache()
   clearOrgIdCache()
-  const { error } = await supabase.auth.signOut()
-  if (error) {
-    console.error('[Supabase Auth] Gagal logout:', error)
-  } else {
-    router.push('/login')
-  }
+  // Saat offline, sesi di perangkat tetap dihapus supaya tombol Keluar
+  // selalu berhasil membawa user ke halaman login.
+  await signOutWithLocalFallback(supabase.auth)
+  router.replace('/login')
 }
 </script>

@@ -234,7 +234,6 @@ onMounted(async () => {
     console.error('[Supabase] Fetch locations error:', error)
   } else {
     locationList.value = data || []
-    console.log('[Supabase] Locations loaded:', data)
   }
 })
 
@@ -265,7 +264,6 @@ async function handleSubmit() {
     console.error('[Supabase] Insert room error:', error)
   } else {
     successMsg.value = 'Kamar berhasil disimpan!'
-    console.log('[Supabase] Kamar baru:', data)
     setTimeout(() => {
       router.push('/')
     }, 1000)
