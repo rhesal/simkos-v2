@@ -143,13 +143,17 @@
           </div>
         </div>
 
-        <!-- Catatan tagihan bersama saat filter per kos -->
+        <!-- Catatan tagihan bersama (location_id NULL) -->
         <p
-          v-if="selectedLocationFilter !== 'ALL' && filteredTagihanBersama > 0"
+          v-if="filteredTagihanBersama > 0"
           class="text-xs font-semibold text-text-secondary bg-navy/5 border border-navy/10 rounded-xl px-4 py-3"
         >
-          🌐 Tagihan bersama (Semua Kos) {{ formatCurrency(filteredTagihanBersama) }} ikut ditampilkan
-          di daftar, tapi tidak dihitung di Total Keluar per kos.
+          <template v-if="selectedLocationFilter === 'ALL'">
+            🌐 Termasuk tagihan bersama {{ formatCurrency(filteredTagihanBersama) }}
+          </template>
+          <template v-else>
+            🌐 Tagihan bersama {{ formatCurrency(filteredTagihanBersama) }} tidak termasuk total kos ini
+          </template>
         </p>
 
         <!-- Empty State -->
@@ -210,7 +214,7 @@
                     v-if="tx.semuaKos"
                     class="flex-shrink-0 bg-navy/10 text-navy border border-navy/20 px-2 py-0.5 rounded font-bold"
                   >
-                    🌐 Semua Kos
+                    🌐 Tagihan bersama
                   </span>
                   <span v-else class="truncate">{{ tx.lokasi }}</span>
                 </div>
@@ -308,15 +312,16 @@ onMounted(async () => {
         keterangan: item.keterangan || 'Bayar Sewa Kos',
         entitas: `👤 ${tenantName} (Kamar ${roomNo})`,
         lokasi: `🏢 ${locName}`,
+        lokasiNama: locName,
         location_id: locId
       }
     })
 
     // 5. Format and Map Expenses
     const mappedExpenses = (expData || []).map(item => {
-      // location_id NULL = tagihan bersama "Semua Kos"
+      // location_id NULL = tagihan bersama (semua kos)
       const semuaKos = item.location_id == null
-      const locName = semuaKos ? 'Semua Kos' : (item.locations?.nama_lokasi || 'Tidak Diketahui')
+      const locName = semuaKos ? 'Tagihan bersama' : (item.locations?.nama_lokasi || 'Tidak Diketahui')
 
       return {
         id: `exp-${item.id}`,
@@ -326,6 +331,7 @@ onMounted(async () => {
         keterangan: item.keterangan || `Pengeluaran ${item.kategori}`,
         entitas: `📦 ${item.kategori}`,
         lokasi: semuaKos ? `🌐 ${locName}` : `🏢 ${locName}`,
+        lokasiNama: locName,
         location_id: item.location_id,
         semuaKos
       }
@@ -350,7 +356,7 @@ const filteredTransactions = computed(() => {
   let list = transactionsList.value
 
   if (selectedLocationFilter.value !== 'ALL') {
-    // Tagihan bersama (Semua Kos) tetap tampil di daftar per kos, diberi badge,
+    // Tagihan bersama tetap tampil di daftar per kos, diberi badge,
     // tapi tidak dihitung di total per kos (lihat filteredTotalExpense).
     list = list.filter(tx => tx.location_id === selectedLocationFilter.value || tx.semuaKos)
   }
@@ -372,10 +378,15 @@ const filteredTotalIncome = computed(() => {
     .reduce((sum, tx) => sum + tx.nominal, 0)
 })
 
+// Apakah transaksi dihitung di total untuk filter saat ini.
+// Tagihan bersama tidak dihitung saat filter satu kos; di "Semua Lokasi" semua dihitung.
+function isCountedInTotal(tx) {
+  return selectedLocationFilter.value === 'ALL' || !tx.semuaKos
+}
+
 const filteredTotalExpense = computed(() => {
-  const perKos = selectedLocationFilter.value !== 'ALL'
   return filteredTransactions.value
-    .filter(tx => tx.tipe === 'keluar' && !(perKos && tx.semuaKos))
+    .filter(tx => tx.tipe === 'keluar' && isCountedInTotal(tx))
     .reduce((sum, tx) => sum + tx.nominal, 0)
 })
 
@@ -409,14 +420,16 @@ const selectedLocationFilterName = computed(() => {
 })
 
 function exportToCSV() {
-  const headers = ['Tanggal', 'Tipe', 'Lokasi/Kamar', 'Keterangan', 'Nominal']
+  const headers = ['Tanggal', 'Tipe', 'Lokasi/Kamar', 'Keterangan', 'Nominal', 'Lokasi', 'Dihitung di total kos ini']
   
   const rows = filteredTransactions.value.map(tx => [
     formatDateDisplay(tx.tanggal),
     tx.tipe === 'masuk' ? 'Pemasukan' : 'Pengeluaran',
-    (tx.entitas.replace(/[👤📦🏢]/g, '').trim()) + (tx.semuaKos ? ' (Semua Kos - tagihan bersama)' : ''),
+    tx.entitas.replace(/[👤📦🏢]/g, '').trim(),
     tx.keterangan,
-    tx.nominal
+    tx.nominal,
+    tx.lokasiNama,
+    isCountedInTotal(tx) ? 'Ya' : 'Tidak'
   ])
 
   const csvContent = [

@@ -66,7 +66,7 @@
               class="w-full px-5 py-4 bg-white border-2 border-gray-200 rounded-xl appearance-none focus:outline-none focus:border-navy text-lg font-medium text-gray-800 shadow-sm"
             >
               <option value="" disabled hidden selected>-- Pilih Lokasi Kos --</option>
-              <option :value="SEMUA_KOS">🌐 Semua Kos (tagihan bersama)</option>
+              <option :value="SEMUA_KOS">🌐 Tagihan bersama (semua kos)</option>
               <option v-for="loc in locationList" :key="loc.id" :value="loc.id">
                 {{ loc.nama_lokasi }}
               </option>
@@ -78,8 +78,8 @@
             </div>
           </div>
           <p v-if="isSemuaKos" class="text-sm font-semibold text-navy bg-navy/5 border border-navy/10 rounded-xl px-4 py-3">
-            Dicatat sekali untuk semua kos (misalnya internet). Masuk ke total "Semua Lokasi",
-            tapi tidak dihitung di total per kos.
+            Dicatat sekali untuk semua kos (misalnya internet). Termasuk di total "Semua Lokasi",
+            tapi tidak termasuk total per kos.
           </p>
         </div>
 
@@ -352,6 +352,9 @@ async function handleSubmit() {
     const { error: insertError } = await supabase
       .from('expenses')
       .insert({
+        // location_id NULL = tagihan bersama (semua kos), dicatat sekali tanpa dibagi.
+        // Lihat docs/tagihan-bersama.md. Bila nanti ada jalur input lain yang bisa
+        // menyimpan location_id NULL, pertimbangkan kolom is_shared + check constraint.
         location_id: isSemuaKos.value ? null : form.location_id,
         tanggal_pengeluaran: form.tanggal,
         kategori: form.kategori,

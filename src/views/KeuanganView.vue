@@ -69,18 +69,16 @@
           </div>
         </div>
 
-        <!-- Catatan tagihan bersama (Semua Kos) -->
+        <!-- Catatan tagihan bersama (location_id NULL) -->
         <p
           v-if="totalTagihanBersama > 0"
           class="text-xs font-semibold text-text-secondary bg-navy/5 border border-navy/10 rounded-xl px-4 py-3 -mt-2"
         >
           <template v-if="selectedLocationFilter === 'ALL'">
-            🌐 Total pengeluaran sudah termasuk tagihan bersama (Semua Kos)
-            {{ formatCurrency(totalTagihanBersama) }}.
+            🌐 Termasuk tagihan bersama {{ formatCurrency(totalTagihanBersama) }}
           </template>
           <template v-else>
-            🌐 Tagihan bersama (Semua Kos) {{ formatCurrency(totalTagihanBersama) }}
-            tidak dihitung per kos. Pilih "Semua Lokasi" untuk melihat total gabungan.
+            🌐 Tagihan bersama {{ formatCurrency(totalTagihanBersama) }} tidak termasuk total kos ini
           </template>
         </p>
 
@@ -221,7 +219,7 @@ const currentMonthExpenses = computed(() => {
   })
 })
 
-// Tagihan bersama (location_id NULL = "Semua Kos") bulan ini.
+// Tagihan bersama (location_id NULL) bulan ini.
 // Dihitung di total "Semua Lokasi", tidak dihitung di total per kos.
 const totalTagihanBersama = computed(() => {
   return expensesList.value
