@@ -356,6 +356,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { localDateStamp } from '../lib/date.js'
 import { useRouter, useRoute } from 'vue-router'
 import { supabase } from '../supabase.js'
 import { KTP_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile, removeStorageFile } from '../lib/storage.js'
@@ -393,7 +394,7 @@ const form = reactive({
   nomor_hp: '',
   kontak_darurat: '',
   tipe_sewa: 'bulanan',
-  tanggal_masuk: new Date().toISOString().split('T')[0],
+  tanggal_masuk: localDateStamp(), // tanggal lokal (WIB), bukan UTC
   tanggal_jatuh_tempo: '',
 })
 

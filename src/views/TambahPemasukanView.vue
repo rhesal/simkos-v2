@@ -223,6 +223,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { localDateStamp } from '../lib/date.js'
 import { useRouter } from 'vue-router'
 import { supabase } from '../supabase.js'
 
@@ -244,7 +245,7 @@ const activeRental = ref(null)
 const form = reactive({
   location_id: '',
   room_id: '',
-  tanggal_bayar: new Date().toISOString().split('T')[0],
+  tanggal_bayar: localDateStamp(), // tanggal lokal (WIB), bukan UTC
   nominal: null,
   keterangan: '',
   kategori: 'Sewa Kamar',
