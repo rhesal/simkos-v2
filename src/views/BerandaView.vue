@@ -213,6 +213,10 @@
                   </div>
                   <span class="text-xl font-extrabold text-red-300">{{ formatCurrency(totalPengeluaran) }}</span>
                 </div>
+                <p v-if="totalTagihanBersama > 0" class="text-xs font-semibold text-blue-200/90">
+                  🌐 Tagihan bersama (Semua Kos) {{ formatCurrency(totalTagihanBersama) }} tidak dihitung per kos.
+                  Lihat total gabungan di menu Keuangan.
+                </p>
               </div>
             </div>
           </div>
@@ -379,8 +383,18 @@ const totalPemasukan = computed(() => {
     .reduce((sum, item) => sum + (item.nominal || 0), 0)
 })
 
+// Pengeluaran kos ini saja. Tagihan bersama (location_id NULL = "Semua Kos")
+// tidak dihitung per kos, supaya tidak terhitung dobel di tiap kos.
 const totalPengeluaran = computed(() => {
   return expensesList.value
+    .filter(item => item.location_id != null)
+    .filter(item => item.tanggal_pengeluaran && item.tanggal_pengeluaran.startsWith(currentMonthPrefix.value))
+    .reduce((sum, item) => sum + (item.nominal || 0), 0)
+})
+
+const totalTagihanBersama = computed(() => {
+  return expensesList.value
+    .filter(item => item.location_id == null)
     .filter(item => item.tanggal_pengeluaran && item.tanggal_pengeluaran.startsWith(currentMonthPrefix.value))
     .reduce((sum, item) => sum + (item.nominal || 0), 0)
 })
@@ -489,8 +503,8 @@ async function fetchDashboardData(locationId) {
     // 4. Fetch expenses
     const { data: expensesData, error: expensesError } = await supabase
       .from('expenses')
-      .select('nominal, tanggal_pengeluaran')
-      .eq('location_id', locationId)
+      .select('nominal, tanggal_pengeluaran, location_id')
+      .or(`location_id.eq.${locationId},location_id.is.null`)
 
     if (expensesError) throw expensesError
     expensesList.value = expensesData || []

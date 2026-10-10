@@ -66,6 +66,7 @@
               class="w-full px-5 py-4 bg-white border-2 border-gray-200 rounded-xl appearance-none focus:outline-none focus:border-navy text-lg font-medium text-gray-800 shadow-sm"
             >
               <option value="" disabled hidden selected>-- Pilih Lokasi Kos --</option>
+              <option :value="SEMUA_KOS">🌐 Semua Kos (tagihan bersama)</option>
               <option v-for="loc in locationList" :key="loc.id" :value="loc.id">
                 {{ loc.nama_lokasi }}
               </option>
@@ -76,6 +77,10 @@
               </svg>
             </div>
           </div>
+          <p v-if="isSemuaKos" class="text-sm font-semibold text-navy bg-navy/5 border border-navy/10 rounded-xl px-4 py-3">
+            Dicatat sekali untuk semua kos (misalnya internet). Masuk ke total "Semua Lokasi",
+            tapi tidak dihitung di total per kos.
+          </p>
         </div>
 
         <!-- Tanggal & Kategori (2 Col Layout) -->
@@ -114,6 +119,7 @@
               >
                 <option value="Listrik">⚡ Listrik</option>
                 <option value="Air">💧 Air</option>
+                <option value="Internet">🌐 Internet</option>
                 <option value="Kebersihan">🧹 Kebersihan</option>
                 <option value="Perbaikan">🛠️ Perbaikan</option>
                 <option value="Lainnya">📦 Lainnya</option>
@@ -251,6 +257,10 @@ import { RECEIPT_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile, rem
 
 const router = useRouter()
 
+// Nilai khusus di dropdown untuk tagihan bersama. Disimpan sebagai location_id = NULL
+// (kolom nullable; RLS expenses_org_access mengizinkan location_id NULL).
+const SEMUA_KOS = '__SEMUA_KOS__'
+
 // UI States
 const isLoadingLocations = ref(true)
 const isSubmitting = ref(false)
@@ -270,6 +280,8 @@ const form = reactive({
   nominal: null,
   keterangan: '',
 })
+
+const isSemuaKos = computed(() => form.location_id === SEMUA_KOS)
 
 // Validation
 const isFormValid = computed(() => {
@@ -340,7 +352,7 @@ async function handleSubmit() {
     const { error: insertError } = await supabase
       .from('expenses')
       .insert({
-        location_id: form.location_id,
+        location_id: isSemuaKos.value ? null : form.location_id,
         tanggal_pengeluaran: form.tanggal,
         kategori: form.kategori,
         nominal: form.nominal,

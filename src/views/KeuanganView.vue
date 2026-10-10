@@ -69,6 +69,21 @@
           </div>
         </div>
 
+        <!-- Catatan tagihan bersama (Semua Kos) -->
+        <p
+          v-if="totalTagihanBersama > 0"
+          class="text-xs font-semibold text-text-secondary bg-navy/5 border border-navy/10 rounded-xl px-4 py-3 -mt-2"
+        >
+          <template v-if="selectedLocationFilter === 'ALL'">
+            🌐 Total pengeluaran sudah termasuk tagihan bersama (Semua Kos)
+            {{ formatCurrency(totalTagihanBersama) }}.
+          </template>
+          <template v-else>
+            🌐 Tagihan bersama (Semua Kos) {{ formatCurrency(totalTagihanBersama) }}
+            tidak dihitung per kos. Pilih "Semua Lokasi" untuk melihat total gabungan.
+          </template>
+        </p>
+
         <!-- ========== TOMBOL AKSY CHUNKY ========== -->
         <div class="grid grid-cols-2 gap-4">
           <router-link
@@ -204,6 +219,14 @@ const currentMonthExpenses = computed(() => {
     const matchesMonth = item.tanggal_pengeluaran && item.tanggal_pengeluaran.startsWith(currentMonthPrefix.value)
     return matchesLocation && matchesMonth
   })
+})
+
+// Tagihan bersama (location_id NULL = "Semua Kos") bulan ini.
+// Dihitung di total "Semua Lokasi", tidak dihitung di total per kos.
+const totalTagihanBersama = computed(() => {
+  return expensesList.value
+    .filter(item => item.location_id == null && item.tanggal_pengeluaran && item.tanggal_pengeluaran.startsWith(currentMonthPrefix.value))
+    .reduce((sum, item) => sum + (item.nominal || 0), 0)
 })
 
 const totalPemasukan = computed(() => {
