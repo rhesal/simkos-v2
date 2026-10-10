@@ -383,6 +383,7 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { supabase } from '../supabase.js'
 import { RECEIPT_BUCKET, getSignedUrl, deleteStorageFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
+import { buildCsv, localDateStamp } from '../lib/csv.js'
 
 const isLoading = ref(true)
 const locationList = ref([])
@@ -656,34 +657,42 @@ const selectedLocationFilterName = computed(() => {
 })
 
 function exportToCSV() {
-  const headers = ['Tanggal', 'Tipe', 'Entitas', 'Keterangan', 'Nominal', 'Lokasi', 'Dihitung di total kos ini']
-  
+  const columns = [
+    { header: 'Tanggal', type: 'text' },
+    { header: 'Tipe', type: 'text' },
+    { header: 'Entitas', type: 'text' },
+    { header: 'Keterangan', type: 'text' },
+    { header: 'Masuk', type: 'number' },
+    { header: 'Keluar', type: 'number' },
+    { header: 'Lokasi', type: 'text' },
+    { header: 'Dihitung di total kos ini', type: 'text' },
+  ]
+
   const rows = filteredTransactions.value.map(tx => [
     formatDateDisplay(tx.tanggal),
     tx.tipe === 'masuk' ? 'Pemasukan' : 'Pengeluaran',
-    tx.entitas.replace(/[👤📦🏢]/g, '').trim(),
+    String(tx.entitas ?? '').replace(/[👤📦🏢]/gu, '').trim(),
     tx.keterangan,
-    tx.nominal,
+    tx.tipe === 'masuk' ? tx.nominal : null,
+    tx.tipe === 'keluar' ? tx.nominal : null,
     tx.lokasiNama,
     isCountedInTotal(tx) ? 'Ya' : 'Tidak'
   ])
 
-  const csvContent = [
-    headers.join(','),
-    ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
-  ].join('\r\n')
-
+  // Pemisah koma + BOM UTF-8 (agar karakter Indonesia tampil benar di Excel).
+  // Sengaja TANPA baris "sep=," karena tampil sebagai sampah di Google Sheets.
+  const csvContent = buildCsv(columns, rows)
   const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
-  
-  const todayStr = new Date().toISOString().split('T')[0]
+
   const link = document.createElement('a')
   link.setAttribute('href', url)
-  link.setAttribute('download', `Laporan_SimKos_${todayStr}.csv`)
+  link.setAttribute('download', `Laporan_SimKos_${localDateStamp()}.csv`)
   link.style.visibility = 'hidden'
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 function exportToPDF() {
