@@ -14,7 +14,14 @@ Keputusan Rhesal (2026-10-10): Rhesal admin org SimKos, partner owner. Ke depan 
 
 - Lewat API, kolom `organization_members` yang boleh di-UPDATE hanya `role` (`user_id`/`org_id` tidak bisa dipindah), dan INSERT hanya `org_id`, `user_id`, `role`. Default `role` anggota baru `staff`; admin memilih peran secara eksplisit.
 - Trigger `organization_members_last_admin_guard`: admin terakhir sebuah org tidak bisa dihapus, diturunkan, atau dipindah, **termasuk dari SQL Editor dan saat menghapus akun auth-nya**. Baris org dikunci (`for no key update`), jadi dua perubahan bersamaan juga tidak bisa menghabiskan admin (tes S9r). Untuk ganti admin: naikkan anggota lain jadi admin dulu, baru ubah admin lama. Menghapus organisasinya sendiri (cascade) tetap boleh.
-- Migration: `supabase/migrations/20261010000500_org_admin_role.sql`. Calon admin diambil dari `simkos.admin_user_id` (default: user_id Rhesal di live); migration gagal tanpa sisa bila user itu bukan anggota org.
+- Migration: `supabase/migrations/20261010000500_org_admin_role.sql`. Calon admin diambil dari `simkos.admin_user_id`, **wajib** di-set (tidak ada default; UUID akun tidak disimpan di repo). Migration gagal tanpa sisa bila nilainya kosong atau user itu bukan anggota org.
+
+Cara apply (SQL Editor atau `psql -1 -f`, satu sesi & satu transaksi):
+```sql
+set simkos.admin_user_id = '<user_id admin awal>';   -- cek: select id from auth.users where email = '<email>';
+-- tempel isi 20261010000500_org_admin_role.sql di bawah baris ini, lalu Run
+```
+`set` harus di sesi yang sama dengan migration. `supabase db push` tidak membawa nilai dari sesi lain; migration akan ditolak pre-check (aman, tanpa perubahan).
 - Rollback: `supabase/rollback/rollback_500_org_admin_role.sql` (admin → owner, policy owner lama kembali). ⚠️ Setelah rollback, sesama owner kembali bisa saling mengeluarkan lewat API.
 - Tes: `qa/rls/org/run_local_org.sh` skenario S9/S9b (`50_org_admin_500_tests.sql`), hasil di `qa/rls/org/results_500.txt`.
 

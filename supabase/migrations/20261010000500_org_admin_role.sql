@@ -24,9 +24,12 @@
 --      kecuali org-nya sendiri sedang dihapus. Baris org dikunci
 --      (FOR NO KEY UPDATE) supaya dua perubahan bersamaan tidak lolos.
 --   6. organizations UPDATE (ganti nama org): admin atau owner (tetap).
---   7. Data: user `simkos.admin_user_id` jadi admin. Default
---      60a57117-71f1-46e1-87cb-f328f1911fcf = akun Rhesal di live (admin awal,
---      dicek Project Lead 2026-10-10).
+--   7. Data: user `simkos.admin_user_id` jadi admin. WAJIB di-set di sesi
+--      yang SAMA, tepat sebelum isi file ini (tidak ada default; UUID akun
+--      tidak disimpan di repo):
+--          set simkos.admin_user_id = '<user_id admin awal>';
+--      `supabase db push` tidak membawa `set` dari sesi lain -> pre-check
+--      menggagalkan migration tanpa sisa. Terapkan lewat SQL Editor / psql -1.
 --
 -- Idempotent: aman dijalankan ulang (drop ... if exists / create or replace).
 --
@@ -41,12 +44,16 @@
 -- 0. Pre-check ---------------------------------------------------------------
 do $$
 declare
-  admin_uid uuid := coalesce(nullif(current_setting('simkos.admin_user_id', true), ''),
-                             '60a57117-71f1-46e1-87cb-f328f1911fcf')::uuid;
+  admin_uid uuid := nullif(btrim(current_setting('simkos.admin_user_id', true)), '')::uuid;
   n int;
 begin
   if to_regclass('public.organization_members') is null then
     raise exception 'organization_members tidak ada. Terapkan migration 200 dulu.';
+  end if;
+  if admin_uid is null then
+    raise exception using
+      message = 'simkos.admin_user_id belum di-set.',
+      hint    = 'Jalankan `set simkos.admin_user_id = ''<user_id>'';` di sesi yang sama, tepat sebelum migration ini.';
   end if;
   select count(*) into n from public.organization_members where user_id = admin_uid;
   if n <> 1 then
@@ -164,8 +171,7 @@ create policy organizations_update_admin_owner on public.organizations
 -- 7. Data: tetapkan admin -----------------------------------------------------
 do $$
 declare
-  admin_uid uuid := coalesce(nullif(current_setting('simkos.admin_user_id', true), ''),
-                             '60a57117-71f1-46e1-87cb-f328f1911fcf')::uuid;
+  admin_uid uuid := nullif(btrim(current_setting('simkos.admin_user_id', true)), '')::uuid;
   n int;
 begin
   update public.organization_members set role = 'admin'

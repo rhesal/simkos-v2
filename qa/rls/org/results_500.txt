@@ -48,7 +48,8 @@ PASS | S9r-01 | dua admin diturunkan bersamaan -> minimal 1 admin tersisa
 PASS | S9r-02 | hapus akun auth admin A sambil admin B diturunkan -> minimal 1 admin tersisa
 
 === S9b Migration 500: calon admin tidak ada ===
-PASS | S9b-01 | 20261010000500_org_admin_role.sql menolak apply: ERROR:  Calon admin 60a57117-71f1-46e1-87cb-f328f1911fcf bukan anggota organisasi mana pun.
+PASS | S9b-01 | 20261010000500_org_admin_role.sql menolak apply: ERROR:  simkos.admin_user_id belum di-set.
+PASS | S9b-03 | .m500bad.sql menolak apply: ERROR:  Calon admin dddddddd-0000-0000-0000-00000000000d bukan anggota organisasi mana pun.
 PASS | S9b-02 | setelah ditolak tidak ada sisa
 
 TOTAL GAGAL: 0

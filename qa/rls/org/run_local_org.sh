@@ -198,7 +198,10 @@ apply $DB "$MIG/20261010000200_organizations_and_backfill.sql" "$MIG/20261010000
 DB=qa_org_s9b; live_base $DB
 apply $DB "$MIG/20261010000200_organizations_and_backfill.sql" "$MIG/20261010000210_org_rls_policies.sql" && {
   echo; echo "=== S9b Migration 500: calon admin tidak ada ==="
-  expect_reject $DB "$MIG/20261010000500_org_admin_role.sql" S9b-01 "bukan anggota organisasi"
+  expect_reject $DB "$MIG/20261010000500_org_admin_role.sql" S9b-01 "simkos.admin_user_id belum di-set"
+  { echo "set simkos.admin_user_id = 'dddddddd-0000-0000-0000-00000000000d';"; cat "$MIG/20261010000500_org_admin_role.sql"; } > "$HERE/.m500bad.sql"
+  expect_reject $DB "$HERE/.m500bad.sql" S9b-03 "bukan anggota organisasi"
+  rm -f "$HERE/.m500bad.sql"
   check $DB S9b-02 "setelah ditolak tidak ada sisa" "select to_regprocedure('public.is_org_admin(uuid)') is null and exists (select 1 from pg_policies where policyname='organization_members_delete_owner')"
 }
 
