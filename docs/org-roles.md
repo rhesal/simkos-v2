@@ -26,13 +26,24 @@ update public.organization_members set role = 'owner' where user_id = '<user_id_
 commit;
 ```
 
-Buat org baru (SQL Editor, satu transaksi). Anggota pertama **wajib** `admin`; tanpa itu tidak ada yang bisa mengelola anggota org tersebut:
+Buat org baru (SQL Editor). Anggota pertama **wajib** `admin`; tanpa itu tidak ada yang bisa mengelola anggota org tersebut. Blok ini gagal dan membatalkan semuanya bila email tidak ditemukan (tidak ada org kosong yang tertinggal):
 ```sql
-begin;
-with o as (insert into public.organizations (name) values ('<Nama Kos>') returning id)
-insert into public.organization_members (org_id, user_id, role)
-select o.id, u.id, 'admin' from o, auth.users u where u.email = '<email pemilik>';
-commit;
+do $$
+declare
+  v_name  text := '<Nama Kos>';
+  v_email text := '<email pemilik>';
+  v_org   uuid;
+  n       int;
+begin
+  insert into public.organizations (name) values (v_name) returning id into v_org;
+  insert into public.organization_members (org_id, user_id, role)
+  select v_org, u.id, 'admin' from auth.users u where lower(u.email) = lower(btrim(v_email));
+  get diagnostics n = row_count;
+  if n <> 1 then
+    raise exception 'Org "%" dibatalkan: % anggota tersimpan untuk email %, harus tepat 1.', v_name, n, v_email;
+  end if;
+  raise notice 'Org % dibuat, admin: %', v_org, v_email;
+end $$;
 ```
 Anggota lain ditambahkan sebagai `owner` atau `staff`. `organization_members.user_id` unik, jadi akun yang sudah anggota org lain tidak bisa ditambahkan.
 
