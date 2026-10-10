@@ -1,240 +1,186 @@
-# Pengamanan Data KTP & Nota (SimKos v2)
+# Pengamanan Data SimKos v2: multi-pemilik, RLS, KTP & nota
 
-Dokumen ini menjelaskan perubahan keamanan untuk foto KTP penghuni dan foto nota,
-serta langkah **manual** yang harus dilakukan di Supabase. Perubahan kode saja
-**belum** mengamankan data — bucket dan RLS harus diubah di Supabase.
+Dokumen ini menjelaskan perubahan keamanan di PR #1 dan **langkah manual** untuk
+project Supabase live ("SimKos App"). Perubahan kode saja **belum** mengamankan
+data: migration harus diterapkan di Supabase, berurutan.
 
-## 1. Masalah sebelumnya
+## 1. Kondisi live sebelum PR ini (dibaca read-only, 10 Okt 2026)
 
-- Bucket `ktp_images` dan `receipt_images` bersifat **public**. Siapa pun yang tahu
-  URL file bisa melihat foto KTP tanpa login.
-- Inventaris menyimpan **URL publik penuh** di kolom `inventories.receipt_url`.
-- Skema database dan aturan RLS tidak ada di repo, dan tidak ada kolom pemilik data.
-  Anon key Supabase ada di bundle JS publik, jadi tanpa RLS yang benar data
-  berpotensi bisa dibaca/diubah siapa saja.
+- Bucket `ktp_images` dan `receipt_images` **sudah private**. URL publik KTP
+  tidak bisa dibuka (HTTP 400). Bucket belum punya batas ukuran/tipe file.
+- **Masalah utama:** semua policy hanya mengecek "user sudah login":
+  - 7 tabel: `"Hanya user login yang bisa akses <tabel>"` = `auth.role() = 'authenticated'`.
+  - storage: `"Izinkan lihat KTP"` / `"Izinkan upload KTP"` = semua objek `ktp_images`.
+  - Ditambah **signup publik terbuka**, siapa pun bisa mendaftar lalu membaca
+    seluruh data penghuni dan semua foto KTP. **Signup publik sudah dimatikan**
+    (`disable_signup = true`, 10 Okt 2026).
+- RLS tabel `inventories` **mati**, dan role `anon` punya grant SELECT/INSERT di
+  semua tabel, jadi `inventories` bisa ditulis tanpa login (isinya masih kosong).
+- 2 akun di `auth.users`, yaitu Rhesal dan partner (co-owner), memakai data yang sama.
+  27 foto KTP ada di **root** bucket (`ktp_<n>.jpg`): 26 diunggah satu akun,
+  1 oleh akun lainnya. `receipt_images` kosong.
+- Tidak ada kolom pemilik di tabel mana pun. Semua FK induk nullable.
+- Baseline skema live: `docs/reference/live_schema_public.sql` (tanpa data, bukan migration).
 
-## 2. Yang berubah
+## 2. Desain: organisasi (multi-pemilik)
 
-### Kode frontend
-| File | Perubahan |
+Satu **organisasi** = satu usaha kos. Semua anggota organisasi melihat dan
+mengelola **semua** data organisasinya.
+
+```mermaid
+flowchart LR
+  U1[Rhesal] -- owner --> O[(org 'SimKos')]
+  U2[Partner] -- owner --> O
+  O --> L[locations / rooms / tenants / rentals / incomes / expenses / inventories<br/>kolom org_id]
+  O --> F[storage: ktp_images & receipt_images<br/>path &lt;org_id&gt;/...]
+```
+
+| Komponen | Isi |
 |---|---|
-| `src/lib/storage.js` (baru) | Helper: `uploadPrivateFile`, `getSignedUrl(s)`, `toStoragePath` (ekstrak path dari URL lama), `removeStorageFile` (best effort), `deleteStorageFile` (melempar error), `validateImageFile`. Upload KTP memakai `cacheControl: '0'` (header `max-age=0`; storage-js selalu mengirim `max-age=<nilai>` sehingga `'no-store'` tidak valid), nota tetap `3600`. Signed URL per bucket: **`ktp_images` 5 menit, tanpa cache** (cadangan, UI KTP memakai download); **`receipt_images` 1 jam**, di-cache dan dibuang saat sisa umurnya < 20% TTL. Cache dikosongkan saat `SIGNED_OUT` / user berganti (`initStorageAuthListener`, dipasang di `main.js`) dan saat tombol logout. |
-| Validasi file (semua form upload) | Hanya `image/jpeg`, `image/png`, `image/webp`, maks 5 MB (SVG ditolak). Atribut `accept` ikut dibatasi. Nama file `<user_id>/<prefix>_<UUID acak>.<ext>`, ekstensi dari MIME type — nama file asli tidak dipakai. |
-| `src/views/TambahPenghuniView.vue` | Upload KTP ke path `<user_id>/ktp_<uuid>.<ext>`. |
-| `src/components/KtpViewerModal.vue` (baru) | Modal "Lihat KTP": file diambil dengan `downloadPrivateFile()` (`storage.download`, token sesi, dijaga RLS), ditampilkan sebagai blob URL, dan `revokeObjectURL` dipanggil saat modal ditutup (X, Tutup, Esc, klik backdrop). Saat `SIGNED_OUT`/ganti user, modal langsung tertutup dan blob dibuang (`onStorageSignedOut`). Tidak ada signed URL/tab baru, jadi URL tidak masuk riwayat browser. |
-| `src/views/DaftarPenghuniView.vue` | Tidak lagi `getPublicUrl`. "Lihat KTP" membuka `KtpViewerModal`. **Hapus/Ganti KTP:** file dihapus dari storage dulu; kolom `foto_ktp_url` baru dikosongkan bila penghapusan berhasil, kalau gagal user mendapat pesan error dan data tidak diubah. **Unggah KTP pengganti:** file lama dihapus setelah path baru tersimpan (user diberi tahu bila gagal). |
-| `src/views/InventarisView.vue` | Menyimpan **path** (bukan URL publik). Pratinjau & tombol 📷 memakai signed URL. Nota lama dihapus saat diganti / aset dihapus. |
-| `src/views/TambahPengeluaranView.vue` | Upload nota ke path ber-prefix user id. |
+| `organizations` | `id, name, created_at`. Anggota bisa membaca, owner bisa ganti nama. Buat/hapus org hanya lewat SQL/dashboard. |
+| `organization_members` | `org_id, user_id → auth.users (on delete cascade), role ('owner','staff', default 'owner')`, PK `(org_id,user_id)`, **`unique(user_id)`**, jadi satu user hanya bisa di satu org. |
+| `is_org_member(org)`, `is_org_owner(org)` | `SECURITY DEFINER STABLE`, `search_path = ''`. Dipakai semua policy. Policy `organization_members` hanya memakai helper ini (tidak query tabelnya langsung), jadi tidak terjadi rekursi RLS. |
+| `current_org_id()` | Org milik user yang login. ERROR (42501) bila tidak login, bukan anggota, atau >1 org. Dipakai sebagai **default `org_id`**, jadi frontend tidak perlu mengirim `org_id` saat insert. |
+| 7 tabel aplikasi | Kolom `org_id uuid not null references organizations`, index, default `current_org_id()`. Satu policy `<tabel>_org_access` untuk `authenticated`. **USING** `is_org_member(org_id)`. **WITH CHECK** `is_org_member(org_id)` plus setiap induk yang diisi (FK tidak NULL) harus satu org (`rooms→locations`, `rentals→rooms,tenants`, `incomes→rentals`, `expenses→locations`, `inventories→locations,rooms`). FK NULL tetap boleh, karena di live memang nullable. |
+| `anon` | Semua grant di 9 tabel dicabut. RLS `inventories` diaktifkan. |
+| Anggota | Semua anggota bisa melihat daftar anggota org-nya. Tambah/ubah/hapus anggota hanya oleh **owner org itu**, dan **tidak untuk barisnya sendiri**: tidak bisa join sendiri, tidak bisa mengubah org atau role sendiri, tidak bisa keluar sendiri. Staff tidak bisa mengelola anggota. Belum ada UI undangan; kelola lewat SQL (bagian 6). |
+| Storage | Hanya path `<org_id>/<prefix>_<uuid>.<ext>` dengan `is_org_member(<folder pertama>)`. Tidak ada akses ke objek di root. Guard **RESTRICTIVE** `simkos_private_images_guard` (to public) menahan policy permisif lain. Bucket private, maks 5 MB, hanya JPEG/PNG/WEBP. |
+| Trigger path | `tenants.foto_ktp_url`, `expenses.bukti_nota_url`, dan `inventories.receipt_url` (bila kolomnya ada) yang baru atau berubah **wajib** diawali `<org_id baris itu>/` dan tidak boleh berisi `..`. Nilai yang tidak berubah dibiarkan. Ini mencegah orang menautkan file milik org lain ke baris sendiri. |
 
-**Kompatibel dengan data lama:** baris yang masih berisi URL publik penuh
-(`https://<ref>.supabase.co/storage/v1/object/public/<bucket>/<file>`) tetap bisa
-dibuka — path diekstrak otomatis. File lama berpath datar (`ktp_123.jpg`) tetap bisa
-diakses pemiliknya lewat kolom `owner_id` di `storage.objects`.
+Policy "file lama di root terbaca bila namanya cocok dengan `tenants.foto_ktp_url`"
+**sengaja tidak dipakai**. Policy seperti itu memungkinkan anggota org lain
+"mengklaim" file dengan menulis namanya di baris miliknya. Sebagai gantinya,
+file lama **dipindah** ke folder org dengan `supabase/scripts/move_root_files_to_org.mjs`.
 
-### Migration (`supabase/migrations/`)
-1. `20261010000200_owner_id_and_rls.sql` — tambah kolom `owner_id` (default
-   `auth.uid()`) ke semua tabel, backfill otomatis bila hanya ada 1 user, hapus semua
-   policy lama di 7 tabel, aktifkan RLS: hanya user login dan hanya baris miliknya.
-2. `20261010000300_private_storage_buckets.sql` — **gagal dengan sengaja** bila ada
-   policy storage generik yang permisif (lihat bagian "Policy storage generik"),
-   bucket jadi private (maks 5 MB, hanya JPEG/PNG/WEBP), hapus policy storage lama
-   untuk kedua bucket, policy baru: upload hanya ke folder `<user_id>/`;
-   baca/ubah/hapus folder sendiri atau file lama yang `owner_id`-nya milik user.
+### Frontend
+- `src/lib/storage.js`: `getCurrentOrgId()` mengambil `org_id` sekali setelah login
+  (`organization_members`), lalu menyimpannya di cache per user. Cache dibuang saat
+  `SIGNED_OUT`/ganti user dan saat tombol logout. Path upload menjadi `<org_id>/...`.
+  Bila upload ditolak (403/RLS), cache dibuang dan user diminta **"Muat ulang aplikasi"**.
+- `vite.config.js`: PWA `autoUpdate` + `workbox.skipWaiting/clientsClaim/cleanupOutdatedCaches`,
+  supaya bundle lama (yang masih upload ke root) cepat diganti.
+- Tetap dari commit sebelumnya: modal KTP via `download()` + blob URL (`KtpViewerModal.vue`),
+  TTL signed URL nota 1 jam, upload KTP `cacheControl '0'`, validasi JPG/PNG/WEBP ≤ 5 MB,
+  nama file UUID.
 
-### Referensi skema (`docs/reference/`)
-- `inferred_schema.sql` — skema 7 tabel **disimpulkan dari kode**, bukan dump DB live.
-  **Bukan migration** (sengaja tidak di `supabase/migrations/`, karena
-  `create table if not exists` akan no-op diam-diam di DB live dan menyembunyikan
-  perbedaan). Dipakai sebagai dokumentasi dan untuk tes lokal. Baseline skema yang sah
-  harus dari `supabase db pull`.
+## 3. File
 
-### Script opsional (`supabase/scripts/`)
-- `backfill_owner.sql` — backfill manual bila ada lebih dari 1 user.
-- `convert_public_urls_to_paths.sql` — merapikan baris lama dari URL publik ke path.
+| File | Fungsi |
+|---|---|
+| `supabase/migrations/20261010000200_organizations_and_backfill.sql` | Tabel org + helper + `org_id` + **backfill**: membuat org 'SimKos' dan memasukkan **semua** user `auth.users` sebagai owner. **Gagal bila jumlah user ≠ 2**, kecuali di-override dengan `set simkos.backfill_expected_users = '<n>';`. Semua baris lama diisi `org_id`, lalu dibuat `NOT NULL` dan diberi default. Policy tabel lama belum disentuh, jadi app lama tetap jalan. |
+| `supabase/migrations/20261010000210_org_rls_policies.sql` | Menghapus policy lama di 7 tabel, mengaktifkan RLS di semua (termasuk inventories), mencabut anon, lalu memasang policy org. |
+| `supabase/scripts/move_root_files_to_org.mjs` | Memindah file yang direferensikan ke `<org_id>/<nama sama>`. Idempotent dan bisa resume, dengan log JSON. Urutannya move, lalu update baris. Bila update gagal, file dipindah balik. File root yang tidak direferensikan hanya dilaporkan. |
+| `supabase/migrations/20261010000300_private_storage_buckets.sql` | Langkah 0: tolak policy storage permisif generik. Langkah 0b: **tolak bila masih ada baris yang menunjuk file di luar folder org**, artinya move script belum tuntas. Lalu bucket 5 MB + JPEG/PNG/WEBP, policy org, guard RESTRICTIVE, dan trigger path. |
+| `supabase/rollback/rollback_300_storage.sql` | Mengembalikan 2 policy storage live **persis**. Bucket **tetap private**. |
+| `supabase/rollback/rollback_210_org_rls.sql` | Mengembalikan 7 policy tabel live **persis**. Sengaja tidak mengembalikan RLS-off di inventories dan grant anon. |
+| `supabase/rollback/rollback_200_organizations.sql` | Opsional. Menghapus `org_id` dan tabel org, sehingga skema kembali sama dengan baseline. |
+| `docs/reference/live_schema_public.sql` | Baseline skema live (menggantikan skema hasil tebakan). |
+| `qa/rls/org/` | Tes RLS lokal berbasis baseline live (`run_local_org.sh`). |
+| `qa/move-script/move_script.test.mjs` | Tes move script dengan stub Storage (`node --test qa/move-script/`). |
 
-## 3. Urutan penerapan (PENTING)
+## 4. Urutan penerapan di project live (MANUAL)
 
-> Kode baru tetap jalan dengan bucket public **dan** private. Kode lama **rusak**
-> jika bucket sudah private (foto tidak tampil, upload KTP penghuni baru gagal).
-> Jadi: **deploy kode dulu, baru ubah Supabase.**
+> Jangan pakai `supabase db push` untuk semua sekaligus. Migration 300 harus
+> dijalankan **setelah** move script. Kalau tetap dijalankan terlalu cepat, migration
+> itu menolak dengan aman, tapi urutan di bawah ini lebih jelas. Jalankan setiap
+> file **utuh dalam satu kali Run** di SQL Editor, karena SQL Editor menjalankan
+> satu file sebagai satu transaksi. Kalau lewat psql: `psql -1 -f <file>`.
 
-### Langkah 0 — Deploy kode
-1. Review & merge PR ini ke `main` (Vercel akan deploy production).
-2. Buka aplikasi, pastikan login, daftar penghuni, lihat KTP, dan inventaris masih jalan
-   (bucket masih public pada tahap ini).
-
-### Langkah 1 — Backup
-1. Supabase Dashboard → **Database → Backups**: pastikan ada backup terbaru
-   (paket Free: backup harian tidak bisa di-restore mandiri, jadi lakukan juga dump):
-   ```bash
-   supabase link --project-ref <PROJECT_REF>
-   supabase db dump -f backup_schema.sql
-   supabase db dump --data-only -f backup_data.sql
-   ```
-2. Catat policy yang ada sekarang (untuk rollback):
-   ```sql
-   select schemaname, tablename, policyname, cmd, roles, qual, with_check
-   from pg_policies
-   where schemaname in ('public','storage');
-   ```
-
-### Langkah 2 — Verifikasi skema
+**Langkah 0. Backup**
 ```bash
-supabase db pull
+supabase link --project-ref opuiruumaagtudqnrlhv
+supabase db dump -f backup_schema.sql
+supabase db dump --data-only -f backup_data.sql
 ```
-Bandingkan hasilnya dengan `docs/reference/inferred_schema.sql`. Bila berbeda
-(tipe id bukan uuid, nama kolom lain, dsb.), **beri tahu tim** sebelum lanjut — policy
-di migration 200 mengacu ke nama kolom tersebut.
+Policy sebelum perubahan sudah tercatat di file rollback (`supabase/rollback/`).
 
-Cek juga jumlah user:
+**Langkah 1. Cek user** (SQL Editor):
 ```sql
-select id, email, created_at from auth.users order by created_at;
+select id, email, created_at from auth.users order by created_at;  -- harus 2: Rhesal & partner
 ```
-- **1 user** → backfill `owner_id` otomatis.
-- **>1 user** → migration 200 akan menampilkan WARNING; jalankan
-  `supabase/scripts/backfill_owner.sql` (isi `<OWNER_USER_ID>`) sebelum memakai app.
 
-### Langkah 3 — Jalankan migration (berurutan)
-Lewat **SQL Editor** (tempel isi file satu per satu, urut nama file), atau CLI:
+**Langkah 2. Migration 200**, lalu **210** (SQL Editor, satu file per Run).
+Cek hasilnya:
+```sql
+select o.name, m.user_id, m.role from organization_members m join organizations o on o.id = m.org_id; -- 2 owner
+select count(*) filter (where org_id is null) from tenants;   -- 0
+select tablename, policyname from pg_policies where schemaname = 'public' order by 1; -- *_org_access + policy org
+```
+Login dengan **kedua** akun. Keduanya harus melihat semua lokasi, kamar, penghuni,
+dan keuangan. Foto KTP masih bisa dibuka karena policy storage lama belum diganti.
+
+**Langkah 3. Deploy frontend.** Merge PR ini ke `main` (deploy Vercel). Setelah itu,
+buka aplikasi dan muat ulang sekali (PWA diganti otomatis). Upload KTP baru akan
+masuk ke `<org_id>/...`. Ini masih diizinkan policy lama `"Izinkan upload KTP"`.
+Catatan: upload **nota** (`receipt_images`) sudah gagal di live sejak awal, karena
+tidak ada policy untuk bucket itu. Upload nota baru bisa jalan setelah Langkah 5.
+
+**Langkah 4. Pindahkan file lama** (di komputer sendiri, di root repo, setelah `npm install`):
 ```bash
-supabase db push
+export SUPABASE_URL=https://opuiruumaagtudqnrlhv.supabase.co
+export SUPABASE_SERVICE_ROLE_KEY='<Dashboard → Settings → API → service_role>'   # JANGAN di-commit
+node supabase/scripts/move_root_files_to_org.mjs --dry-run   # rencana: 27 file KTP
+node supabase/scripts/move_root_files_to_org.mjs             # jalankan
+unset SUPABASE_SERVICE_ROLE_KEY
 ```
-Catatan CLI: migration baseline hasil `db pull` (Langkah 2) harus bertimestamp
-lebih awal dari `20261010000200` dan ditandai sudah diterapkan
-(`supabase migration repair --status applied <timestamp_baseline>`), karena tabelnya
-sudah ada di DB live.
-
-Urutan: `...200_owner_id_and_rls` → **tes (Langkah 4)** →
-cek **policy storage generik** (bagian di bawah) → `...300_private_storage_buckets` →
-**tes lagi**.
-
-### Policy storage generik (WAJIB dicek sebelum migration 300)
-Policy di Postgres digabung dengan OR. Kalau di `storage.objects` ada policy lama
-seperti `for select to public using (true)` (sering dibuat dari template Dashboard),
-bucket private tetap bisa dibaca siapa pun lewat `createSignedUrl` / `download`.
-Migration 300 karena itu **berhenti dengan ERROR** ("Migration dibatalkan: ada policy
-storage.objects permisif ...") bila menemukan policy PERMISSIVE untuk
-SELECT/INSERT/UPDATE/DELETE/ALL yang:
-- ekspresinya kosong atau `true`, atau
-- tidak membatasi bucket secara positif (`bucket_id = '...'` / `bucket_id = ANY(...)`)
-  **dan** tidak membatasi pemilik (`owner`/`owner_id`/`storage.foldername(name)`
-  dibandingkan dengan `auth.uid()`). Contoh: `bucket_id <> 'avatars'`,
-  `auth.role() = 'authenticated'`.
-
-Policy yang menyebut `ktp_images`/`receipt_images` tidak dicek karena memang dihapus
-oleh migration. Pemeriksaannya berbasis teks: ekspresi seperti
-`bucket_id = 'x' OR true` atau `owner is not null and auth.uid() is not null` tidak
-terdeteksi. Karena itu migration 300 juga memasang **guard RESTRICTIVE**
-`simkos_private_images_guard` (digabung AND dengan semua policy permisif): objek di
-`ktp_images`/`receipt_images` tetap hanya bisa diakses pemiliknya, apa pun isi policy
-permisif lain. Bucket lain tidak terpengaruh. Pemeriksaan teks tetap dipakai sebagai
-peringatan dini, dan hasil query di bawah tetap perlu dibaca.
-
-1. Lihat semua policy storage:
-   ```sql
-   select policyname, permissive, roles, cmd, qual, with_check
-   from pg_policies
-   where schemaname = 'storage' and tablename = 'objects'
-   order by policyname;
-   ```
-2. Untuk tiap policy yang permisif tanpa filter bucket/pemilik, putuskan:
-   - **Tidak dipakai** → hapus:
-     ```sql
-     drop policy "Nama Policy" on storage.objects;
-     ```
-   - **Dipakai bucket lain** (mis. `avatars`) → ganti dengan versi yang dibatasi:
-     ```sql
-     drop policy "Nama Policy" on storage.objects;
-     create policy "avatars public read" on storage.objects
-       for select to public using (bucket_id = 'avatars');
-     ```
-   - **Sudah dicek dan memang harus tetap ada** → tambahkan namanya ke array
-     `allowed` di langkah 0 migration 300 (dan jelaskan alasannya di PR).
-   Alternatif lewat Dashboard: **Storage → Policies** → hapus/edit policy terkait.
-3. Jalankan ulang migration 300. Pesan error-nya mencantumkan nama, perintah, role,
-   dan ekspresi policy yang bermasalah (bagian DETAIL).
-
-Bila SQL Editor menolak membuat policy di `storage.objects` (permission), buat policy
-yang sama lewat **Storage → Policies** di Dashboard, dan ubah bucket ke private lewat
-**Storage → bucket → Edit → Public: off**.
-
-### Langkah 4 — Verifikasi
-SQL:
+Skrip harus selesai dengan exit 0 tanpa item `failed`, `conflict`, atau `missing`.
+Kalau terputus, jalankan ulang perintah yang sama. Log ada di
+`supabase/scripts/move_root_files_to_org.log.json` (di-.gitignore). Cek hasilnya:
 ```sql
--- RLS aktif di semua tabel
-select relname, relrowsecurity from pg_class
-where relnamespace = 'public'::regnamespace
-  and relname in ('locations','rooms','tenants','rentals','incomes','expenses','inventories');
-
--- Tidak ada baris tanpa pemilik
-select 'tenants', count(*) from tenants where owner_id is null
-union all select 'locations', count(*) from locations where owner_id is null;
-
--- Bucket private
-select id, public from storage.buckets where id in ('ktp_images','receipt_images');
-
--- File lama tanpa pemilik (tidak akan bisa dibuka lewat app)
-select bucket_id, count(*) from storage.objects
-where bucket_id in ('ktp_images','receipt_images') and owner_id is null
-group by bucket_id;
+select count(*) from tenants where foto_ktp_url is not null and foto_ktp_url not like org_id || '/%';  -- 0
 ```
 
-Aplikasi (login sebagai pemilik):
-- [ ] Beranda, Keuangan, Riwayat, Inventaris, Daftar Penghuni menampilkan data seperti sebelumnya.
-- [ ] Detail kamar → Edit → "Lihat KTP" membuka modal di dalam app (bukan tab baru); di tab Network terlihat request `GET /storage/v1/object/ktp_images/...` dengan header `Authorization`, bukan `/object/sign/`.
-- [ ] Tutup modal, lalu buka URL `blob:` lama di tab baru → harus gagal.
-- [ ] Logout saat modal KTP terbuka → modal langsung tertutup.
-- [ ] Daftar penghuni baru dengan foto KTP berhasil.
-- [ ] Ganti KTP → unggah ulang berhasil.
-- [ ] Tambah pengeluaran dengan nota, tambah/edit aset dengan nota, tombol 📷 menampilkan foto.
+**Langkah 5. Migration 300** (SQL Editor). Migration ini menolak berjalan bila ada
+policy storage permisif generik, atau bila masih ada baris yang menunjuk file di luar
+folder org (Langkah 4 belum tuntas). Kalau tidak ada masalah, ia memasang policy org,
+guard, dan trigger path.
 
-Tes keamanan:
-- [ ] Buka URL publik lama foto KTP di jendela incognito → harus **gagal** (400/404).
-- [ ] Panggil REST tanpa login:
-      `curl "https://<ref>.supabase.co/rest/v1/tenants?select=*" -H "apikey: <ANON_KEY>"`
-      → harus `[]` atau error permission, **bukan** data penghuni.
+**Langkah 6. Verifikasi**
+- Login sebagai Rhesal dan partner: keduanya bisa membuka **semua** foto KTP, termasuk
+  yang diunggah akun lain. Upload KTP baru dan upload nota juga harus berhasil.
+- SQL:
+  ```sql
+  select id, public, file_size_limit, allowed_mime_types from storage.buckets where id in ('ktp_images','receipt_images');
+  select policyname, permissive, cmd from pg_policies where schemaname = 'storage' and tablename = 'objects';
+  select count(*) from storage.objects where bucket_id = 'ktp_images' and position('/' in name) = 0; -- file root sisa (tak direferensikan)
+  ```
 
-### Langkah 5 (opsional) — Rapikan data lama
-Jalankan `supabase/scripts/convert_public_urls_to_paths.sql` (bagian SELECT pratinjau
-dulu). Aplikasi tetap jalan tanpa langkah ini.
+### Rollback
+Urutannya terbalik: `rollback_300_storage.sql`, lalu `rollback_210_org_rls.sql`, lalu
+(opsional) `rollback_200_organizations.sql`. Bucket **tidak pernah** dibuat public.
+File yang sudah dipindah tidak dipindah balik, tapi tetap terbaca lewat policy lama.
 
-## 4. Rollback darurat
-- Bucket: `update storage.buckets set public = true where id in ('ktp_images','receipt_images');`
-  (membuka kembali foto KTP ke publik — hanya sementara!).
-- RLS: buat ulang policy lama dari catatan Langkah 1, atau restore dari backup.
-  Jangan `disable row level security` kecuali benar-benar darurat.
+## 5. Policy storage generik (dicek otomatis di migration 300)
+Policy PERMISSIVE digabung dengan OR. Migration 300 berhenti dengan ERROR bila ada
+policy di `storage.objects` yang kosong atau `true`, atau yang tidak membatasi bucket
+maupun pemilik. Pengecekan ini berbasis teks. Perlindungan utamanya adalah guard
+**RESTRICTIVE** (digabung dengan AND), yang menahan juga ekspresi seperti
+`bucket_id = 'x' or true`. Lihat semua policy:
+```sql
+select policyname, permissive, roles, cmd, qual, with_check from pg_policies
+where schemaname = 'storage' and tablename = 'objects' order by policyname;
+```
 
-## 5. Yang harus dicek manual / asumsi
-- Skema hasil inferensi (`docs/reference/inferred_schema.sql`: tipe uuid, nullability,
-  ON DELETE) belum dicocokkan dengan DB live.
-- Asumsi: setiap akun login adalah pemilik kos yang datanya terpisah. Bila beberapa
-  akun (mis. staf) harus melihat data yang sama, desain owner perlu diubah
-  (mis. tabel anggota per lokasi) — kabari tim sebelum menerapkan migration 200.
-- Kolom `storage.objects.owner_id` diasumsikan ada (proyek Supabase modern). Di proyek
-  sangat lama kolomnya bernama `owner` (uuid).
-- File storage lama yang `owner_id`-nya NULL tidak bisa dibuka lewat app setelah
-  bucket private — isi lewat `backfill_owner.sql`.
-- Migration 200 & 300 **menghapus** policy lama di 7 tabel aplikasi dan policy storage
-  yang menyebut kedua bucket. Policy untuk bucket/tabel lain tidak disentuh.
-- Batas file bucket diset 5 MB & `image/jpeg`, `image/png`, `image/webp` (tanpa SVG),
-  sama dengan validasi di aplikasi (`validateImageFile` di `src/lib/storage.js`).
-- Kode belum memakai transaksi DB untuk pendaftaran/checkout (di luar cakupan PR ini).
+## 6. Kelola anggota (sementara, tanpa UI)
+Lewat SQL Editor (service role), atau oleh owner lewat API:
+```sql
+-- tambah staff (user harus sudah diundang lewat Dashboard → Authentication → Invite)
+insert into organization_members (org_id, user_id, role)
+select o.id, u.id, 'staff' from organizations o, auth.users u
+where o.name = 'SimKos' and u.email = 'staf@contoh.com';
+-- keluarkan anggota
+delete from organization_members where user_id = (select id from auth.users where email = 'staf@contoh.com');
+```
+Saat ini role `staff` punya akses data yang **sama** dengan owner. Bedanya, staff tidak
+bisa mengelola anggota. Pembatasan per role (misalnya staff tidak boleh menghapus
+keuangan) belum ada.
 
-## 6. TODO — menunggu akses baca DB live
-
-Butuh hasil `supabase db pull`, dump `pg_policies` (schema `public` & `storage`), dan
-jumlah user di `auth.users` sebelum dikerjakan:
-
-- [ ] **Migration rollback (down)** yang mengembalikan policy tabel dari dump
-      `pg_policies` **tanpa** membuat bucket kembali publik. Bagian 4 di atas hanya
-      langkah darurat manual.
-- [ ] **Backfill `owner_id`** dijalankan sebelum/bersamaan dengan migration 200 bila
-      ada >1 user (sekarang dilewati otomatis, data lama jadi tak terlihat sampai
-      `backfill_owner.sql` dijalankan manual).
-- [ ] **Policy insert dengan induk nullable** (`incomes_insert_own` → `rental_id`,
-      `expenses_insert_own` → `location_id`): bila kolomnya nullable di DB live, pakai
-      pola `(kolom is null or exists (...))`.
-- [ ] **`owner_id` ON DELETE** (perilaku FK ke `auth.users` saat akun dihapus)
-      disesuaikan dengan skema dan kebijakan retensi.
-- [ ] Ganti `docs/reference/inferred_schema.sql` sebagai acuan tes dengan baseline
-      `db pull`, lalu ulangi tes QA (`qa/rls`).
+## 7. Di luar scope PR ini (bug yang ditemukan)
+- **Inventaris:** kode memakai kolom `tanggal_pembelian`, `harga`, `tipe_fasilitas`, dan
+  `receipt_url` yang **tidak ada** di tabel `inventories` live, jadi fitur inventaris
+  kemungkinan sudah rusak di production. Setelah kolom `receipt_url` ditambahkan,
+  pasang triggernya:
+  `create trigger inventories_receipt_path_org before insert or update on public.inventories for each row execute function public.enforce_org_storage_path('receipt_url');`
+- **Auth `site_url` = `http://localhost:3000`:** link email (reset password, undangan)
+  mengarah ke localhost. Ganti ke domain production di Dashboard → Authentication →
+  URL Configuration.
