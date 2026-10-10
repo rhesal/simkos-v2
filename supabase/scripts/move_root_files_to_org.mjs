@@ -153,13 +153,12 @@ async function listFilesOutsideOrgFolders(supabase, bucket, orgIds) {
 }
 
 async function fetchOrgIds(supabase) {
-  try {
-    const { data, error } = await supabase.from('organizations').select('id')
-    if (error || !Array.isArray(data)) return []
-    return data.map((r) => String(r.id).toLowerCase())
-  } catch {
-    return []
-  }
+  // Wajib throw: tanpa daftar org, deteksi `conflict` (sumber di folder org lain)
+  // hanya bergantung pada org_id baris yang ada.
+  const { data, error } = await supabase.from('organizations').select('id')
+  if (error) throw new Error(`Gagal membaca organizations: ${error.message || error}`)
+  if (!Array.isArray(data)) throw new Error('Gagal membaca organizations: respons tidak valid')
+  return data.map((r) => String(r.id).toLowerCase())
 }
 
 /**

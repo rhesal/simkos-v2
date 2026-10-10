@@ -11,6 +11,7 @@ const ORG = '0f000000-0000-0000-0000-000000000001'
 
 function makeFake({ hooks = {} } = {}) {
   const db = {
+    organizations: [{ id: ORG }],
     tenants: [
       { id: 't1', org_id: ORG, foto_ktp_url: 'ktp_1.jpg' },
       { id: 't2', org_id: ORG, foto_ktp_url: 'ktp_2.jpg' },
@@ -183,6 +184,7 @@ const UID = '0a000000-0000-0000-0000-0000000000aa'
 test('konflik: baris org B merujuk file di folder org A -> tidak dipindah', async () => {
   const { supabase, db, files } = makeFake()
   files.ktp_images.add(`${ORG}/ktp_a_only.jpg`)
+  db.organizations.push({ id: ORG_B })
   db.tenants.push({ id: 't5', org_id: ORG_B, foto_ktp_url: `${ORG}/ktp_a_only.jpg` })
   const { summary, log } = await run({ supabase, logPath: tmpLog(), logger: quiet })
   assert.equal(summary.conflicts, 1)
@@ -203,4 +205,21 @@ test('laporan mencakup semua file di luar folder org, termasuk <uid>/ yang tak d
   assert.ok(!outside.some((f) => f.startsWith(`${ORG}/`)), 'file di folder org tidak dilaporkan')
   assert.deepEqual(log.unreferenced_root_files.ktp_images, ['ktp_orphan.jpg'])
   assert.ok(files.ktp_images.has(`${UID}/ktp_stray.jpg`), 'tidak dipindah')
+})
+
+test('query organizations gagal -> skrip throw (bukan diam-diam [])', async () => {
+  const { supabase, db, files } = makeFake({
+    hooks: {},
+  })
+  const origFrom = supabase.from.bind(supabase)
+  supabase.from = (table) => {
+    if (table === 'organizations') {
+      return { select: () => Promise.resolve({ data: null, error: { message: 'permission denied' } }) }
+    }
+    return origFrom(table)
+  }
+  const logPath = tmpLog()
+  await assert.rejects(run({ supabase, logPath, logger: quiet }), /organizations/)
+  assert.equal(db.tenants[0].foto_ktp_url, 'ktp_1.jpg', 'tidak ada baris yang diubah')
+  assert.ok(files.ktp_images.has('ktp_1.jpg'), 'tidak ada file yang dipindah')
 })
