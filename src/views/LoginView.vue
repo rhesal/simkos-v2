@@ -94,6 +94,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '../supabase.js'
+import { isChunkLoadError, isReloadPending, reloadOnce } from '../lib/chunkReload.js'
 
 const router = useRouter()
 const email = ref('')
@@ -101,33 +102,80 @@ const password = ref('')
 const isLoading = ref(false)
 const errorMsg = ref('')
 
+// Batas tunggu supaya tombol tidak berputar selamanya bila jaringan macet.
+const LOGIN_TIMEOUT_MS = 20_000
+const NAV_TIMEOUT_MS = 15_000
+
 const isFormValid = computed(() => {
   return email.value.trim() && password.value.length >= 6
 })
 
+function withTimeout(promise, ms, code) {
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error(code), { code })), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+
 async function handleLogin() {
-  if (!isFormValid.value) return
+  if (!isFormValid.value || isLoading.value) return
 
   isLoading.value = true
   errorMsg.value = ''
+  let keepLoading = false
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: email.value.trim(),
-    password: password.value,
-  })
-
-  isLoading.value = false
-
-  if (error) {
-    if (error.status === 400) {
-      errorMsg.value = 'Email atau kata sandi salah'
-    } else {
-      errorMsg.value = error.message
+  try {
+    let result
+    try {
+      result = await withTimeout(
+        supabase.auth.signInWithPassword({
+          email: email.value.trim(),
+          password: password.value,
+        }),
+        LOGIN_TIMEOUT_MS,
+        'LOGIN_TIMEOUT',
+      )
+    } catch (err) {
+      errorMsg.value = err?.code === 'LOGIN_TIMEOUT'
+        ? 'Server tidak merespons. Periksa koneksi internet lalu coba lagi.'
+        : 'Tidak bisa terhubung ke server. Periksa koneksi internet lalu coba lagi.'
+      console.error('[Supabase Auth] Login gagal:', err?.message || err)
+      return
     }
-    console.error('[Supabase Auth] Login error:', error)
-  } else {
-    console.log('[Supabase Auth] Login success:', data)
-    router.push('/')
+
+    const { error } = result
+    if (error) {
+      if (error.status === 400) {
+        errorMsg.value = 'Email atau kata sandi salah'
+      } else if (!error.status || error.name === 'AuthRetryableFetchError') {
+        errorMsg.value = 'Tidak bisa terhubung ke server. Periksa koneksi internet lalu coba lagi.'
+      } else {
+        errorMsg.value = 'Login gagal. Coba lagi beberapa saat lagi.'
+      }
+      // Jangan cetak data sesi/token ke console; cukup status & pesan error.
+      console.error('[Supabase Auth] Login error:', error.status, error.message)
+      return
+    }
+
+    // Login berhasil: pindah ke Beranda dan tunggu sampai benar-benar pindah.
+    try {
+      const failure = await withTimeout(router.replace('/'), NAV_TIMEOUT_MS, 'NAV_TIMEOUT')
+      if (failure && router.currentRoute.value.name === 'Login') {
+        throw failure
+      }
+    } catch (err) {
+      if (isChunkLoadError(err) && (isReloadPending() || reloadOnce('/'))) {
+        // Versi app berganti (deploy baru): halaman sedang dimuat ulang ke
+        // Beranda (lihat router.onError). Biarkan tombol tetap loading.
+        keepLoading = true
+        return
+      }
+      console.error('[SimKos] Gagal membuka Beranda setelah login:', err?.message || err)
+      errorMsg.value = 'Login berhasil, tapi Beranda gagal dibuka. Muat ulang halaman ini.'
+    }
+  } finally {
+    if (!keepLoading) isLoading.value = false
   }
 }
 </script>
