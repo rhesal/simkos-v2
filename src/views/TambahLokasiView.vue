@@ -144,7 +144,6 @@ async function handleSubmit() {
     console.error('[Supabase] Insert location error:', error)
   } else {
     successMsg.value = 'Lokasi berhasil disimpan!'
-    console.log('[Supabase] Lokasi baru:', data)
     setTimeout(() => {
       router.push('/')
     }, 1000)
