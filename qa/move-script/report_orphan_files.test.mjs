@@ -9,7 +9,7 @@ const ORG_B = '0f000000-0000-0000-0000-00000000000b'
 const OLD = '2026-01-01T00:00:00Z'
 const NOW = Date.parse('2026-10-10T08:00:00Z')
 
-function makeFake({ inventoriesHasColumn = false, failTable = null } = {}) {
+function makeFake({ inventoriesHasColumn = false, failTable = null, maxRows = Infinity, extraTenants = 0 } = {}) {
   const writes = []
   const db = {
     organizations: [{ id: ORG }, { id: ORG_B }],
@@ -36,6 +36,12 @@ function makeFake({ inventoriesHasColumn = false, failTable = null } = {}) {
       [`${ORG_B}/nota_orphan.jpg`, OLD],
     ]),
   }
+  // Simulasi tabel/folder besar: baris & file tambahan yang SEMUANYA dirujuk.
+  for (let i = 0; i < extraTenants; i++) {
+    const n = String(i).padStart(5, '0')
+    db.tenants.push({ id: `tx${n}`, foto_ktp_url: `${ORG}/bulk/ktp_${n}.jpg` })
+    files.ktp_images.set(`${ORG}/bulk/ktp_${n}.jpg`, OLD)
+  }
   function from(table) {
     const st = { cols: null, range: null }
     const b = {
@@ -52,7 +58,9 @@ function makeFake({ inventoriesHasColumn = false, failTable = null } = {}) {
         }
         const rows = db[table]
         const [a, z] = st.range || [0, rows.length]
-        resolve({ data: rows.slice(a, z + 1).map((r) => ({ ...r })), error: null })
+        // max_rows PostgREST: server memotong halaman walau range meminta lebih.
+        const end = Math.min(z + 1, a + maxRows)
+        resolve({ data: rows.slice(a, end).map((r) => ({ ...r })), error: null })
       },
     }
     return b
@@ -72,7 +80,7 @@ function makeFake({ inventoriesHasColumn = false, failTable = null } = {}) {
             else out.set(rest.slice(0, slash), { name: rest.slice(0, slash), id: null })
           }
           const arr = [...out.values()].sort((x, y) => x.name.localeCompare(y.name))
-          return { data: arr.slice(offset, offset + limit), error: null }
+          return { data: arr.slice(offset, offset + Math.min(limit, maxRows)), error: null }
         },
         async remove(p) { writes.push(['remove', bucket, p]); throw new Error('tidak boleh menghapus') },
         async move(s) { writes.push(['move', bucket, s]); throw new Error('tidak boleh memindah') },
@@ -123,4 +131,19 @@ test('min-age 0 -> file baru ikut dilaporkan', async () => {
 test('gagal membaca tabel wajib -> throw (tidak melaporkan yatim palsu)', async () => {
   const { supabase } = makeFake({ failTable: 'tenants' })
   await assert.rejects(report({ supabase, now: NOW, logger: quiet }), /tenants/)
+})
+
+test('pagination jalan sampai halaman kosong walau server memotong ke max_rows 500', async () => {
+  const { supabase } = makeFake({ maxRows: 500, extraTenants: 2400 })
+  const r = await report({ supabase, now: NOW, logger: quiet })
+  const ktp = r.buckets.ktp_images.orphans.map((o) => o.path).sort()
+  // 2.400 file bulk semuanya dirujuk -> tidak boleh ada yang terlapor yatim
+  assert.deepEqual(ktp, [`${ORG}/ktp_orphan.jpg`, `${ORG}/sub/ktp_deep_orphan.jpg`])
+  assert.equal(r.buckets.ktp_images.referenced, 2400 + 2)
+})
+
+test('pagination tanpa batas server (halaman penuh 1000) juga lengkap', async () => {
+  const { supabase } = makeFake({ extraTenants: 2400 })
+  const r = await report({ supabase, now: NOW, logger: quiet })
+  assert.equal(r.buckets.ktp_images.orphans.length, 2)
 })

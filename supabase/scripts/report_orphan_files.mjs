@@ -35,27 +35,34 @@ function isMissingColumnError(error) {
 }
 
 async function fetchColumn(supabase, table, column) {
+  // Lanjut sampai halaman KOSONG. Jangan berhenti hanya karena halaman < PAGE:
+  // PostgREST memotong ke max_rows (bisa < PAGE), dan berhenti lebih awal akan
+  // membuat file yang masih dirujuk terlapor sebagai yatim. Offset maju sebanyak
+  // baris yang benar-benar diterima, supaya tidak ada baris yang terlewat.
   const rows = []
-  for (let from = 0; ; from += PAGE) {
+  for (let from = 0; ; ) {
     const { data, error } = await supabase
       .from(table)
       .select(`id, ${column}`)
       .order('id', { ascending: true })
       .range(from, from + PAGE - 1)
     if (error) return { rows: null, error }
-    rows.push(...(data || []))
-    if (!data || data.length < PAGE) break
+    if (!data || data.length === 0) break
+    rows.push(...data)
+    from += data.length
   }
   return { rows, error: null }
 }
 
 async function listDir(supabase, bucket, dir) {
+  // Sama seperti fetchColumn: lanjut sampai halaman kosong, offset maju sebanyak entri diterima.
   const entries = []
-  for (let offset = 0; ; offset += PAGE) {
+  for (let offset = 0; ; ) {
     const { data, error } = await supabase.storage.from(bucket).list(dir, { limit: PAGE, offset })
     if (error) throw new Error(`list ${bucket}/${dir} gagal: ${error.message || error}`)
-    entries.push(...(data || []))
-    if (!data || data.length < PAGE) break
+    if (!data || data.length === 0) break
+    entries.push(...data)
+    offset += data.length
   }
   return entries
 }

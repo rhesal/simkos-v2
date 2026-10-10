@@ -1368,6 +1368,7 @@ function closeKtpViewer() {
 // dibereskan lewat supabase/scripts/report_orphan_files.mjs.
 const KTP_CONFLICT_MSG = 'Data KTP sudah diubah oleh pengguna lain. Muat ulang halaman lalu coba lagi.'
 const KTP_NOT_FOUND_MSG = 'Data penghuni tidak ditemukan. Mungkin sudah dihapus.'
+const KTP_CHECK_FAILED_MSG = 'Perubahan KTP belum tersimpan dan status data tidak bisa dicek (cek koneksi internet). Muat ulang halaman lalu coba lagi.'
 const KTP_ORPHAN_NOTE = ' Sisa file akan dibersihkan saat perawatan berkala.'
 
 // Nilai kolom foto_ktp_url yang terakhir diketahui (apa adanya, null bila kosong).
@@ -1382,8 +1383,10 @@ function whereKtpIs(query, known) {
 }
 
 // Update kena 0 baris: bedakan "baris hilang / tidak boleh diakses" dari "nilai berubah".
+// Kalau pengecekan itu sendiri gagal (jaringan/izin), jangan simpulkan "tidak ditemukan".
 async function explainKtpZeroRows(tenantId) {
-  const { data } = await supabase.from('tenants').select('id').eq('id', tenantId).maybeSingle()
+  const { data, error } = await supabase.from('tenants').select('id').eq('id', tenantId).maybeSingle()
+  if (error) return KTP_CHECK_FAILED_MSG
   return data ? KTP_CONFLICT_MSG : KTP_NOT_FOUND_MSG
 }
 
