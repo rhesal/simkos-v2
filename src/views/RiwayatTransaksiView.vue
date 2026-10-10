@@ -383,7 +383,7 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { supabase } from '../supabase.js'
 import { RECEIPT_BUCKET, getSignedUrl, deleteStorageFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
-import { buildCsv, localDateStamp } from '../lib/csv.js'
+import { buildCsv, csvFileParts, localDateStamp } from '../lib/csv.js'
 
 const isLoading = ref(true)
 const locationList = ref([])
@@ -682,10 +682,11 @@ function exportToCSV() {
     isCountedInTotal(tx) ? 'Ya' : 'Tidak'
   ])
 
-  // Pemisah koma + BOM UTF-8 (agar karakter Indonesia tampil benar di Excel).
-  // Sengaja TANPA baris "sep=," karena tampil sebagai sampah di Google Sheets.
+  // Pemisah titik koma (CSV_DELIMITER, untuk Excel regional Indonesia) + BOM UTF-8
+  // (agar karakter Indonesia tampil benar di Excel).
+  // Sengaja TANPA baris "sep=" karena tampil sebagai sampah di Google Sheets.
   const csvContent = buildCsv(columns, rows)
-  const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' })
+  const blob = new Blob(csvFileParts(csvContent), { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
 
   const link = document.createElement('a')
