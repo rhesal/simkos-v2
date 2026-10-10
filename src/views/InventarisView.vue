@@ -338,7 +338,7 @@
                 <span>📷 Klik untuk Unggah Nota</span>
                 <input
                   type="file"
-                  accept="image/*"
+                  :accept="IMAGE_ACCEPT"
                   class="hidden"
                   @change="handleFileUpload"
                 />
@@ -392,7 +392,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { supabase } from '../supabase.js'
-import { RECEIPT_BUCKET, getSignedUrl, toStoragePath, uploadPrivateFile, removeStorageFile } from '../lib/storage.js'
+import { RECEIPT_BUCKET, IMAGE_ACCEPT, validateImageFile, getSignedUrl, toStoragePath, uploadPrivateFile, removeStorageFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
 
 const isLoading = ref(true)
@@ -539,12 +539,10 @@ function handleFileUpload(e) {
   const file = e.target.files?.[0]
   if (!file) return
 
-  if (!file.type.startsWith('image/')) {
-    alert('File harus berupa gambar!')
-    return
-  }
-  if (file.size > 5 * 1024 * 1024) {
-    alert('Ukuran file maksimal 5MB!')
+  const invalid = validateImageFile(file)
+  if (invalid) {
+    alert(invalid)
+    e.target.value = ''
     return
   }
 

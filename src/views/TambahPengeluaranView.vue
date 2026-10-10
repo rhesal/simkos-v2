@@ -174,7 +174,7 @@
           <input
             ref="fileInputRef"
             type="file"
-            accept="image/*"
+            :accept="IMAGE_ACCEPT"
             class="hidden"
             @change="handleFileSelect"
           />
@@ -247,7 +247,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '../supabase.js'
-import { RECEIPT_BUCKET, uploadPrivateFile, removeStorageFile } from '../lib/storage.js'
+import { RECEIPT_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile, removeStorageFile } from '../lib/storage.js'
 
 const router = useRouter()
 
@@ -298,12 +298,10 @@ function handleFileSelect(e) {
   const file = e.target.files?.[0]
   if (!file) return
 
-  if (!file.type.startsWith('image/')) {
-    errorMsg.value = 'Nota harus berupa file gambar.'
-    return
-  }
-  if (file.size > 5 * 1024 * 1024) {
-    errorMsg.value = 'Ukuran berkas melebihi 5MB.'
+  const invalid = validateImageFile(file)
+  if (invalid) {
+    errorMsg.value = invalid
+    e.target.value = ''
     return
   }
 

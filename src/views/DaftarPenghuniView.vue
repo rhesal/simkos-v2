@@ -575,7 +575,7 @@
               </button>
             </div>
             <!-- Jika belum ada KTP (Opsi Unggah) -->
-            <input v-else type="file" accept="image/*" @change="handleKtpFileChange" class="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" />
+            <input v-else type="file" :accept="IMAGE_ACCEPT" @change="handleKtpFileChange" class="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" />
           </div>
         </div>
 
@@ -737,7 +737,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { supabase } from '../supabase.js'
-import { KTP_BUCKET, getSignedUrl, uploadPrivateFile, removeStorageFile } from '../lib/storage.js'
+import { KTP_BUCKET, IMAGE_ACCEPT, validateImageFile, getSignedUrl, uploadPrivateFile, removeStorageFile, deleteStorageFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
 
 const isLoading = ref(true)
@@ -1356,12 +1356,10 @@ async function handleKtpFileChange(e) {
   const file = e.target.files?.[0]
   if (!file) return
 
-  if (!file.type.startsWith('image/')) {
-    alert('File harus berupa gambar!')
-    return
-  }
-  if (file.size > 5 * 1024 * 1024) {
-    alert('Ukuran file maksimal 5MB!')
+  const invalid = validateImageFile(file)
+  if (invalid) {
+    alert(invalid)
+    e.target.value = ''
     return
   }
 
@@ -1373,6 +1371,9 @@ async function handleKtpFileChange(e) {
     if (!tenantId) {
       throw new Error('ID Penghuni tidak ditemukan!')
     }
+
+    // Path KTP lama (bila ada) — dihapus setelah path baru tersimpan di DB
+    const oldKtp = selectedRoom.value?.activeRental?.tenants?.foto_ktp_url || null
 
     // 1. Upload ke bucket privat 'ktp_images' dengan path "<user_id>/ktp_...".
     //    DB hanya menyimpan path objek, bukan URL publik.
@@ -1390,7 +1391,20 @@ async function handleKtpFileChange(e) {
       throw updateError
     }
 
-    // 3. Update local state
+    // 3. Hapus file KTP lama agar data pribadi tidak tertinggal di bucket.
+    //    DB sudah menunjuk ke file baru, jadi kegagalan di sini tidak merusak
+    //    data — tapi user tetap diberi tahu.
+    let oldDeleteFailed = false
+    if (oldKtp && oldKtp !== ktpPath) {
+      try {
+        await deleteStorageFile(KTP_BUCKET, oldKtp)
+      } catch (delErr) {
+        oldDeleteFailed = true
+        console.error('[SimKos] Gagal menghapus file KTP lama:', delErr?.message || delErr)
+      }
+    }
+
+    // 4. Update local state
     if (selectedRoom.value) {
       if (selectedRoom.value.activeRental?.tenants) {
         selectedRoom.value.activeRental.tenants.foto_ktp_url = ktpPath
@@ -1405,7 +1419,11 @@ async function handleKtpFileChange(e) {
       }
     }
 
-    alert('Foto KTP berhasil diunggah!')
+    alert(
+      oldDeleteFailed
+        ? 'Foto KTP baru berhasil diunggah, tetapi file KTP lama gagal dihapus dari penyimpanan. Silakan hubungi admin.'
+        : 'Foto KTP berhasil diunggah!'
+    )
   } catch (err) {
     alert(`Gagal mengunggah KTP: ${err.message}`)
     console.error('[SimKos] Upload KTP error:', err)
@@ -1428,17 +1446,25 @@ async function clearKtpDocument() {
     isLoading.value = true
     const oldKtp = selectedRoom.value?.activeRental?.tenants?.foto_ktp_url || null
 
+    // 1. Hapus file KTP dari storage DULU. Bila gagal, kolom DB tidak diubah
+    //    supaya file tidak menjadi yatim (tak direferensikan) tanpa diketahui.
+    if (oldKtp) {
+      try {
+        await deleteStorageFile(KTP_BUCKET, oldKtp)
+      } catch (delErr) {
+        console.error('[SimKos] Gagal menghapus file KTP:', delErr?.message || delErr)
+        alert('Gagal menghapus file KTP dari penyimpanan. Data KTP tidak diubah. Periksa koneksi lalu coba lagi.')
+        return
+      }
+    }
+
+    // 2. Baru kosongkan kolom setelah file benar-benar terhapus
     const { error } = await supabase
       .from('tenants')
       .update({ foto_ktp_url: null })
       .eq('id', tenantId)
 
     if (error) throw error
-
-    // Hapus file KTP lama dari storage (best effort) agar data pribadi tidak tertinggal
-    if (oldKtp) {
-      await removeStorageFile(KTP_BUCKET, oldKtp)
-    }
 
     // Sinkronisasi State Frontend secara instan agar input file muncul kembali
     if (selectedRoom.value) {
