@@ -1,42 +1,37 @@
 -- =====================================================================
--- SimKos v2 — Bucket storage privat untuk foto KTP & nota
+-- SimKos v2 — Storage privat berbasis organisasi (foto KTP & nota)
 -- =====================================================================
--- Sebelumnya bucket 'ktp_images' dan 'receipt_images' bersifat PUBLIC:
--- siapa pun yang tahu/menebak URL bisa melihat foto KTP penghuni.
+-- Kondisi live sebelum migration ini: bucket ktp_images & receipt_images
+-- SUDAH private, tanpa batas ukuran/tipe. Policy lama:
+--   "Izinkan lihat KTP"   SELECT to authenticated using (bucket_id = 'ktp_images')
+--   "Izinkan upload KTP"  INSERT to authenticated with check (bucket_id = 'ktp_images')
+-- -> SEMUA user yang bisa login melihat SEMUA foto KTP.
 --
--- Migration ini:
---   0. PEMERIKSAAN AWAL: gagal (RAISE EXCEPTION) bila di storage.objects ada
---      policy lain yang permisif tanpa membatasi bucket/pemilik (mis.
---      `using (true)` untuk public/anon). Policy seperti itu digabung OR
---      dengan policy baru sehingga bucket private tetap terbuka. Lebih baik
---      migration gagal keras daripada KTP diam-diam tetap terekspos.
---      Cara memeriksa & menghapusnya: docs/security-ktp.md bagian
---      "Policy storage generik".
---   1. Menjadikan kedua bucket private (public = false), batas 5 MB, hanya
---      JPEG/PNG/WEBP (SVG ditolak karena bisa memuat skrip). Bucket dibuat
---      bila belum ada.
---   2. Menghapus policy lama di storage.objects yang menyebut kedua bucket
---      ini (mis. "public read" / "anon upload").
---   3. Menambah policy baru untuk role `authenticated`:
---        - INSERT : hanya ke folder milik sendiri -> nama objek harus
---                   diawali "<auth.uid()>/" (kode baru mengunggah ke
---                   "<user_id>/ktp_....jpg").
---        - SELECT / UPDATE / DELETE : objek di folder "<auth.uid()>/" ATAU
---                   objek lama (path datar, mis. "ktp_123.jpg") yang
---                   kolom owner_id-nya = auth.uid(). Supabase Storage
---                   mengisi owner_id otomatis dengan user yang mengunggah,
---                   jadi file lama yang diunggah saat login tetap bisa
---                   diakses pemiliknya (backward compatible).
---      Signed URL (createSignedUrl) membutuhkan izin SELECT ini.
---   Role `anon` tidak mendapat akses apa pun.
---   4. Guard RESTRICTIVE `simkos_private_images_guard`: digabung AND dengan
---      SEMUA policy permisif lain, jadi objek di kedua bucket hanya bisa
---      diakses pemiliknya walaupun ada policy permisif yang lolos pemeriksaan
---      langkah 0 (mis. `bucket_id = 'x' or true`). Bucket lain tidak
---      terpengaruh. Langkah 0 tetap dipakai sebagai peringatan dini.
+-- PRASYARAT (urutan deploy, lihat docs/security-ktp.md):
+--   migration 200 + 210  ->  deploy frontend baru  ->
+--   supabase/scripts/move_root_files_to_org.mjs  ->  migration INI.
+-- Migration ini GAGAL dengan sengaja (langkah 0b) bila masih ada baris
+-- tenants/expenses/inventories yang menunjuk file di luar folder "<org_id>/",
+-- supaya tidak ada jendela waktu di mana pemilik tidak bisa membuka fotonya.
 --
--- Cek setelah migrasi: file lama dengan owner_id NULL tidak akan bisa
--- diakses lewat aplikasi — lihat docs/security-ktp.md bagian verifikasi.
+-- Langkah:
+--   0.  Tolak policy storage permisif generik (peringatan dini, berbasis teks).
+--   0b. Tolak bila masih ada referensi file di luar folder org (move script
+--       belum dijalankan / belum tuntas). File root yang TIDAK direferensikan
+--       hanya dilaporkan (NOTICE); setelah migration ini hanya bisa diakses
+--       lewat dashboard / service role.
+--   1.  Kedua bucket private, maks 5 MB, hanya JPEG/PNG/WEBP (tanpa SVG).
+--   2.  Hapus policy lama yang menyebut kedua bucket.
+--   3.  Policy baru (authenticated): SELECT/INSERT/UPDATE/DELETE hanya untuk
+--       objek "<org_id>/..." di mana user anggota org tersebut
+--       (public.storage_object_org_member). Tidak ada akses ke objek di root.
+--   4.  Guard RESTRICTIVE simkos_private_images_guard (to public): digabung AND
+--       dengan semua policy permisif lain, jadi apa pun policy lain yang ada,
+--       objek di kedua bucket hanya bisa diakses anggota org pemilik folder.
+--       anon selalu tertolak. Bucket lain tidak terpengaruh.
+--   5.  Trigger di tenants/expenses/(inventories bila kolomnya ada): nilai
+--       foto_ktp_url / bukti_nota_url / receipt_url yang BARU/BERUBAH wajib
+--       diawali "<org_id baris itu>/" (mencegah menautkan file org lain).
 -- =====================================================================
 
 -- 0. Pemeriksaan awal: tolak policy storage generik yang membuka bucket private.
@@ -115,6 +110,46 @@ begin
   end if;
 end $$;
 
+-- 0b. Semua referensi file harus sudah di folder "<org_id>/" -------------------
+do $$
+declare
+  n_bad   bigint := 0;
+  n       bigint;
+  sample  text;
+  n_root  bigint;
+begin
+  select count(*), min(foto_ktp_url) into n, sample from public.tenants
+  where coalesce(foto_ktp_url, '') <> '' and left(foto_ktp_url, length(org_id::text) + 1) <> org_id::text || '/';
+  n_bad := n_bad + n;
+  if n > 0 then raise warning 'tenants.foto_ktp_url di luar folder org: % baris (contoh: %)', n, sample; end if;
+
+  select count(*), min(bukti_nota_url) into n, sample from public.expenses
+  where coalesce(bukti_nota_url, '') <> '' and left(bukti_nota_url, length(org_id::text) + 1) <> org_id::text || '/';
+  n_bad := n_bad + n;
+  if n > 0 then raise warning 'expenses.bukti_nota_url di luar folder org: % baris (contoh: %)', n, sample; end if;
+
+  if exists (select 1 from information_schema.columns
+             where table_schema = 'public' and table_name = 'inventories' and column_name = 'receipt_url') then
+    execute $q$select count(*), min(receipt_url) from public.inventories
+               where coalesce(receipt_url, '') <> '' and left(receipt_url, length(org_id::text) + 1) <> org_id::text || '/'$q$
+      into n, sample;
+    n_bad := n_bad + n;
+    if n > 0 then raise warning 'inventories.receipt_url di luar folder org: % baris (contoh: %)', n, sample; end if;
+  end if;
+
+  if n_bad > 0 then
+    raise exception using
+      message = format('Migration dibatalkan: %s baris masih menunjuk file di luar folder "<org_id>/". Setelah migration ini file tsb tidak bisa dibuka.', n_bad),
+      hint    = 'Jalankan dulu: node supabase/scripts/move_root_files_to_org.mjs (lihat docs/security-ktp.md), lalu ulangi migration ini.';
+  end if;
+
+  select count(*) into n_root from storage.objects
+  where bucket_id in ('ktp_images', 'receipt_images') and position('/' in name) = 0;
+  if n_root > 0 then
+    raise notice '% file di root bucket tidak direferensikan baris mana pun; setelah migration ini hanya bisa diakses lewat dashboard/service role.', n_root;
+  end if;
+end $$;
+
 -- 1. Bucket private (hanya JPEG/PNG/WEBP — tanpa SVG)
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values
@@ -145,53 +180,57 @@ begin
   end loop;
 end $$;
 
--- 3. Policy baru
-create policy simkos_private_images_insert_own on storage.objects
-  for insert to authenticated
-  with check (
-    bucket_id in ('ktp_images', 'receipt_images')
-    and (storage.foldername(name))[1] = (select auth.uid())::text
-  );
+-- 3. Policy baru -----------------------------------------------------------
+-- Helper: true bila segmen folder pertama nama objek adalah UUID organisasi
+-- yang beranggotakan user login. Objek di root (tanpa folder) -> false.
+create or replace function public.storage_object_org_member(object_name text)
+returns boolean
+language plpgsql stable
+set search_path = ''
+as $$
+declare
+  seg text;
+begin
+  if object_name is null or position('/' in object_name) = 0 then
+    return false;
+  end if;
+  seg := split_part(object_name, '/', 1);
+  if seg !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    return false;
+  end if;
+  return public.is_org_member(seg::uuid);
+end $$;
+revoke all on function public.storage_object_org_member(text) from public;
+grant execute on function public.storage_object_org_member(text) to anon, authenticated, service_role;
 
-create policy simkos_private_images_select_own on storage.objects
+drop policy if exists simkos_private_images_select_org on storage.objects;
+drop policy if exists simkos_private_images_insert_org on storage.objects;
+drop policy if exists simkos_private_images_update_org on storage.objects;
+drop policy if exists simkos_private_images_delete_org on storage.objects;
+
+create policy simkos_private_images_select_org on storage.objects
   for select to authenticated
-  using (
-    bucket_id in ('ktp_images', 'receipt_images')
-    and (
-      (storage.foldername(name))[1] = (select auth.uid())::text
-      or owner_id = (select auth.uid())::text
-    )
-  );
+  using (bucket_id in ('ktp_images', 'receipt_images')
+         and public.storage_object_org_member(name));
 
-create policy simkos_private_images_update_own on storage.objects
+create policy simkos_private_images_insert_org on storage.objects
+  for insert to authenticated
+  with check (bucket_id in ('ktp_images', 'receipt_images')
+              and public.storage_object_org_member(name));
+
+create policy simkos_private_images_update_org on storage.objects
   for update to authenticated
-  using (
-    bucket_id in ('ktp_images', 'receipt_images')
-    and (
-      (storage.foldername(name))[1] = (select auth.uid())::text
-      or owner_id = (select auth.uid())::text
-    )
-  )
-  with check (
-    bucket_id in ('ktp_images', 'receipt_images')
-    and (storage.foldername(name))[1] = (select auth.uid())::text
-  );
+  using (bucket_id in ('ktp_images', 'receipt_images')
+         and public.storage_object_org_member(name))
+  with check (bucket_id in ('ktp_images', 'receipt_images')
+              and public.storage_object_org_member(name));
 
-create policy simkos_private_images_delete_own on storage.objects
+create policy simkos_private_images_delete_org on storage.objects
   for delete to authenticated
-  using (
-    bucket_id in ('ktp_images', 'receipt_images')
-    and (
-      (storage.foldername(name))[1] = (select auth.uid())::text
-      or owner_id = (select auth.uid())::text
-    )
-  );
+  using (bucket_id in ('ktp_images', 'receipt_images')
+         and public.storage_object_org_member(name));
 
--- 4. Guard RESTRICTIVE untuk kedua bucket privat.
---    Policy RESTRICTIVE digabung AND dengan policy permisif, jadi apa pun isi
---    policy permisif lain, akses ke ktp_images/receipt_images tetap dibatasi
---    ke pemilik. anon tertolak karena auth.uid() NULL. Bucket lain lolos lewat
---    klausa pertama dan tidak terpengaruh.
+-- 4. Guard RESTRICTIVE ------------------------------------------------------
 drop policy if exists simkos_private_images_guard on storage.objects;
 create policy simkos_private_images_guard on storage.objects
   as restrictive
@@ -199,10 +238,62 @@ create policy simkos_private_images_guard on storage.objects
   to public
   using (
     bucket_id not in ('ktp_images', 'receipt_images')
-    or (storage.foldername(name))[1] = (select auth.uid())::text
-    or owner_id = (select auth.uid())::text
+    or public.storage_object_org_member(name)
   )
   with check (
     bucket_id not in ('ktp_images', 'receipt_images')
-    or (storage.foldername(name))[1] = (select auth.uid())::text
+    or public.storage_object_org_member(name)
   );
+
+-- 5. Trigger path file wajib di folder org baris itu -------------------------
+create or replace function public.enforce_org_storage_path()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  col    text := tg_argv[0];
+  new_v  text := to_jsonb(new) ->> col;
+  old_v  text;
+begin
+  if tg_op = 'UPDATE' then
+    old_v := to_jsonb(old) ->> col;
+    if new_v is not distinct from old_v and new.org_id is not distinct from old.org_id then
+      return new;   -- nilai tidak berubah (mis. update kolom lain)
+    end if;
+  end if;
+  if new_v is null or new_v = '' then
+    return new;
+  end if;
+  if new.org_id is null
+     or left(new_v, length(new.org_id::text) + 1) <> new.org_id::text || '/'
+     or new_v ~ '(^|/)\.\.(/|$)' then
+    raise exception using errcode = '42501',
+      message = format('%s.%s harus berupa path "<org_id>/..." milik organisasi baris ini.', tg_table_name, col),
+      detail  = format('nilai: %s', new_v);
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists tenants_ktp_path_org on public.tenants;
+create trigger tenants_ktp_path_org
+  before insert or update on public.tenants
+  for each row execute function public.enforce_org_storage_path('foto_ktp_url');
+
+drop trigger if exists expenses_nota_path_org on public.expenses;
+create trigger expenses_nota_path_org
+  before insert or update on public.expenses
+  for each row execute function public.enforce_org_storage_path('bukti_nota_url');
+
+do $$
+begin
+  -- Kolom inventories.receipt_url dipakai kode tetapi belum ada di live.
+  if exists (select 1 from information_schema.columns
+             where table_schema = 'public' and table_name = 'inventories' and column_name = 'receipt_url') then
+    execute 'drop trigger if exists inventories_receipt_path_org on public.inventories';
+    execute 'create trigger inventories_receipt_path_org before insert or update on public.inventories '
+            'for each row execute function public.enforce_org_storage_path(''receipt_url'')';
+  else
+    raise notice 'inventories.receipt_url tidak ada: trigger path untuk inventories dilewati (buat ulang setelah kolomnya ditambahkan).';
+  end if;
+end $$;

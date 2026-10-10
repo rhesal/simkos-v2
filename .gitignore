@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Log skrip pemindahan file storage (berisi path & id baris)
+supabase/scripts/*.log.json
+.env
