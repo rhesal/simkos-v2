@@ -87,67 +87,64 @@
           <div
             v-for="asset in filteredAssets"
             :key="asset.id"
-            class="bg-white rounded-[var(--radius-card)] border-2 border-border p-4 flex items-center justify-between gap-4 shadow-sm hover:shadow transition-all duration-150 relative overflow-hidden"
+            class="bg-white rounded-[var(--radius-card)] border-2 border-border p-4 pt-5 flex items-center gap-3.5 shadow-sm hover:shadow transition-all duration-150 relative overflow-hidden"
           >
-            <!-- Left Side: Icon box and details -->
-            <div class="flex items-center gap-3.5 min-w-0">
-              <div class="w-14 h-14 rounded-2xl bg-slate-100 flex flex-col items-center justify-center flex-shrink-0 border border-border">
-                <span v-if="asset.tipe_fasilitas === 'kamar'" class="text-xs font-black text-navy leading-none">
-                  {{ asset.rooms?.nomor_kamar || 'Kmr' }}
-                </span>
-                <span v-else class="text-lg leading-none">🏢</span>
-              </div>
-
-              <!-- Asset Detail Text -->
-              <div class="min-w-0">
-                <p class="text-base font-extrabold text-text-primary truncate">
-                  {{ asset.nama_barang }}
-                </p>
-                <div class="flex items-center gap-2 mt-1">
-                  <!-- Condition Badge -->
-                  <span
-                    class="px-2 py-0.5 rounded text-[10px] font-black border"
-                    :class="kondisiBadgeClass(asset.kondisi)"
-                  >
-                    {{ asset.kondisi }}
-                  </span>
-                </div>
-              </div>
+            <!-- Icon box -->
+            <div class="w-14 h-14 rounded-2xl bg-slate-100 flex flex-col items-center justify-center flex-shrink-0 border border-border">
+              <span v-if="asset.tipe_fasilitas === 'kamar'" class="text-xs font-black text-navy leading-none">
+                {{ asset.rooms?.nomor_kamar || 'Kmr' }}
+              </span>
+              <span v-else class="text-lg leading-none">🏢</span>
             </div>
 
-            <!-- Right Side: Buy date, Price, and Actions -->
-            <div class="flex items-center gap-3 flex-shrink-0">
-              <div class="text-right text-xs font-semibold text-text-secondary">
-                <p>{{ formatDateDisplay(asset.tanggal_pembelian) }}</p>
-                <p class="text-green-700 font-extrabold mt-0.5">{{ formatHarga(asset.harga) }}</p>
+            <!-- Detail: baris atas nama + tombol, baris bawah kondisi/tanggal/harga -->
+            <div class="min-w-0 flex-1">
+              <div class="flex items-start gap-2">
+                <!-- Nama: maks. 3 baris, baru dipotong kalau benar-benar panjang -->
+                <p class="min-w-0 flex-1 text-base font-extrabold text-text-primary leading-snug line-clamp-3 break-words" :title="asset.nama_barang">
+                  {{ asset.nama_barang }}
+                </p>
+
+                <!-- Action buttons (ukuran tetap) -->
+                <div class="flex items-center gap-1.5 flex-shrink-0">
+                  <!-- View Receipt Button -->
+                  <button
+                    v-if="asset.receipt_url"
+                    @click="bukaFotoNota(asset.receipt_url)"
+                    class="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-sm border border-blue-100 active:scale-95 transition-transform"
+                    title="Lihat Nota"
+                  >
+                    📷
+                  </button>
+                  <button
+                    @click="bukaModalEdit(asset)"
+                    class="p-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm border border-gray-200 active:scale-95 transition-transform"
+                    title="Ubah Aset"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    @click="bukaKonfirmasiHapus(asset)"
+                    class="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-sm border border-red-200 active:scale-95 transition-transform"
+                    title="Hapus Aset"
+                    aria-label="Hapus Aset"
+                  >
+                    🗑️
+                  </button>
+                </div>
               </div>
 
-              <!-- Action buttons -->
-              <div class="flex items-center gap-1.5">
-                <!-- View Receipt Button -->
-                <button
-                  v-if="asset.receipt_url"
-                  @click="bukaFotoNota(asset.receipt_url)"
-                  class="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-sm border border-blue-100 active:scale-95 transition-transform"
-                  title="Lihat Nota"
+              <!-- Kondisi, tanggal beli, harga: turun ke baris berikut kalau sempit -->
+              <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs font-semibold text-text-secondary">
+                <!-- Condition Badge -->
+                <span
+                  class="px-2 py-0.5 rounded text-[10px] font-black border whitespace-nowrap"
+                  :class="kondisiBadgeClass(asset.kondisi)"
                 >
-                  📷
-                </button>
-                <button
-                  @click="bukaModalEdit(asset)"
-                  class="p-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm border border-gray-200 active:scale-95 transition-transform"
-                  title="Ubah Aset"
-                >
-                  ✏️
-                </button>
-                <button
-                  @click="bukaKonfirmasiHapus(asset)"
-                  class="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-sm border border-red-200 active:scale-95 transition-transform"
-                  title="Hapus Aset"
-                  aria-label="Hapus Aset"
-                >
-                  🗑️
-                </button>
+                  {{ asset.kondisi }}
+                </span>
+                <span class="whitespace-nowrap">{{ formatDateDisplay(asset.tanggal_pembelian) }}</span>
+                <span class="whitespace-nowrap text-green-700 font-extrabold">{{ formatHarga(asset.harga) }}</span>
               </div>
             </div>
 
