@@ -13,8 +13,10 @@
           </svg>
         </button>
         <div>
-          <h1 class="text-2xl font-extrabold tracking-tight">Catat Uang Keluar</h1>
-          <p class="text-sm text-blue-200 mt-0.5 font-medium">Rekam transaksi pengeluaran operasional</p>
+          <h1 class="text-2xl font-extrabold tracking-tight">{{ isEdit ? 'Ubah Uang Keluar' : 'Catat Uang Keluar' }}</h1>
+          <p class="text-sm text-blue-200 mt-0.5 font-medium">
+            {{ isEdit ? 'Perbarui data pengeluaran yang sudah dicatat' : 'Rekam transaksi pengeluaran operasional' }}
+          </p>
         </div>
       </div>
     </header>
@@ -45,12 +47,28 @@
       </div>
 
       <!-- Loading locations indicator -->
-      <div v-if="isLoadingLocations" class="flex items-center justify-center py-8">
+      <div v-if="isLoadingLocations || isLoadingExpense" class="flex items-center justify-center py-8">
         <svg class="w-8 h-8 animate-spin text-navy" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
-        <span class="ml-3 text-lg font-semibold text-text-secondary">Memuat lokasi...</span>
+        <span class="ml-3 text-lg font-semibold text-text-secondary">
+          {{ isLoadingExpense ? 'Memuat pengeluaran...' : 'Memuat lokasi...' }}
+        </span>
+      </div>
+
+      <!-- Edit: data tidak ditemukan / gagal dimuat -->
+      <div
+        v-else-if="loadError"
+        class="bg-white rounded-[var(--radius-card)] border-2 border-dashed border-border p-8 text-center space-y-4"
+      >
+        <p class="text-lg font-bold text-text-primary">{{ loadError }}</p>
+        <router-link
+          to="/riwayat-transaksi"
+          class="inline-block px-5 py-3 bg-navy text-white rounded-xl font-bold active:scale-95 transition-transform"
+        >
+          Kembali ke Buku Besar
+        </router-link>
       </div>
 
       <template v-else>
@@ -66,6 +84,7 @@
               class="w-full px-5 py-4 bg-white border-2 border-gray-200 rounded-xl appearance-none focus:outline-none focus:border-navy text-lg font-medium text-gray-800 shadow-sm"
             >
               <option value="" disabled hidden selected>-- Pilih Lokasi Kos --</option>
+              <option :value="SEMUA_KOS">🌐 Tagihan bersama (semua kos)</option>
               <option v-for="loc in locationList" :key="loc.id" :value="loc.id">
                 {{ loc.nama_lokasi }}
               </option>
@@ -76,6 +95,10 @@
               </svg>
             </div>
           </div>
+          <p v-if="isSemuaKos" class="text-sm font-semibold text-navy bg-navy/5 border border-navy/10 rounded-xl px-4 py-3">
+            Dicatat sekali untuk semua kos (misalnya internet). Termasuk di total "Semua Lokasi",
+            tapi tidak termasuk total per kos.
+          </p>
         </div>
 
         <!-- Tanggal & Kategori (2 Col Layout) -->
@@ -114,9 +137,11 @@
               >
                 <option value="Listrik">⚡ Listrik</option>
                 <option value="Air">💧 Air</option>
+                <option value="Internet">🌐 Internet</option>
                 <option value="Kebersihan">🧹 Kebersihan</option>
                 <option value="Perbaikan">🛠️ Perbaikan</option>
                 <option value="Lainnya">📦 Lainnya</option>
+                <option v-if="extraKategori" :value="extraKategori">{{ extraKategori }}</option>
               </select>
               <div class="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -178,9 +203,44 @@
             class="hidden"
             @change="handleFileSelect"
           />
+          <!-- Edit: nota yang sudah tersimpan -->
+          <div v-if="!receiptPreview && existingNotaPath" class="space-y-3">
+            <div
+              class="w-full h-48 rounded-[var(--radius-card)] border-2 border-border shadow-sm bg-gray-50 overflow-hidden flex items-center justify-center"
+            >
+              <img
+                v-if="existingNotaUrl"
+                :src="existingNotaUrl"
+                alt="Nota tersimpan"
+                class="w-full h-full object-cover"
+              />
+              <span v-else class="text-sm font-semibold text-text-muted">
+                {{ existingNotaLoading ? 'Memuat nota...' : 'Nota tidak bisa ditampilkan' }}
+              </span>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                @click="fileInputRef?.click()"
+                :disabled="isBusy"
+                class="py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                🔄 Ganti Nota
+              </button>
+              <button
+                type="button"
+                @click="removeExistingNota"
+                :disabled="isBusy"
+                class="py-3 bg-expense/10 hover:bg-expense/20 text-expense font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {{ isRemovingNota ? 'Menghapus...' : '🗑️ Hapus Nota' }}
+              </button>
+            </div>
+          </div>
+
           <!-- Trigger / Preview Area -->
           <div
-            v-if="!receiptPreview"
+            v-else-if="!receiptPreview"
             @click="fileInputRef?.click()"
             class="w-full border-2 border-dashed border-border rounded-[var(--radius-card)] p-6
                    flex flex-col items-center justify-center gap-2 cursor-pointer
@@ -203,7 +263,8 @@
             />
             <button
               @click="removeFile"
-              class="absolute top-2 right-2 w-10 h-10 rounded-xl bg-expense text-white flex items-center justify-center shadow-lg active:scale-95 transition-transform"
+              :disabled="isBusy"
+              class="absolute top-2 right-2 w-10 h-10 rounded-xl bg-expense text-white flex items-center justify-center shadow-lg active:scale-95 transition-transform disabled:opacity-50"
               aria-label="Hapus"
             >
               <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
@@ -211,6 +272,9 @@
               </svg>
             </button>
             <p class="text-sm font-semibold text-text-secondary mt-2 truncate">{{ receiptFile?.name }}</p>
+            <p v-if="existingNotaPath" class="text-xs font-semibold text-text-muted mt-1">
+              Nota lama akan diganti dengan foto ini setelah perubahan disimpan.
+            </p>
           </div>
         </div>
 
@@ -218,7 +282,7 @@
         <div class="pt-4">
           <button
             @click="handleSubmit"
-            :disabled="isSubmitting || !isFormValid"
+            :disabled="isBusy || !isFormValid"
             class="w-full bg-expense text-white rounded-[var(--radius-btn)]
                    px-6 py-5 text-xl font-extrabold shadow-lg shadow-expense/25
                    active:scale-[0.97] transition-all duration-150
@@ -233,7 +297,7 @@
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
-            <span>{{ isSubmitting ? 'Menyimpan...' : 'Simpan Pengeluaran' }}</span>
+            <span>{{ isSubmitting ? 'Menyimpan...' : (isEdit ? 'Simpan Perubahan' : 'Simpan Pengeluaran') }}</span>
           </button>
         </div>
       </template>
@@ -245,17 +309,41 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
+import { localDateStamp } from '../lib/date.js'
 import { useRouter } from 'vue-router'
 import { supabase } from '../supabase.js'
-import { RECEIPT_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile, removeStorageFile } from '../lib/storage.js'
+import {
+  RECEIPT_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile,
+  removeStorageFile, deleteStorageFile, getSignedUrl,
+} from '../lib/storage.js'
+
+// Mode edit bila dibuka lewat route /pengeluaran/:id/edit
+const props = defineProps({
+  id: { type: String, default: null },
+})
 
 const router = useRouter()
 
+// Nilai khusus di dropdown untuk tagihan bersama. Disimpan sebagai location_id = NULL
+// (kolom nullable; RLS expenses_org_access mengizinkan location_id NULL).
+const SEMUA_KOS = '__SEMUA_KOS__'
+const CONFLICT_MSG = 'Data sudah diubah oleh pengguna lain, muat ulang halaman.'
+const NOT_FOUND_MSG = 'Pengeluaran tidak ditemukan. Mungkin sudah dihapus.'
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const DEFAULT_KATEGORI = ['Listrik', 'Air', 'Internet', 'Kebersihan', 'Perbaikan', 'Lainnya']
+
+const isEdit = computed(() => !!props.id)
+
 // UI States
 const isLoadingLocations = ref(true)
+const isLoadingExpense = ref(false)
 const isSubmitting = ref(false)
+const isRemovingNota = ref(false)
 const successMsg = ref('')
 const errorMsg = ref('')
+const loadError = ref('')
+
+const isBusy = computed(() => isSubmitting.value || isRemovingNota.value)
 
 // Form & Data States
 const locationList = ref([])
@@ -263,21 +351,33 @@ const receiptFile = ref(null)
 const receiptPreview = ref(null)
 const fileInputRef = ref(null)
 
+// Edit: nota yang sudah tersimpan di DB
+const existingNotaPath = ref(null)
+const existingNotaUrl = ref(null)
+const existingNotaLoading = ref(false)
+const extraKategori = ref('')
+
 const form = reactive({
   location_id: '',
-  tanggal: new Date().toISOString().split('T')[0],
+  tanggal: localDateStamp(), // tanggal lokal (WIB), bukan UTC
   kategori: 'Listrik',
   nominal: null,
   keterangan: '',
 })
+
+const isSemuaKos = computed(() => form.location_id === SEMUA_KOS)
 
 // Validation
 const isFormValid = computed(() => {
   return form.location_id && form.tanggal && form.kategori && form.nominal > 0
 })
 
-// Fetch Locations
 onMounted(async () => {
+  await Promise.all([loadLocations(), isEdit.value ? loadExpense() : Promise.resolve()])
+})
+
+// Fetch Locations
+async function loadLocations() {
   const { data, error } = await supabase
     .from('locations')
     .select('id, nama_lokasi')
@@ -291,7 +391,52 @@ onMounted(async () => {
   } else {
     locationList.value = data || []
   }
-})
+}
+
+// Edit: muat baris pengeluaran
+async function loadExpense() {
+  // :id bukan UUID -> tampilkan keadaan "tidak ditemukan" tanpa query (TC3-28)
+  if (!UUID_RE.test(props.id || '')) {
+    loadError.value = NOT_FOUND_MSG
+    return
+  }
+  isLoadingExpense.value = true
+  try {
+    const { data, error } = await supabase
+      .from('expenses')
+      .select('id, location_id, tanggal_pengeluaran, kategori, nominal, keterangan, bukti_nota_url')
+      .eq('id', props.id)
+      .maybeSingle()
+
+    if (error) throw error
+    if (!data) {
+      loadError.value = NOT_FOUND_MSG
+      return
+    }
+
+    form.location_id = data.location_id == null ? SEMUA_KOS : data.location_id
+    form.tanggal = data.tanggal_pengeluaran
+    form.kategori = data.kategori
+    form.nominal = Number(data.nominal)
+    form.keterangan = data.keterangan || ''
+    if (data.kategori && !DEFAULT_KATEGORI.includes(data.kategori)) {
+      extraKategori.value = data.kategori
+    }
+
+    existingNotaPath.value = data.bukti_nota_url || null
+    if (existingNotaPath.value) {
+      existingNotaLoading.value = true
+      getSignedUrl(RECEIPT_BUCKET, existingNotaPath.value)
+        .then((url) => { existingNotaUrl.value = url })
+        .finally(() => { existingNotaLoading.value = false })
+    }
+  } catch (err) {
+    console.error('[SimKos] Gagal memuat pengeluaran:', err)
+    loadError.value = `Gagal memuat pengeluaran: ${err.message || err}`
+  } finally {
+    isLoadingExpense.value = false
+  }
+}
 
 // File handling
 function handleFileSelect(e) {
@@ -316,9 +461,60 @@ function removeFile() {
   if (fileInputRef.value) fileInputRef.value.value = ''
 }
 
-// Submit Expense
+// Bila update mengenai 0 baris: bedakan "baris sudah tidak ada / tidak boleh diakses"
+// dari "nilai nota sudah diubah orang lain" (syarat compare-and-set tidak cocok).
+async function explainZeroRows() {
+  const { data } = await supabase.from('expenses').select('id').eq('id', props.id).maybeSingle()
+  return data ? CONFLICT_MSG : NOT_FOUND_MSG
+}
+
+// Compare-and-set pada kolom nota: hanya cocok bila nilainya masih sama dengan
+// yang kita ketahui (nilai setelah penghapusan nota di sesi ini, bila ada).
+function whereNotaIs(query, known) {
+  return known === null ? query.is('bukti_nota_url', null) : query.eq('bukti_nota_url', known)
+}
+
+// Edit: hapus nota yang tersimpan.
+// Aturan: BARIS dulu, FILE belakangan. Kolom dikosongkan dulu (dengan syarat nilai
+// masih sama); kegagalan menghapus file hanya peringatan, bukan error.
+async function removeExistingNota() {
+  if (!isEdit.value || !existingNotaPath.value || isBusy.value) return
+  if (!confirm('Hapus foto nota ini? File nota akan langsung dihapus permanen.')) return
+
+  isRemovingNota.value = true
+  errorMsg.value = ''
+  successMsg.value = ''
+  const known = existingNotaPath.value
+  try {
+    const { data, error } = await whereNotaIs(
+      supabase.from('expenses').update({ bukti_nota_url: null }).eq('id', props.id),
+      known,
+    ).select('id')
+
+    if (error) throw error
+    if (!data || data.length === 0) throw new Error(await explainZeroRows())
+
+    existingNotaPath.value = null
+    existingNotaUrl.value = null
+
+    try {
+      await deleteStorageFile(RECEIPT_BUCKET, known)
+      successMsg.value = 'Nota berhasil dihapus.'
+    } catch (delErr) {
+      console.error('[SimKos] Kolom nota dikosongkan, tapi file gagal dihapus (file yatim):', known, delErr?.message || delErr)
+      successMsg.value = 'Nota berhasil dihapus. Sisa file nota akan dibersihkan saat perawatan berkala.'
+    }
+  } catch (err) {
+    console.error('[SimKos] Gagal menghapus nota:', err)
+    errorMsg.value = `Gagal menghapus nota: ${err.message || err}`
+  } finally {
+    isRemovingNota.value = false
+  }
+}
+
+// Submit (create atau update)
 async function handleSubmit() {
-  if (!isFormValid.value) return
+  if (!isFormValid.value || isBusy.value) return
 
   isSubmitting.value = true
   errorMsg.value = ''
@@ -336,37 +532,77 @@ async function handleSubmit() {
       }
     }
 
-    // 2. Insert to expenses table
-    const { error: insertError } = await supabase
-      .from('expenses')
-      .insert({
-        location_id: form.location_id,
-        tanggal_pengeluaran: form.tanggal,
-        kategori: form.kategori,
-        nominal: form.nominal,
-        keterangan: form.keterangan.trim() || null,
-        bukti_nota_url: receiptPath,
-      })
-
-    if (insertError) {
-      // Cleanup uploaded file if DB insert fails
-      if (receiptPath) {
-        await removeStorageFile(RECEIPT_BUCKET, receiptPath)
-      }
-      throw new Error(`Gagal menyimpan data pengeluaran: ${insertError.message}`)
+    const payload = {
+      // location_id NULL = tagihan bersama (semua kos), dicatat sekali tanpa dibagi.
+      // Lihat docs/tagihan-bersama.md. Bila nanti ada jalur input lain yang bisa
+      // menyimpan location_id NULL, pertimbangkan kolom is_shared + check constraint.
+      location_id: isSemuaKos.value ? null : form.location_id,
+      tanggal_pengeluaran: form.tanggal,
+      kategori: form.kategori,
+      nominal: form.nominal,
+      keterangan: form.keterangan.trim() || null,
     }
 
-    successMsg.value = 'Pengeluaran berhasil dicatat!'
-    setTimeout(() => {
-      router.push('/')
-    }, 1500)
+    if (isEdit.value) {
+      // 2a. Update. Kolom nota HANYA ikut di payload bila ada file baru, supaya
+      //     nota yang baru ditambahkan partner tidak tertimpa (TC3-33).
+      const known = existingNotaPath.value // nilai terkini (setelah hapus nota di sesi ini)
+      let query = supabase.from('expenses')
+      if (receiptPath) {
+        payload.bukti_nota_url = receiptPath
+        query = whereNotaIs(query.update(payload).eq('id', props.id), known)
+      } else {
+        query = query.update(payload).eq('id', props.id)
+      }
 
+      const { data, error: updateError } = await query.select('id')
+
+      if (updateError || !data || data.length === 0) {
+        if (receiptPath) await removeStorageFile(RECEIPT_BUCKET, receiptPath)
+        const reason = updateError ? `Gagal menyimpan perubahan: ${updateError.message}` : await explainZeroRows()
+        throw new Error(reason)
+      }
+
+      // Nota lama baru dihapus setelah DB menunjuk ke file baru (baris dulu, file belakangan).
+      let note = ''
+      if (receiptPath && known && known !== receiptPath) {
+        const removed = await removeStorageFile(RECEIPT_BUCKET, known)
+        if (!removed) {
+          console.error('[SimKos] Nota lama gagal dihapus (file yatim):', known)
+          note = ' Sisa file nota lama akan dibersihkan saat perawatan berkala.'
+        }
+      }
+
+      successMsg.value = `Perubahan berhasil disimpan.${note}`
+      setTimeout(() => {
+        router.push('/riwayat-transaksi')
+      }, note ? 3000 : 1500)
+    } else {
+      // 2b. Insert to expenses table
+      const { error: insertError } = await supabase
+        .from('expenses')
+        .insert({ ...payload, bukti_nota_url: receiptPath })
+
+      if (insertError) {
+        // Cleanup uploaded file if DB insert fails
+        if (receiptPath) {
+          await removeStorageFile(RECEIPT_BUCKET, receiptPath)
+        }
+        throw new Error(`Gagal menyimpan data pengeluaran: ${insertError.message}`)
+      }
+
+      successMsg.value = 'Pengeluaran berhasil dicatat!'
+      setTimeout(() => {
+        router.push('/')
+      }, 1500)
+    }
   } catch (err) {
     errorMsg.value = err.message
-    console.error('[SimKos] Gagal catat pengeluaran:', err)
-  } finally {
+    console.error('[SimKos] Gagal simpan pengeluaran:', err)
     isSubmitting.value = false
+    return
   }
+  // Tetap terkunci sampai redirect, supaya tidak tersimpan dua kali.
 }
 
 function formatDateDisplay(dateStr) {

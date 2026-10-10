@@ -1361,7 +1361,46 @@ function closeKtpViewer() {
   ktpViewerName.value = ''
 }
 
-// Handle KTP file change & upload
+// --- KTP: aturan BARIS dulu, FILE belakangan (sama dengan nota pengeluaran,
+// lihat docs/tagihan-bersama.md). Kolom DB diubah lebih dulu dengan
+// compare-and-set terhadap nilai yang terakhir kita lihat; file lama baru dihapus
+// setelah DB berhasil berubah. Gagal hapus file = peringatan (file yatim),
+// dibereskan lewat supabase/scripts/report_orphan_files.mjs.
+const KTP_CONFLICT_MSG = 'Data KTP sudah diubah oleh pengguna lain. Muat ulang halaman lalu coba lagi.'
+const KTP_NOT_FOUND_MSG = 'Data penghuni tidak ditemukan. Mungkin sudah dihapus.'
+const KTP_CHECK_FAILED_MSG = 'Perubahan KTP belum tersimpan dan status data tidak bisa dicek (cek koneksi internet). Muat ulang halaman lalu coba lagi.'
+const KTP_ORPHAN_NOTE = ' Sisa file akan dibersihkan saat perawatan berkala.'
+
+// Nilai kolom foto_ktp_url yang terakhir diketahui (apa adanya, null bila kosong).
+function knownKtpValue() {
+  const v = selectedRoom.value?.activeRental?.tenants?.foto_ktp_url
+  return v === undefined ? null : v
+}
+
+// Compare-and-set: .eq(kolom, null) tidak pernah cocok di SQL, jadi cabang null pakai .is().
+function whereKtpIs(query, known) {
+  return known === null ? query.is('foto_ktp_url', null) : query.eq('foto_ktp_url', known)
+}
+
+// Update kena 0 baris: bedakan "baris hilang / tidak boleh diakses" dari "nilai berubah".
+// Kalau pengecekan itu sendiri gagal (jaringan/izin), jangan simpulkan "tidak ditemukan".
+async function explainKtpZeroRows(tenantId) {
+  const { data, error } = await supabase.from('tenants').select('id').eq('id', tenantId).maybeSingle()
+  if (error) return KTP_CHECK_FAILED_MSG
+  return data ? KTP_CONFLICT_MSG : KTP_NOT_FOUND_MSG
+}
+
+function setLocalKtp(value) {
+  if (selectedRoom.value?.activeRental?.tenants) {
+    selectedRoom.value.activeRental.tenants.foto_ktp_url = value
+  }
+  const localRoom = roomsList.value.find(r => r.id === selectedRoom.value?.id)
+  if (localRoom?.activeRental?.tenants) {
+    localRoom.activeRental.tenants.foto_ktp_url = value
+  }
+}
+
+// Handle KTP file change & upload (unggah baru / ganti)
 async function handleKtpFileChange(e) {
   const file = e.target.files?.[0]
   if (!file) return
@@ -1382,70 +1421,52 @@ async function handleKtpFileChange(e) {
       throw new Error('ID Penghuni tidak ditemukan!')
     }
 
-    // Path KTP lama (bila ada) — dihapus setelah path baru tersimpan di DB
-    const oldKtp = selectedRoom.value?.activeRental?.tenants?.foto_ktp_url || null
+    const known = knownKtpValue()
 
     // 1. Upload ke bucket privat 'ktp_images' dengan path "<org_id>/ktp_...".
-    //    DB hanya menyimpan path objek, bukan URL publik.
     const ktpPath = await uploadPrivateFile(KTP_BUCKET, 'ktp', file)
 
-    // 2. Update tenants table
-    const { error: updateError } = await supabase
-      .from('tenants')
-      .update({ foto_ktp_url: ktpPath })
-      .eq('id', tenantId)
-
-    if (updateError) {
-      // Rollback file yang sudah terunggah
+    // 2. BARIS: update kolom hanya bila nilainya masih sama dengan yang kita lihat.
+    try {
+      const { data, error } = await whereKtpIs(
+        supabase.from('tenants').update({ foto_ktp_url: ktpPath }).eq('id', tenantId),
+        known,
+      ).select('id')
+      if (error) throw error
+      if (!data || data.length === 0) throw new Error(await explainKtpZeroRows(tenantId))
+    } catch (rowErr) {
+      // Baris tidak berubah -> file baru tidak dirujuk siapa pun, hapus lagi.
       await removeStorageFile(KTP_BUCKET, ktpPath)
-      throw updateError
+      throw rowErr
     }
 
-    // 3. Hapus file KTP lama agar data pribadi tidak tertinggal di bucket.
-    //    DB sudah menunjuk ke file baru, jadi kegagalan di sini tidak merusak
-    //    data — tapi user tetap diberi tahu.
-    let oldDeleteFailed = false
-    if (oldKtp && oldKtp !== ktpPath) {
+    setLocalKtp(ktpPath)
+
+    // 3. FILE: hapus file KTP lama (non-blocking).
+    let note = ''
+    if (known && known !== ktpPath) {
       try {
-        await deleteStorageFile(KTP_BUCKET, oldKtp)
+        await deleteStorageFile(KTP_BUCKET, known)
       } catch (delErr) {
-        oldDeleteFailed = true
-        console.error('[SimKos] Gagal menghapus file KTP lama:', delErr?.message || delErr)
+        console.error('[SimKos] KTP baru tersimpan, tapi file KTP lama gagal dihapus (file yatim):', known, delErr?.message || delErr)
+        note = KTP_ORPHAN_NOTE
       }
     }
 
-    // 4. Update local state
-    if (selectedRoom.value) {
-      if (selectedRoom.value.activeRental?.tenants) {
-        selectedRoom.value.activeRental.tenants.foto_ktp_url = ktpPath
-      }
-    }
-
-    // Update in roomsList
-    const localRoom = roomsList.value.find(r => r.id === selectedRoom.value?.id)
-    if (localRoom) {
-      if (localRoom.activeRental?.tenants) {
-        localRoom.activeRental.tenants.foto_ktp_url = ktpPath
-      }
-    }
-
-    alert(
-      oldDeleteFailed
-        ? 'Foto KTP baru berhasil diunggah, tetapi file KTP lama gagal dihapus dari penyimpanan. Silakan hubungi admin.'
-        : 'Foto KTP berhasil diunggah!'
-    )
+    alert(`Foto KTP berhasil diunggah!${note}`)
   } catch (err) {
     alert(`Gagal mengunggah KTP: ${err.message}`)
     console.error('[SimKos] Upload KTP error:', err)
   } finally {
     isLoading.value = false
     ktpFile.value = null
+    if (e?.target) e.target.value = ''
   }
 }
 
-// Clear and reset KTP document URL in database
+// Kosongkan foto KTP (untuk diunggah ulang).
 async function clearKtpDocument() {
-  if (!confirm('Apakah Anda yakin ingin mengganti foto KTP ini?')) return
+  if (!confirm('Apakah Anda yakin ingin mengganti foto KTP ini? Foto lama akan dihapus permanen.')) return
 
   try {
     const tenantId = editForm.tenantId || selectedRoom.value?.activeRental?.tenant_id
@@ -1454,47 +1475,33 @@ async function clearKtpDocument() {
     }
 
     isLoading.value = true
-    const oldKtp = selectedRoom.value?.activeRental?.tenants?.foto_ktp_url || null
+    const known = knownKtpValue()
 
-    // 1. Hapus file KTP dari storage DULU. Bila gagal, kolom DB tidak diubah
-    //    supaya file tidak menjadi yatim (tak direferensikan) tanpa diketahui.
-    if (oldKtp) {
-      try {
-        await deleteStorageFile(KTP_BUCKET, oldKtp)
-      } catch (delErr) {
-        console.error('[SimKos] Gagal menghapus file KTP:', delErr?.message || delErr)
-        alert('Gagal menghapus file KTP dari penyimpanan. Data KTP tidak diubah. Periksa koneksi lalu coba lagi.')
-        return
-      }
-    }
-
-    // 2. Baru kosongkan kolom setelah file benar-benar terhapus
-    const { error } = await supabase
-      .from('tenants')
-      .update({ foto_ktp_url: null })
-      .eq('id', tenantId)
-
+    // 1. BARIS dulu: kosongkan kolom dengan compare-and-set.
+    const { data, error } = await whereKtpIs(
+      supabase.from('tenants').update({ foto_ktp_url: null }).eq('id', tenantId),
+      known,
+    ).select('id')
     if (error) throw error
+    if (!data || data.length === 0) throw new Error(await explainKtpZeroRows(tenantId))
 
-    // Sinkronisasi State Frontend secara instan agar input file muncul kembali
-    if (selectedRoom.value) {
-      if (selectedRoom.value.activeRental?.tenants) {
-        selectedRoom.value.activeRental.tenants.foto_ktp_url = null
+    setLocalKtp(null)
+
+    // 2. FILE belakangan (non-blocking).
+    let note = ''
+    if (known) {
+      try {
+        await deleteStorageFile(KTP_BUCKET, known)
+      } catch (delErr) {
+        console.error('[SimKos] Kolom KTP dikosongkan, tapi file gagal dihapus (file yatim):', known, delErr?.message || delErr)
+        note = KTP_ORPHAN_NOTE
       }
     }
 
-    const localRoom = roomsList.value.find(r => r.id === selectedRoom.value?.id)
-    if (localRoom) {
-      if (localRoom.activeRental?.tenants) {
-        localRoom.activeRental.tenants.foto_ktp_url = null
-      }
-    }
-
-    console.log('Dokumen KTP berhasil di-reset. Siap untuk unggah ulang.')
-    alert('Dokumen KTP berhasil dikosongkan. Silakan unggah kembali.')
+    alert(`Dokumen KTP berhasil dikosongkan. Silakan unggah kembali.${note}`)
   } catch (err) {
-    console.error('Gagal mereset dokumen KTP:', err.message || err)
-    alert('Terjadi kesalahan saat mengosongkan berkas KTP.')
+    console.error('[SimKos] Gagal mengosongkan dokumen KTP:', err?.message || err)
+    alert(`Gagal mengosongkan foto KTP: ${err?.message || err}`)
   } finally {
     isLoading.value = false
   }

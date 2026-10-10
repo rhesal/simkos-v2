@@ -213,6 +213,9 @@
                   </div>
                   <span class="text-xl font-extrabold text-red-300">{{ formatCurrency(totalPengeluaran) }}</span>
                 </div>
+                <p v-if="totalTagihanBersama > 0" class="text-xs font-semibold text-blue-200/90">
+                  🌐 Tagihan bersama {{ formatCurrency(totalTagihanBersama) }} tidak termasuk total kos ini
+                </p>
               </div>
             </div>
           </div>
@@ -379,8 +382,18 @@ const totalPemasukan = computed(() => {
     .reduce((sum, item) => sum + (item.nominal || 0), 0)
 })
 
+// Pengeluaran kos ini saja. Tagihan bersama (location_id NULL)
+// tidak dihitung per kos, supaya tidak terhitung dobel di tiap kos.
 const totalPengeluaran = computed(() => {
   return expensesList.value
+    .filter(item => item.location_id != null)
+    .filter(item => item.tanggal_pengeluaran && item.tanggal_pengeluaran.startsWith(currentMonthPrefix.value))
+    .reduce((sum, item) => sum + (item.nominal || 0), 0)
+})
+
+const totalTagihanBersama = computed(() => {
+  return expensesList.value
+    .filter(item => item.location_id == null)
     .filter(item => item.tanggal_pengeluaran && item.tanggal_pengeluaran.startsWith(currentMonthPrefix.value))
     .reduce((sum, item) => sum + (item.nominal || 0), 0)
 })
@@ -451,8 +464,16 @@ onMounted(async () => {
 })
 
 // --- Fetch Dashboard Data ---
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 async function fetchDashboardData(locationId) {
   if (!locationId) return
+
+  // Guard: locationId masuk ke string filter .or() PostgREST, jadi pastikan UUID.
+  if (!UUID_RE.test(String(locationId))) {
+    console.error('[SimKos] location_id bukan UUID, fetch dashboard dibatalkan:', locationId)
+    return
+  }
+  const safeLocationId = String(locationId).toLowerCase()
 
   isLoadingData.value = true
 
@@ -489,8 +510,8 @@ async function fetchDashboardData(locationId) {
     // 4. Fetch expenses
     const { data: expensesData, error: expensesError } = await supabase
       .from('expenses')
-      .select('nominal, tanggal_pengeluaran')
-      .eq('location_id', locationId)
+      .select('nominal, tanggal_pengeluaran, location_id')
+      .or(`location_id.eq.${safeLocationId},location_id.is.null`)
 
     if (expensesError) throw expensesError
     expensesList.value = expensesData || []

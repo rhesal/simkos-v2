@@ -26,3 +26,5 @@ dist-ssr
 # Log skrip pemindahan file storage (berisi path & id baris)
 supabase/scripts/*.log.json
 .env
+# Laporan file yatim (berisi path file)
+supabase/scripts/*.orphans.json

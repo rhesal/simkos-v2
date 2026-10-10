@@ -123,6 +123,32 @@ apply $DB "$MIG/20261010000200_organizations_and_backfill.sql" "$MIG/20261010000
   }
 }
 
+# S8: migration 400 (kolom inventories) -> tes, idempotent, rollback, guard rollback
+DB=qa_org_s8; live_base $DB
+apply $DB "$MIG/20261010000200_organizations_and_backfill.sql" "$MIG/20261010000210_org_rls_policies.sql" \
+  "$HERE/07_simulated_move.sql" "$MIG/20261010000300_private_storage_buckets.sql" "$HERE/10_seed_org2.sql" && {
+  echo; echo "=== S8 Migration 400 inventories ==="
+  apply $DB "$MIG/20261010000400_inventories_missing_columns.sql" && {
+    check $DB S8-01 "4 kolom baru ada, nullable, tipe benar" \
+      "select count(*) = 4 from information_schema.columns where table_schema='public' and table_name='inventories' and is_nullable='YES' and (column_name, data_type) in (('tanggal_pembelian','date'),('harga','numeric'),('tipe_fasilitas','text'),('receipt_url','text'))"
+    check $DB S8-02 "trigger inventories_receipt_path_org terpasang" \
+      "select exists (select 1 from pg_trigger where tgname='inventories_receipt_path_org' and tgrelid='public.inventories'::regclass)"
+    check $DB S8-03 "policy inventories tidak berubah (tetap 1: inventories_org_access)" \
+      "select array_agg(policyname::text) = array['inventories_org_access'] from pg_policies where schemaname='public' and tablename='inventories'"
+    apply $DB "$MIG/20261010000400_inventories_missing_columns.sql" && echo "PASS | S8-04 | migration 400 idempotent (apply kedua lolos)"
+    apply $DB "$HERE/40_inventories_400_tests.sql" && report $DB "S8 Inventaris setelah migration 400"
+    $PSQL -d $DB -c "update public.inventories set harga = 1 where id = 'a6000000-0000-0000-0000-000000000001'" >/dev/null
+    expect_reject $DB "$RB/rollback_400_inventories_columns.sql" S8-05 "Rollback dibatalkan"
+    $PSQL -d $DB -c "update public.inventories set tanggal_pembelian=null, harga=null, tipe_fasilitas=null, receipt_url=null" >/dev/null
+    apply $DB "$RB/rollback_400_inventories_columns.sql" && check $DB S8-06 "rollback 400: kolom & trigger hilang, data lama utuh" \
+      "select not exists (select 1 from information_schema.columns where table_schema='public' and table_name='inventories' and column_name in ('tanggal_pembelian','harga','tipe_fasilitas','receipt_url')) and not exists (select 1 from pg_trigger where tgname='inventories_receipt_path_org') and (select count(*) from public.inventories) > 0"
+    apply $DB "$MIG/20261010000400_inventories_missing_columns.sql" && echo "PASS | S8-07 | migration 400 bisa diterapkan ulang setelah rollback"
+  }
+}
+# S8b: migration 400 di DB tanpa migration 200 -> ditolak
+DB=qa_org_s8b; live_base $DB
+expect_reject $DB "$MIG/20261010000400_inventories_missing_columns.sql" S8-08 "Terapkan migration 200 dulu"
+
 rm -f "$HERE/.last_err"
 echo; echo "TOTAL GAGAL: $FAILS"
 [ "$FAILS" -eq 0 ]
