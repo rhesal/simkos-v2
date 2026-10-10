@@ -106,6 +106,9 @@ const errorMsg = ref('')
 const LOGIN_TIMEOUT_MS = 20_000
 const NAV_TIMEOUT_MS = 15_000
 
+// true bila halaman sedang dimuat ulang ke versi baru: tombol tetap loading.
+let reloading = false
+
 const isFormValid = computed(() => {
   return email.value.trim() && password.value.length >= 6
 })
@@ -118,64 +121,92 @@ function withTimeout(promise, ms, code) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
 }
 
+async function hasSession() {
+  try {
+    const { data } = await withTimeout(supabase.auth.getSession(), 3_000, 'SESSION_TIMEOUT')
+    return Boolean(data?.session)
+  } catch {
+    return false
+  }
+}
+
+/** Pindah ke Beranda dan tunggu sampai benar-benar pindah. */
+async function goHome() {
+  try {
+    const failure = await withTimeout(router.replace('/'), NAV_TIMEOUT_MS, 'NAV_TIMEOUT')
+    if (failure && router.currentRoute.value.name === 'Login') {
+      throw failure
+    }
+  } catch (err) {
+    if (isChunkLoadError(err) && (isReloadPending() || reloadOnce('/'))) {
+      // Versi app berganti (deploy baru): halaman sedang dimuat ulang ke
+      // Beranda (lihat router.onError). Biarkan tombol tetap loading.
+      reloading = true
+      return
+    }
+    console.error('[SimKos] Gagal membuka Beranda setelah login:', err?.message || err)
+    errorMsg.value = 'Login berhasil, tapi Beranda gagal dibuka. Muat ulang halaman ini.'
+  }
+}
+
+/** Jalankan aksi dengan tombol loading; matikan loading kecuali sedang reload. */
+async function withLoading(fn) {
+  isLoading.value = true
+  try {
+    await fn()
+  } finally {
+    if (!reloading) isLoading.value = false
+  }
+}
+
+function showLoginError(error) {
+  if (error.status === 400) {
+    errorMsg.value = 'Email atau kata sandi salah'
+  } else if (!error.status || error.name === 'AuthRetryableFetchError') {
+    errorMsg.value = 'Tidak bisa terhubung ke server. Periksa koneksi internet lalu coba lagi.'
+  } else {
+    errorMsg.value = 'Login gagal. Coba lagi beberapa saat lagi.'
+  }
+  // Jangan cetak data sesi/token ke console; cukup status & pesan error.
+  console.error('[Supabase Auth] Login error:', error.status, error.message)
+}
+
 async function handleLogin() {
   if (!isFormValid.value || isLoading.value) return
-
-  isLoading.value = true
   errorMsg.value = ''
-  let keepLoading = false
 
-  try {
+  await withLoading(async () => {
+    const signIn = supabase.auth.signInWithPassword({
+      email: email.value.trim(),
+      password: password.value,
+    })
+
     let result
     try {
-      result = await withTimeout(
-        supabase.auth.signInWithPassword({
-          email: email.value.trim(),
-          password: password.value,
-        }),
-        LOGIN_TIMEOUT_MS,
-        'LOGIN_TIMEOUT',
-      )
+      result = await withTimeout(signIn, LOGIN_TIMEOUT_MS, 'LOGIN_TIMEOUT')
     } catch (err) {
-      errorMsg.value = err?.code === 'LOGIN_TIMEOUT'
-        ? 'Server tidak merespons. Periksa koneksi internet lalu coba lagi.'
-        : 'Tidak bisa terhubung ke server. Periksa koneksi internet lalu coba lagi.'
-      console.error('[Supabase Auth] Login gagal:', err?.message || err)
-      return
-    }
-
-    const { error } = result
-    if (error) {
-      if (error.status === 400) {
-        errorMsg.value = 'Email atau kata sandi salah'
-      } else if (!error.status || error.name === 'AuthRetryableFetchError') {
+      if (err?.code !== 'LOGIN_TIMEOUT') {
+        console.error('[Supabase Auth] Login gagal:', err?.message || err)
         errorMsg.value = 'Tidak bisa terhubung ke server. Periksa koneksi internet lalu coba lagi.'
-      } else {
-        errorMsg.value = 'Login gagal. Coba lagi beberapa saat lagi.'
-      }
-      // Jangan cetak data sesi/token ke console; cukup status & pesan error.
-      console.error('[Supabase Auth] Login error:', error.status, error.message)
-      return
-    }
-
-    // Login berhasil: pindah ke Beranda dan tunggu sampai benar-benar pindah.
-    try {
-      const failure = await withTimeout(router.replace('/'), NAV_TIMEOUT_MS, 'NAV_TIMEOUT')
-      if (failure && router.currentRoute.value.name === 'Login') {
-        throw failure
-      }
-    } catch (err) {
-      if (isChunkLoadError(err) && (isReloadPending() || reloadOnce('/'))) {
-        // Versi app berganti (deploy baru): halaman sedang dimuat ulang ke
-        // Beranda (lihat router.onError). Biarkan tombol tetap loading.
-        keepLoading = true
         return
       }
-      console.error('[SimKos] Gagal membuka Beranda setelah login:', err?.message || err)
-      errorMsg.value = 'Login berhasil, tapi Beranda gagal dibuka. Muat ulang halaman ini.'
+      // Request bisa saja sudah berhasil tepat di batas waktu.
+      if (await hasSession()) return goHome()
+
+      errorMsg.value = 'Server lambat merespons. Periksa koneksi internet lalu coba lagi.'
+      // Kalau jawaban datang terlambat tapi berhasil, tetap lanjut ke Beranda
+      // selama user masih di halaman login dan belum mencoba lagi.
+      signIn.then(({ error }) => {
+        if (!error && !isLoading.value && router.currentRoute.value.name === 'Login') {
+          errorMsg.value = ''
+          withLoading(goHome)
+        }
+      }).catch(() => {})
+      return
     }
-  } finally {
-    if (!keepLoading) isLoading.value = false
-  }
+
+    if (result.error) return showLoginError(result.error)
+    await goHome()
+  })
 }
 </script>
