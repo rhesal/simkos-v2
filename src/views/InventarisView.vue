@@ -112,24 +112,26 @@
                     v-if="asset.receipt_url"
                     @click="bukaFotoNota(asset.receipt_url)"
                     class="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-sm border border-blue-100 active:scale-95 transition-transform"
-                    title="Lihat Nota"
+                    :title="`Lihat nota ${asset.nama_barang}`"
+                    :aria-label="`Lihat nota ${asset.nama_barang}`"
                   >
-                    📷
+                    <span aria-hidden="true">📷</span>
                   </button>
                   <button
                     @click="bukaModalEdit(asset)"
                     class="p-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm border border-gray-200 active:scale-95 transition-transform"
-                    title="Ubah Aset"
+                    :title="`Ubah ${asset.nama_barang}`"
+                    :aria-label="`Ubah ${asset.nama_barang}`"
                   >
-                    ✏️
+                    <span aria-hidden="true">✏️</span>
                   </button>
                   <button
                     @click="bukaKonfirmasiHapus(asset)"
                     class="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-sm border border-red-200 active:scale-95 transition-transform"
-                    title="Hapus Aset"
-                    aria-label="Hapus Aset"
+                    :title="`Hapus ${asset.nama_barang}`"
+                    :aria-label="`Hapus ${asset.nama_barang}`"
                   >
-                    🗑️
+                    <span aria-hidden="true">🗑️</span>
                   </button>
                 </div>
               </div>
@@ -148,9 +150,13 @@
               </div>
             </div>
 
-            <!-- Location Overlay -->
-            <span class="absolute right-3 top-1 text-[8px] font-bold text-text-muted opacity-30">
-              {{ asset.locations?.nama_lokasi }}
+            <!-- Location Overlay: tetap di area pt-5, dipotong kalau nama lokasi panjang -->
+            <span
+              v-if="asset.locations?.nama_lokasi"
+              class="absolute right-3 top-1 max-w-[50%] truncate text-[10px] leading-none font-bold text-text-muted opacity-70"
+              :title="asset.locations.nama_lokasi"
+            >
+              {{ asset.locations.nama_lokasi }}
             </span>
           </div>
         </div>
