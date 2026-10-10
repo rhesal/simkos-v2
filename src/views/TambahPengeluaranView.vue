@@ -309,6 +309,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
+import { localDateStamp } from '../lib/date.js'
 import { useRouter } from 'vue-router'
 import { supabase } from '../supabase.js'
 import {
@@ -358,7 +359,7 @@ const extraKategori = ref('')
 
 const form = reactive({
   location_id: '',
-  tanggal: new Date().toISOString().split('T')[0],
+  tanggal: localDateStamp(), // tanggal lokal (WIB), bukan UTC
   kategori: 'Listrik',
   nominal: null,
   keterangan: '',

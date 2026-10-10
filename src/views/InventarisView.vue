@@ -91,7 +91,7 @@
           >
             <!-- Icon box -->
             <div class="w-14 h-14 rounded-2xl bg-slate-100 flex flex-col items-center justify-center flex-shrink-0 border border-border">
-              <span v-if="asset.tipe_fasilitas === 'kamar'" class="text-xs font-black text-navy leading-none">
+              <span v-if="assetType(asset) === 'kamar'" class="text-xs font-black text-navy leading-none">
                 {{ asset.rooms?.nomor_kamar || 'Kmr' }}
               </span>
               <span v-else class="text-lg leading-none">🏢</span>
@@ -508,6 +508,8 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } 
 import { supabase } from '../supabase.js'
 import { RECEIPT_BUCKET, IMAGE_ACCEPT, validateImageFile, getSignedUrl, uploadPrivateFile, removeStorageFile, deleteStorageFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
+import { localDateStamp } from '../lib/date.js'
+import { assetType } from '../lib/inventaris.js'
 
 const isLoading = ref(true)
 const isSubmitting = ref(false)
@@ -531,7 +533,7 @@ const form = reactive({
   location_id: '',
   room_id: '',
   kondisi: 'Baik',
-  tanggal_pembelian: localToday(),
+  tanggal_pembelian: localDateStamp(),
   harga: null,
   tipe_fasilitas: 'kamar',
   // Nilai receipt_url di DB saat form dibuka, APA ADANYA (path objek, atau URL
@@ -549,21 +551,14 @@ const existingPreviewUrl = ref(null)
 const existingPreviewStatus = ref('idle') // 'idle' | 'loading' | 'ready' | 'error'
 let previewRequestSeq = 0
 
-// Tanggal lokal perangkat (YYYY-MM-DD), bukan toISOString() (UTC).
-function localToday() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
 const receiptFile = ref(null)
 
 // Compute Filtered Inventories
 const filteredAssets = computed(() => {
   return inventoriesList.value.filter(asset => {
     // Tab Filter
-    // tipe_fasilitas NULL (baris lama / jalur lain) diperlakukan sebagai 'umum'
-    // supaya tidak "hilang" dari kedua tab.
-    const tipe = asset.tipe_fasilitas ?? 'umum'
-    const matchesTab = activeTab.value === 'Fasilitas Kamar' ? tipe === 'kamar' : tipe !== 'kamar'
+    // Aturan tipe sama dengan form edit (lihat lib/inventaris.js).
+    const matchesTab = assetType(asset) === (activeTab.value === 'Fasilitas Kamar' ? 'kamar' : 'umum')
     if (!matchesTab) return false
 
     // Location Filter
@@ -656,7 +651,7 @@ function bukaModalTambah() {
   form.location_id = locationsList.value.length > 0 ? locationsList.value[0].id : ''
   form.room_id = ''
   form.kondisi = 'Baik'
-  form.tanggal_pembelian = localToday()
+  form.tanggal_pembelian = localDateStamp()
   form.harga = null
   form.tipe_fasilitas = activeTab.value === 'Fasilitas Kamar' ? 'kamar' : 'umum'
   form.original_receipt_path = null
@@ -673,8 +668,9 @@ function bukaModalEdit(asset) {
   form.tanggal_pembelian = asset.tanggal_pembelian || ''
   // NULL tetap NULL (harga tidak diketahui); 0 tetap 0.
   form.harga = asset.harga ?? null
-  // NULL tampil di tab Umum, jadi form juga menampilkannya sebagai Umum.
-  form.tipe_fasilitas = asset.tipe_fasilitas ?? 'umum'
+  // Aturan sama dengan filter tab: NULL + room_id -> 'kamar' (room_id tetap
+  // tersimpan), NULL tanpa room_id -> 'umum'.
+  form.tipe_fasilitas = assetType(asset)
   form.original_receipt_path = asset.receipt_url ?? null
   resetNotaState()
   showModal.value = true
@@ -751,6 +747,7 @@ async function bukaFotoNota(storedValue) {
 // pengeluaran, lihat docs/tagihan-bersama.md).
 const CONFLICT_MSG = 'Data sudah diubah oleh pengguna lain, muat ulang halaman.'
 const NOT_FOUND_MSG = 'Barang tidak ditemukan. Mungkin sudah dihapus.'
+const CHECK_FAILED_MSG = 'Perubahan belum tersimpan dan status data tidak bisa dicek (cek koneksi internet). Muat ulang halaman lalu coba lagi.'
 const ORPHAN_NOTE = ' Sisa file nota akan dibersihkan saat perawatan berkala.'
 
 // Compare-and-set pada receipt_url. .eq(kolom, null) tidak pernah cocok di SQL,
@@ -761,7 +758,9 @@ function whereReceiptIs(query, known) {
 
 // Update/delete kena 0 baris: bedakan "baris hilang" dari "nota diubah orang lain".
 async function explainZeroRows(id) {
-  const { data } = await supabase.from('inventories').select('id').eq('id', id).maybeSingle()
+  const { data, error } = await supabase.from('inventories').select('id').eq('id', id).maybeSingle()
+  // Cek gagal (mis. jaringan) -> jangan menyimpulkan "barang tidak ditemukan".
+  if (error) return CHECK_FAILED_MSG
   return data ? CONFLICT_MSG : NOT_FOUND_MSG
 }
 
