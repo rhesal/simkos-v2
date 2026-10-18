@@ -205,6 +205,70 @@ apply $DB "$MIG/20261010000200_organizations_and_backfill.sql" "$MIG/20261010000
   check $DB S9b-02 "setelah ditolak tidak ada sisa" "select to_regprocedure('public.is_org_admin(uuid)') is null and exists (select 1 from pg_policies where policyname='organization_members_delete_owner')"
 }
 
+# S10: migration 600 (pindah kamar + daftar penghuni atomik) -> tes, race, rollback
+M600="$MIG/20261018000600_pindah_kamar.sql"
+base600() {  # $1=db : semua migration sampai 500 + org2
+  live_base "$1"
+  apply "$1" "$MIG/20261010000200_organizations_and_backfill.sql" "$MIG/20261010000210_org_rls_policies.sql" \
+    "$HERE/07_simulated_move.sql" "$MIG/20261010000300_private_storage_buckets.sql" "$HERE/10_seed_org2.sql" && admin500 "$1"
+}
+as_user_sql() { echo "set role authenticated; select qa.as_user('$1');"; }
+race600() {  # $1=db $2=id $3=deskripsi $4=sql sesi A (ditahan 2 dtk) $5=sql sesi B $6=sql cek (harus 't')
+  local db=$1
+  ( psql -X -q -v ON_ERROR_STOP=1 -d $db -c "begin; $4; select pg_sleep(2); commit;" >/dev/null 2>"$HERE/.raceA" ) &
+  sleep 0.7
+  psql -X -q -v ON_ERROR_STOP=1 -d $db -c "begin; $5; commit;" >/dev/null 2>"$HERE/.raceB"
+  wait
+  local errs; errs=$(cat "$HERE/.raceA" "$HERE/.raceB" | grep -c 'sudah terisi')
+  check $db "$2" "$3 [ditolak: $errs sesi]" "select ($6) and $errs = 1"
+  rm -f "$HERE/.raceA" "$HERE/.raceB"
+}
+DB=qa_org_s10; base600 $DB && {
+  echo; echo "=== S10 Migration 600 pindah kamar ==="
+  apply $DB "$M600" && {
+    check $DB S10-01 "kolom tanggal_keluar (date) & catatan (text) nullable, 2 unique index parsial" \
+      "select (select count(*) from information_schema.columns where table_schema='public' and table_name='rentals' and is_nullable='YES' and (column_name, data_type) in (('tanggal_keluar','date'),('catatan','text'))) = 2 and (select count(*) from pg_indexes where indexname in ('rentals_one_active_per_room','rentals_one_active_per_tenant') and indexdef like '%UNIQUE%WHERE status_aktif%') = 2"
+    apply $DB "$M600" && echo "PASS | S10-02 | migration 600 idempotent (apply kedua lolos)"
+    check $DB S10-03 "policy rentals tidak berubah (tetap 1: rentals_org_access)" \
+      "select array_agg(policyname::text) = array['rentals_org_access'] from pg_policies where schemaname='public' and tablename='rentals'"
+    apply $DB "$HERE/60_pindah_kamar_600_seed.sql" "$HERE/61_pindah_kamar_600_tests.sql" && report $DB "S10 RPC pindah_kamar & daftar_penghuni"
+  }
+}
+# S10r: race -> dua sesi memakai kamar kosong yang sama bersamaan, hanya satu yang berhasil
+DB=qa_org_s10r; base600 $DB && apply $DB "$M600" "$HERE/60_pindah_kamar_600_seed.sql" && {
+  echo; echo "=== S10r Race kamar tujuan yang sama (2 sesi) ==="
+  ROOM=c1000000-0000-0000-0000-000000000001
+  ONE="(select count(*) from public.rentals where room_id='$ROOM' and status_aktif) = 1 and (select status_kamar from public.rooms where id='$ROOM') = 'Terisi'"
+  race600 $DB S10r-01 "admin & owner memindah 2 penghuni berbeda ke kamar 3 bersamaan -> 1 berhasil" \
+    "$(as_user_sql u1) select public.pindah_kamar('a3000000-0000-0000-0000-000000000001','$ROOM','2026-10-18')" \
+    "$(as_user_sql u2) select public.pindah_kamar('a3000000-0000-0000-0000-000000000002','$ROOM','2026-10-18')" \
+    "$ONE and (select count(*) from public.rentals where status_aktif and tenant_id in ('a2000000-0000-0000-0000-000000000001','a2000000-0000-0000-0000-000000000002')) = 2"
+  psql -X -q -d $DB -c "update public.rentals set status_aktif=false where room_id='$ROOM'; update public.rooms set status_kamar='Kosong' where id='$ROOM'" >/dev/null
+  race600 $DB S10r-02 "pindah kamar & daftar penghuni baru ke kamar 3 bersamaan -> 1 berhasil" \
+    "$(as_user_sql u2) select public.daftar_penghuni('$ROOM','Race Baru','1',null,null,'bulanan','2026-10-18','2026-11-18')" \
+    "$(as_user_sql u1) select public.pindah_kamar((select id from public.rentals where status_aktif and tenant_id in ('a2000000-0000-0000-0000-000000000001','a2000000-0000-0000-0000-000000000002') limit 1),'$ROOM','2026-10-18')" \
+    "$ONE"
+}
+# S10b: rollback 600 + guard data ganda
+DB=qa_org_s10b; base600 $DB && apply $DB "$M600" "$HERE/60_pindah_kamar_600_seed.sql" && {
+  echo; echo "=== S10b Rollback 600 & guard ==="
+  $PSQL -d $DB -c "select public.pindah_kamar('a3000000-0000-0000-0000-000000000001','c1000000-0000-0000-0000-000000000001','2026-10-18')" >/dev/null
+  expect_reject $DB "$RB/rollback_600_pindah_kamar.sql" S10b-01 "Rollback dibatalkan"
+  $PSQL -d $DB -c "update public.rentals set tanggal_keluar=null, catatan=null" >/dev/null
+  apply $DB "$RB/rollback_600_pindah_kamar.sql" && check $DB S10b-02 "rollback: fungsi, index, kolom hilang; sewa & pemasukan tetap" \
+    "select to_regprocedure('public.pindah_kamar(uuid,uuid,date,text)') is null and to_regprocedure('public.daftar_penghuni(uuid,text,text,text,text,text,date,date)') is null and to_regclass('public.rentals_one_active_per_room') is null and to_regclass('public.rentals_one_active_per_tenant') is null and not exists (select 1 from information_schema.columns where table_schema='public' and table_name='rentals' and column_name in ('tanggal_keluar','catatan')) and (select count(*) from public.rentals where tenant_id='a2000000-0000-0000-0000-000000000001') = 2 and (select count(*) from public.incomes where rental_id='a3000000-0000-0000-0000-000000000001') = 1"
+  apply $DB "$M600" && echo "PASS | S10b-03 | migration 600 bisa diterapkan ulang setelah rollback"
+  $PSQL -d $DB -c "insert into public.rentals (room_id, tenant_id, tipe_sewa, tanggal_masuk, tanggal_jatuh_tempo, org_id) values ('c1000000-0000-0000-0000-000000000002','a2000000-0000-0000-0000-000000000003','Bulanan','2026-10-18','2026-11-18', qa.id('org1'))" >/dev/null
+  apply $DB "$RB/rollback_600_pindah_kamar.sql"
+  $PSQL -d $DB -c "insert into public.rentals (room_id, tenant_id, tipe_sewa, tanggal_masuk, tanggal_jatuh_tempo, org_id) values ('c1000000-0000-0000-0000-000000000002','a2000000-0000-0000-0000-000000000002','Bulanan','2026-10-18','2026-11-18', qa.id('org1'))" >/dev/null
+  expect_reject $DB "$M600" S10b-04 "kamar punya lebih dari satu sewa aktif"
+  check $DB S10b-05 "setelah ditolak tidak ada sisa (kolom & fungsi tidak dibuat)" \
+    "select to_regprocedure('public.pindah_kamar(uuid,uuid,date,text)') is null and not exists (select 1 from information_schema.columns where table_schema='public' and table_name='rentals' and column_name='tanggal_keluar')"
+}
+# S10c: 600 tanpa migration 200 -> ditolak
+DB=qa_org_s10c; live_base $DB
+expect_reject $DB "$M600" S10c-01 "Terapkan migration 200"
+
 rm -f "$HERE/.last_err"
 echo; echo "TOTAL GAGAL: $FAILS"
 [ "$FAILS" -eq 0 ]
