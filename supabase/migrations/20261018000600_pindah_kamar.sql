@@ -24,12 +24,17 @@
 --      -> uuid sewa. Menggantikan 3 request terpisah checkout di
 --      DaftarPenghuniView (sewa, status kamar, reputasi penghuni).
 --      Reputasi hanya 'Bersih' / 'Peringatan' / 'Blacklist'.
+--   5b. RPC public.hapus_sewa(rental) -> path KTP penghuni yang ikut dihapus
+--      (atau NULL). Hapus paksa HANYA untuk salah input: ditolak bila penghuni
+--      punya sewa lain (mis. sewa lama hasil pindah kamar) ATAU ada pemasukan
+--      di sewa mana pun miliknya. Sewa + penghuni dihapus, kamar Kosong.
+--      File KTP dihapus frontend SETELAH RPC sukses (baris dulu, file belakangan).
 --   6. rooms.status_kamar dibatasi PERSIS ('Kosong','Terisi') lewat check
 --      constraint rooms_status_kamar_check. Guard: migration gagal dengan
 --      pesan jelas bila ada baris lain (mis. 'kosong' huruf kecil dari form
 --      Tambah Kamar lama). RPC membandingkan persis = 'Kosong'.
 --
--- Ketiga RPC: SECURITY INVOKER (RLS migration 210 tetap berlaku), search_path
+-- Semua RPC: SECURITY INVOKER (RLS migration 210 tetap berlaku), search_path
 -- kosong, satu transaksi. Baris kamar dikunci `for update` sebelum dicek,
 -- jadi dua admin/owner yang memakai kamar yang sama bersamaan diserialkan:
 -- satu berhasil, yang lain mendapat "Kamar tujuan sudah terisi". Unique index
@@ -358,12 +363,90 @@ end $$;
 comment on function public.checkout_sewa(uuid, date, text, text) is
   'Checkout atomik: sewa nonaktif + tanggal_keluar, kamar Kosong, reputasi penghuni. Migration 600.';
 
+-- 5b. RPC hapus_sewa -------------------------------------------------------------
+create or replace function public.hapus_sewa(p_rental_id uuid)
+returns text
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  v_rental public.rentals%rowtype;
+  v_ktp    text;
+  n        int;
+begin
+  if p_rental_id is null then
+    raise exception using errcode = 'P0001', detail = 'SIMKOS_INPUT_KOSONG',
+      message = 'Data sewa yang akan dihapus belum dipilih.';
+  end if;
+
+  -- Urutan kunci sama dengan RPC lain: sewa, kamar, lalu penghuni.
+  select * into v_rental from public.rentals where id = p_rental_id for update;
+  if not found then
+    raise exception using errcode = 'P0001', detail = 'SIMKOS_SEWA_TIDAK_ADA',
+      message = 'Data sewa tidak ditemukan. Muat ulang halaman lalu coba lagi.';
+  end if;
+  if v_rental.status_aktif is not true then
+    raise exception using errcode = 'P0001', detail = 'SIMKOS_SEWA_TIDAK_AKTIF',
+      message = 'Sewa ini sudah tidak aktif (sudah checkout atau sudah dipindah).';
+  end if;
+  if v_rental.room_id is not null then
+    perform 1 from public.rooms where id = v_rental.room_id for update;
+  end if;
+  if v_rental.tenant_id is not null then
+    perform 1 from public.tenants where id = v_rental.tenant_id for update;
+  end if;
+
+  -- Riwayat: sewa lain milik penghuni yang sama (pindah kamar / sewa lama),
+  -- atau pemasukan di sewa mana pun miliknya (termasuk sewa ini).
+  if (v_rental.tenant_id is not null and exists (
+        select 1 from public.rentals r
+         where r.tenant_id = v_rental.tenant_id and r.id <> v_rental.id))
+     or exists (
+        select 1 from public.incomes i
+         where i.rental_id = v_rental.id
+            or (v_rental.tenant_id is not null and i.rental_id in (
+                  select r.id from public.rentals r where r.tenant_id = v_rental.tenant_id))) then
+    raise exception using errcode = 'P0001', detail = 'SIMKOS_ADA_RIWAYAT',
+      message = 'Penghuni ini punya riwayat sewa/pindah kamar. Gunakan Checkout atau Pindah Kamar untuk koreksi.';
+  end if;
+
+  delete from public.rentals where id = v_rental.id;
+
+  if v_rental.tenant_id is not null then
+    -- Sudah dipastikan tidak ada sewa lain, jadi penghuni ikut dihapus.
+    delete from public.tenants where id = v_rental.tenant_id
+      returning foto_ktp_url into v_ktp;
+    get diagnostics n = row_count;
+    if n <> 1 then
+      raise exception using errcode = 'P0001', detail = 'SIMKOS_GAGAL_UPDATE_PENGHUNI',
+        message = 'Data penghuni gagal dihapus. Tidak ada data yang berubah.';
+    end if;
+  end if;
+
+  if v_rental.room_id is not null then
+    update public.rooms set status_kamar = 'Kosong' where id = v_rental.room_id;
+    get diagnostics n = row_count;
+    if n <> 1 then
+      raise exception using errcode = 'P0001', detail = 'SIMKOS_GAGAL_UPDATE_KAMAR',
+        message = 'Status kamar gagal diperbarui. Tidak ada data yang berubah.';
+    end if;
+  end if;
+
+  return nullif(btrim(v_ktp), '');
+end $$;
+
+comment on function public.hapus_sewa(uuid) is
+  'Hapus paksa sewa salah input (tanpa riwayat sewa lain / pemasukan): sewa + penghuni dihapus, kamar Kosong, kembalikan path KTP. Migration 600.';
+
 -- 6. Hak eksekusi: hanya authenticated --------------------------------------
 revoke all on function public.pindah_kamar(uuid, uuid, date, text) from public, anon;
 revoke all on function public.daftar_penghuni(uuid, text, text, text, text, text, date, date) from public, anon;
 revoke all on function public.checkout_sewa(uuid, date, text, text) from public, anon;
+revoke all on function public.hapus_sewa(uuid) from public, anon;
 grant execute on function public.pindah_kamar(uuid, uuid, date, text) to authenticated;
 grant execute on function public.daftar_penghuni(uuid, text, text, text, text, text, date, date) to authenticated;
 grant execute on function public.checkout_sewa(uuid, date, text, text) to authenticated;
+grant execute on function public.hapus_sewa(uuid) to authenticated;
 
 notify pgrst, 'reload schema';

@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { isRoomEmpty, pindahTargetRooms, roomOptionLabel, rpcErrorMessage, ROOM_STATUS, TIPE_SEWA, STATUS_REPUTASI } from '../../src/lib/sewa.js'
+import { isRoomEmpty, pindahTargetRooms, roomOptionLabel, rpcErrorMessage, ROOM_STATUS, TIPE_SEWA, STATUS_REPUTASI, RIWAYAT_SEWA_MSG } from '../../src/lib/sewa.js'
 
 const read = rel => readFileSync(new URL(rel, import.meta.url), 'utf8')
 const MIG600 = read('../../supabase/migrations/20261018000600_pindah_kamar.sql')
@@ -87,6 +87,9 @@ test('rpcErrorMessage: kode SIMKOS_* dari RPC', () => {
   assert.match(rpcErrorMessage({ code: 'P0001', details: 'SIMKOS_TIPE_SEWA' }), /Bulanan atau Harian/)
   assert.match(rpcErrorMessage({ code: 'P0001', details: 'SIMKOS_REPUTASI' }), /Bersih, Peringatan, atau Blacklist/)
   assert.match(rpcErrorMessage({ code: 'P0001', details: 'SIMKOS_TANGGAL_KELUAR' }), /checkout/)
+  assert.equal(rpcErrorMessage({ code: 'P0001', details: 'SIMKOS_ADA_RIWAYAT' }),
+    'Penghuni ini punya riwayat sewa/pindah kamar. Gunakan Checkout atau Pindah Kamar untuk koreksi.')
+  assert.equal(rpcErrorMessage({ code: '23503', message: 'update or delete on table "rentals" violates foreign key constraint "incomes_rental_id_fkey"' }), RIWAYAT_SEWA_MSG)
   assert.match(rpcErrorMessage({ code: '23514', message: 'new row for relation "rooms" violates check constraint "rooms_status_kamar_check"' }), /Kosong atau Terisi/)
 })
 
@@ -129,4 +132,24 @@ test('view memakai RPC atomik, tanpa rollback manual tenant & tanpa console.log 
   const checkout = daftar.slice(daftar.indexOf('async function executeCheckout'), daftar.indexOf('// Trigger hard delete'))
   assert.doesNotMatch(checkout, /\.from\(/)
   assert.doesNotMatch(daftar, /console\.log/)
+})
+
+test('Hapus paksa lewat RPC hapus_sewa; pra-cek melihat SEMUA sewa penghuni, bukan hanya sewa ini', () => {
+  const daftar = read('../../src/views/DaftarPenghuniView.vue')
+  const hapus = daftar.slice(daftar.indexOf('async function executeHardDelete'), daftar.indexOf('// Redirect action to checkout'))
+  assert.match(hapus, /supabase\.rpc\('hapus_sewa', \{ p_rental_id: rental\.id \}\)/)
+  assert.doesNotMatch(hapus, /\.from\('(rentals|rooms|tenants)'\)/)
+  // file KTP baru dihapus setelah RPC sukses
+  assert.ok(hapus.indexOf("rpc('hapus_sewa'") < hapus.indexOf('deleteStorageFile(KTP_BUCKET, ktpPath)'))
+  const cek = daftar.slice(daftar.indexOf('async function checkRentalHistoryBeforeDelete'), daftar.indexOf('async function executeHardDelete'))
+  assert.match(cek, /\.eq\('tenant_id', rental\.tenant_id\)/)
+  assert.match(cek, /\.in\('rental_id', rentalIds\)/)
+  assert.match(MIG600, /detail = 'SIMKOS_ADA_RIWAYAT',\s*message = 'Penghuni ini punya riwayat sewa\/pindah kamar\. Gunakan Checkout atau Pindah Kamar untuk koreksi\.'/)
+})
+
+test('QA: ada tes SQL bahwa kamar baru bernilai TambahKamarView (Kosong) langsung bisa didaftarkan', () => {
+  const sql = read('../rls/org/61_pindah_kamar_600_tests.sql')
+  const st04 = sql.slice(sql.indexOf("qa.after('ST-04'"), sql.indexOf("qa.expect_err('DP-08'"))
+  assert.match(st04, new RegExp(`status_kamar\\) values \\([^)]*'${ROOM_STATUS.KOSONG}'\\)`))
+  assert.match(st04, /public\.daftar_penghuni\('c1000000-0000-0000-0000-000000000009'/)
 })

@@ -705,7 +705,7 @@
         <!-- Konten Teks -->
         <h3 class="text-sm font-bold text-white mb-2">Peringatan: Bahaya Hard Delete!</h3>
         <p class="text-xs text-slate-400 leading-relaxed mb-6">
-          Tindakan menghapus data sewa <span class="text-white font-semibold">{{ selectedRoom?.activeRental?.tenants?.nama_lengkap || 'Penghuni' }}</span> akan menghapus seluruh riwayat sewa ini dari database. Buku Besar keuangan masa lalu bisa menjadi tidak seimbang.
+          Tindakan menghapus data sewa <span class="text-white font-semibold">{{ selectedRoom?.activeRental?.tenants?.nama_lengkap || 'Penghuni' }}</span> akan menghapus sewa ini <strong class="text-white">beserta data penghuni dan foto KTP-nya</strong> dari database. Gunakan hanya untuk koreksi salah input.
         </p>
 
         <!-- Tombol Aksi Pilihan -->
@@ -726,7 +726,7 @@
 
           <!-- Teks Keterangan Tambahan Jika Terkunci -->
           <p v-if="hasPayments" class="text-[10px] text-amber-500/80 italic mt-1 leading-snug">
-            *Tombol hapus dikunci karena penyewa sudah memiliki riwayat pembayaran di Buku Besar. Gunakan Alur Checkout.
+            *{{ RIWAYAT_SEWA_MSG }}
           </p>
 
           <!-- Batal -->
@@ -878,7 +878,7 @@ import { KTP_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile, removeS
 import BottomNav from '../components/BottomNav.vue'
 import KtpViewerModal from '../components/KtpViewerModal.vue'
 import { localDateStamp } from '../lib/date.js'
-import { pindahTargetRooms, roomOptionLabel, rpcErrorMessage } from '../lib/sewa.js'
+import { pindahTargetRooms, roomOptionLabel, rpcErrorMessage, RIWAYAT_SEWA_MSG } from '../lib/sewa.js'
 
 const isLoading = ref(true)
 const roomsList = ref([])
@@ -1261,32 +1261,48 @@ async function executePindahKamar() {
   }
 }
 
-// Trigger hard delete educational modal with database check for existing payments
+// Trigger hard delete educational modal. Pra-cek di klien (hanya untuk
+// mengunci tombol): penghuni punya sewa lain (mis. sewa lama hasil Pindah
+// Kamar) atau pemasukan di sewa mana pun miliknya. Penentu akhirnya tetap
+// RPC hapus_sewa di server.
 async function checkRentalHistoryBeforeDelete() {
   showDetailModal.value = false
   isLoading.value = true
   hasPayments.value = false
 
   try {
-    const rentalId = selectedRoom.value?.activeRental?.id
-    if (!rentalId) {
+    const rental = selectedRoom.value?.activeRental
+    if (!rental?.id) {
       showHapusEdukasiModal.value = true
       return
     }
 
-    // Query efficiently: select count of incomes for this rental
-    const { count, error } = await supabase
-      .from('incomes')
-      .select('id', { count: 'exact', head: true })
-      .eq('rental_id', rentalId)
+    let rentalIds = [rental.id]
+    if (rental.tenant_id) {
+      const { data, error } = await supabase
+        .from('rentals')
+        .select('id')
+        .eq('tenant_id', rental.tenant_id)
+      if (error) throw error
+      rentalIds = (data || []).map(r => r.id)
+      if (!rentalIds.includes(rental.id)) rentalIds.push(rental.id)
+    }
 
-    if (error) throw error
+    let adaRiwayat = rentalIds.length > 1
+    if (!adaRiwayat) {
+      const { count, error } = await supabase
+        .from('incomes')
+        .select('id', { count: 'exact', head: true })
+        .in('rental_id', rentalIds)
+      if (error) throw error
+      adaRiwayat = count > 0
+    }
 
-    hasPayments.value = count > 0
+    hasPayments.value = adaRiwayat
     showHapusEdukasiModal.value = true
   } catch (err) {
-    console.error('Gagal memeriksa riwayat transaksi:', err.message || err)
-    // Fallback safe: assume payments exist
+    console.error('Gagal memeriksa riwayat sewa:', err.message || err)
+    // Fallback safe: anggap ada riwayat
     hasPayments.value = true
     showHapusEdukasiModal.value = true
   } finally {
@@ -1294,7 +1310,10 @@ async function checkRentalHistoryBeforeDelete() {
   }
 }
 
-// Execute hard delete bypass confirm
+// Hapus paksa lewat SATU RPC atomik hapus_sewa (migration 600): sewa +
+// penghuni dihapus, kamar Kosong. Ditolak server bila ada riwayat sewa/pindah
+// kamar atau pemasukan. File KTP dihapus SETELAH RPC sukses (baris dulu,
+// file belakangan); gagal hapus file = file yatim, bukan error.
 async function executeHardDelete() {
   const rental = selectedRoom.value?.activeRental
   if (!rental) return
@@ -1303,34 +1322,32 @@ async function executeHardDelete() {
   isLoading.value = true
 
   try {
-    // 1. Hapus dari rentals
-    const { error: deleteError } = await supabase
-      .from('rentals')
-      .delete()
-      .eq('id', rental.id)
-
-    if (deleteError) throw deleteError
-
-    // 2. Kembalikan status kamar menjadi 'Kosong'
-    if (rental.room_id) {
-      const { error: roomError } = await supabase
-        .from('rooms')
-        .update({ status_kamar: 'Kosong' })
-        .eq('id', rental.room_id)
-
-      if (roomError) throw roomError
+    const { data: ktpPath, error } = await supabase.rpc('hapus_sewa', { p_rental_id: rental.id })
+    if (error) {
+      console.error('[SimKos] Hapus sewa gagal:', error.code, error.message)
+      if (error.details === 'SIMKOS_ADA_RIWAYAT') {
+        alert(RIWAYAT_SEWA_MSG)
+      } else {
+        alert(`Gagal menghapus data sewa: ${rpcErrorMessage(error, 'Silakan coba lagi.')}`)
+      }
+      if (['SIMKOS_ADA_RIWAYAT', 'SIMKOS_SEWA_TIDAK_AKTIF', 'SIMKOS_SEWA_TIDAK_ADA'].includes(error.details)) {
+        await loadRoomsAndRentals()
+      }
+      return
     }
 
-    alert('Data sewa berhasil dihapus!')
+    let note = ''
+    if (ktpPath) {
+      try {
+        await deleteStorageFile(KTP_BUCKET, ktpPath)
+      } catch (delErr) {
+        console.error('[SimKos] Sewa terhapus, tapi file KTP gagal dihapus (file yatim):', delErr?.message || delErr)
+        note = KTP_ORPHAN_NOTE
+      }
+    }
+
+    alert(`Data sewa berhasil dihapus!${note}`)
     await loadRoomsAndRentals()
-  } catch (err) {
-    const errorMsg = String(err.message || err).toLowerCase()
-    if (errorMsg.includes('foreign key constraint') || errorMsg.includes('incomes_rental_id_fkey')) {
-      showModalEdukasiHapus.value = true
-    } else {
-      alert(`Gagal menghapus data sewa: ${err.message}`)
-    }
-    console.error('[SimKos] Delete error:', err)
   } finally {
     isLoading.value = false
   }

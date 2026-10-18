@@ -47,7 +47,11 @@ export function roomOptionLabel(room) {
   return `${lokasi} · Kamar ${room?.nomor_kamar ?? '?'} · ${formatRupiah(room?.harga_bulanan)}/bln`
 }
 
+// Hapus paksa ditolak: penghuni punya sewa lain (pindah kamar) atau pemasukan.
+export const RIWAYAT_SEWA_MSG = 'Penghuni ini punya riwayat sewa/pindah kamar. Gunakan Checkout atau Pindah Kamar untuk koreksi.'
+
 const DETAIL_MESSAGES = {
+  SIMKOS_ADA_RIWAYAT: RIWAYAT_SEWA_MSG,
   SIMKOS_KAMAR_TERISI: 'Kamar sudah terisi. Pilih kamar lain yang kosong.',
   SIMKOS_KAMAR_TIDAK_ADA: 'Kamar tidak ditemukan. Muat ulang halaman lalu coba lagi.',
   SIMKOS_KAMAR_SAMA: 'Kamar tujuan sama dengan kamar sekarang.',
@@ -77,6 +81,9 @@ export function rpcErrorMessage(error, fallback = 'Terjadi kesalahan. Silakan co
   if (code === '23505') {
     if (/rentals_one_active_per_room/.test(message + details)) return DETAIL_MESSAGES.SIMKOS_KAMAR_TERISI
     if (/rentals_one_active_per_tenant/.test(message + details)) return 'Penghuni ini masih punya sewa aktif di kamar lain.'
+  }
+  if (code === '23503' && /incomes_rental_id_fkey|rentals_tenant_id_fkey/.test(message + details)) {
+    return RIWAYAT_SEWA_MSG
   }
   if (code === '23514' && /rooms_status_kamar_check/.test(message + details)) {
     return 'Status kamar tidak valid (harus Kosong atau Terisi).'

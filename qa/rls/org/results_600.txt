@@ -530,7 +530,7 @@ PASS | S10-02 | migration 600 idempotent (apply kedua lolos)
 PASS | S10-01b | constraint rooms_status_kamar_check persis ('Kosong','Terisi'), 1 buah
 PASS | S10-03 | policy rentals tidak berubah (tetap 1: rentals_org_access)
 
-=== S10 RPC pindah_kamar, daftar_penghuni, checkout_sewa + constraint status_kamar ===
+=== S10 RPC pindah_kamar, daftar_penghuni, checkout_sewa, hapus_sewa + constraint status_kamar ===
 PASS | PK-ORG-SU | service/superuser: pindah sewa org1 ke kamar org2 ditolak guard org | harap=SIMKOS_BEDA_ORG | aktual=SIMKOS_BEDA_ORG
 PASS | PK-01 | pindah lintas lokasi (Kos Satu kamar 1 -> Kos Dua kamar 4): sewa lama ditutup, sewa baru dibuat | harap=ok | aktual=ok
 PASS | PK-02 | pemasukan lama tetap di rental_id lama, tidak ada yang pindah ke sewa baru | harap=ok | aktual=ok
@@ -564,6 +564,16 @@ PASS | CO-05 | checkout dua kali ditolak (sewa sudah tidak aktif) | harap=SIMKOS
 PASS | CO-06 | tanggal checkout sebelum tanggal masuk ditolak | harap=SIMKOS_TANGGAL_KELUAR | aktual=SIMKOS_TANGGAL_KELUAR
 PASS | CO-07 | sewa milik org lain tidak bisa di-checkout (RLS) | harap=SIMKOS_SEWA_TIDAK_ADA | aktual=SIMKOS_SEWA_TIDAK_ADA
 PASS | CO-08 | atomik: gagal saat update reputasi -> sewa tetap aktif & kamar tetap Terisi | harap=ok | aktual=ok
+PASS | HS-01 | repro QA: pindah kamar 2 -> 3 (tanpa pemasukan sama sekali), lalu Hapus sewa baru -> ditolak (ada sewa lama) | harap=SIMKOS_ADA_RIWAYAT | aktual=SIMKOS_ADA_RIWAYAT
+PASS | HS-02 | setelah Hapus ditolak tidak ada yang berubah: sewa baru aktif, kamar 3 Terisi, penghuni & sewa lama utuh | harap=ok | aktual=ok
+PASS | HS-03 | pindah lalu Hapus, penghuni punya pemasukan di sewa lama -> ditolak | harap=SIMKOS_ADA_RIWAYAT | aktual=SIMKOS_ADA_RIWAYAT
+PASS | HS-04 | sewa yang punya pemasukan sendiri -> ditolak | harap=SIMKOS_ADA_RIWAYAT | aktual=SIMKOS_ADA_RIWAYAT
+PASS | HS-05 | pendaftaran baru lalu dicatat 1 pemasukan -> Hapus ditolak | harap=SIMKOS_ADA_RIWAYAT | aktual=SIMKOS_ADA_RIWAYAT
+PASS | HS-06 | pendaftaran baru tanpa pemasukan -> Hapus boleh: sewa & penghuni terhapus, kamar Kosong, path KTP dikembalikan | harap=ok | aktual=ok
+PASS | HS-07 | pendaftaran baru tanpa KTP -> Hapus boleh, path KTP NULL; kamar bisa didaftarkan lagi | harap=ok | aktual=ok
+PASS | HS-08 | sewa yang sudah checkout tidak bisa dihapus paksa | harap=SIMKOS_SEWA_TIDAK_AKTIF | aktual=SIMKOS_SEWA_TIDAK_AKTIF
+PASS | HS-09 | sewa milik org lain tidak bisa dihapus (RLS) | harap=SIMKOS_SEWA_TIDAK_ADA | aktual=SIMKOS_SEWA_TIDAK_ADA
+PASS | HS-10 | input kosong ditolak | harap=SIMKOS_INPUT_KOSONG | aktual=SIMKOS_INPUT_KOSONG
 PASS | ST-01 | insert kamar dengan status 'kosong' (huruf kecil) ditolak constraint | harap=23514 | aktual=23514
 PASS | ST-02 | update status kamar ke 'kosong' / ' Kosong' ditolak constraint | harap=23514 | aktual=23514
 PASS | ST-03 | status lama form Tambah Kamar ('lunas') ditolak constraint | harap=23514 | aktual=23514
@@ -575,9 +585,10 @@ PASS | PK-17 | staff org2 tidak bisa memindah ke kamar org1 | harap=SIMKOS_KAMAR
 PASS | PK-18 | user tanpa organisasi: sewa org1 tidak terlihat | harap=SIMKOS_SEWA_TIDAK_ADA | aktual=SIMKOS_SEWA_TIDAK_ADA
 PASS | ANON-PK | anon tidak bisa memanggil pindah_kamar | harap=42501 | aktual=42501
 PASS | ANON-CO | anon tidak bisa memanggil checkout_sewa | harap=42501 | aktual=42501
+PASS | ANON-HS | anon tidak bisa memanggil hapus_sewa | harap=42501 | aktual=42501
 PASS | ANON-DP | anon tidak bisa memanggil daftar_penghuni | harap=42501 | aktual=42501
-PASS | META-01 | ketiga fungsi SECURITY INVOKER, search_path kosong, public tidak punya EXECUTE | harap=ok | aktual=ok
---- S10 RPC pindah_kamar, daftar_penghuni, checkout_sewa + constraint status_kamar: 46/46 lulus
+PASS | META-01 | keempat fungsi SECURITY INVOKER, search_path kosong, public tidak punya EXECUTE | harap=ok | aktual=ok
+--- S10 RPC pindah_kamar, daftar_penghuni, checkout_sewa, hapus_sewa + constraint status_kamar: 57/57 lulus
 
 === S10r Race kamar tujuan yang sama (2 sesi) ===
 PASS | S10r-01 | admin & owner memindah 2 penghuni berbeda ke kamar 3 bersamaan -> 1 berhasil [ditolak: 1 sesi]

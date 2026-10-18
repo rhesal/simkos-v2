@@ -4,8 +4,8 @@
 -- Satu transaksi (SQL Editor / `psql -1 -f`).
 --
 -- URUTAN: kembalikan frontend ke versi sebelum PR ini DULU. Frontend PR ini
--- memanggil RPC pindah_kamar/daftar_penghuni/checkout_sewa; setelah rollback
--- ketiganya gagal. Constraint rooms_status_kamar_check ikut dihapus (data
+-- memanggil RPC pindah_kamar/daftar_penghuni/checkout_sewa/hapus_sewa; setelah
+-- rollback semuanya gagal. Constraint rooms_status_kamar_check ikut dihapus (data
 -- status_kamar tidak diubah).
 --
 -- PERINGATAN: rollback ini MENGHAPUS kolom rentals.tanggal_keluar dan
@@ -32,6 +32,7 @@ end $$;
 drop function if exists public.pindah_kamar(uuid, uuid, date, text);
 drop function if exists public.daftar_penghuni(uuid, text, text, text, text, text, date, date);
 drop function if exists public.checkout_sewa(uuid, date, text, text);
+drop function if exists public.hapus_sewa(uuid);
 alter table public.rooms drop constraint if exists rooms_status_kamar_check;
 drop index if exists public.rentals_one_active_per_room;
 drop index if exists public.rentals_one_active_per_tenant;

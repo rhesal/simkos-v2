@@ -195,6 +195,57 @@ select qa.after('CO-08', 'atomik: gagal saat update reputasi -> sewa tetap aktif
   $q$select (select status_aktif and tanggal_keluar is null from public.rentals where id = 'a3000000-0000-0000-0000-000000000001')
         and (select status_kamar from public.rooms where id = 'a1000000-0000-0000-0000-000000000001') = 'Terisi'$q$);
 
+-- hapus_sewa (hapus paksa salah input) -----------------------------------------
+select qa.expect_err('HS-01', 'repro QA: pindah kamar 2 -> 3 (tanpa pemasukan sama sekali), lalu Hapus sewa baru -> ditolak (ada sewa lama)',
+  array[$q$create temp table hs_mv as select public.pindah_kamar('a3000000-0000-0000-0000-000000000002','c1000000-0000-0000-0000-000000000001','2026-10-18') as id$q$,
+        $q$select public.hapus_sewa((select id from hs_mv))$q$],
+  'SIMKOS_ADA_RIWAYAT');
+select qa.after('HS-02', 'setelah Hapus ditolak tidak ada yang berubah: sewa baru aktif, kamar 3 Terisi, penghuni & sewa lama utuh',
+  array[$q$create temp table hs_mv as select public.pindah_kamar('a3000000-0000-0000-0000-000000000002','c1000000-0000-0000-0000-000000000001','2026-10-18') as id$q$,
+        $q$do $d$ begin perform public.hapus_sewa((select id from hs_mv)); exception when others then null; end $d$$q$],
+  $q$select (select status_aktif from public.rentals where id = (select id from hs_mv))
+        and (select status_kamar from public.rooms where id = 'c1000000-0000-0000-0000-000000000001') = 'Terisi'
+        and exists (select 1 from public.tenants where id = 'a2000000-0000-0000-0000-000000000002')
+        and exists (select 1 from public.rentals where id = 'a3000000-0000-0000-0000-000000000002')$q$);
+select qa.expect_err('HS-03', 'pindah lalu Hapus, penghuni punya pemasukan di sewa lama -> ditolak',
+  array[$q$create temp table hs_mv as select public.pindah_kamar('a3000000-0000-0000-0000-000000000001','c1000000-0000-0000-0000-000000000001','2026-10-18') as id$q$,
+        $q$select public.hapus_sewa((select id from hs_mv))$q$],
+  'SIMKOS_ADA_RIWAYAT');
+select qa.expect_err('HS-04', 'sewa yang punya pemasukan sendiri -> ditolak',
+  array[$q$select public.hapus_sewa('a3000000-0000-0000-0000-000000000001')$q$],
+  'SIMKOS_ADA_RIWAYAT');
+select qa.expect_err('HS-05', 'pendaftaran baru lalu dicatat 1 pemasukan -> Hapus ditolak',
+  array[$q$create temp table hs_t as select public.daftar_penghuni('c1000000-0000-0000-0000-000000000001','Baru Bayar','1',null,null,'bulanan','2026-10-18','2026-11-18') as id$q$,
+        $q$insert into public.incomes (rental_id, tanggal_bayar, nominal) select id, '2026-10-18', 1000 from public.rentals where tenant_id = (select id from hs_t)$q$,
+        $q$select public.hapus_sewa((select r.id from public.rentals r where r.tenant_id = (select id from hs_t)))$q$],
+  'SIMKOS_ADA_RIWAYAT');
+select qa.after('HS-06', 'pendaftaran baru tanpa pemasukan -> Hapus boleh: sewa & penghuni terhapus, kamar Kosong, path KTP dikembalikan',
+  array[format($q$create temp table hs_t as select public.daftar_penghuni('c1000000-0000-0000-0000-000000000001','Salah Input','1',null,'%s/ktp_salah.jpg','bulanan','2026-10-18','2026-11-18') as id$q$, qa.id('org1')),
+        $q$create temp table hs_r as select id from public.rentals where tenant_id = (select id from hs_t)$q$,
+        $q$create temp table hs_out as select public.hapus_sewa((select id from hs_r)) as ktp$q$],
+  $q$select (select ktp from hs_out) = qa.id('org1')::text || '/ktp_salah.jpg'
+        and not exists (select 1 from public.rentals where id = (select id from hs_r))
+        and not exists (select 1 from public.tenants where id = (select id from hs_t))
+        and (select status_kamar from public.rooms where id = 'c1000000-0000-0000-0000-000000000001') = 'Kosong'$q$);
+select qa.after('HS-07', 'pendaftaran baru tanpa KTP -> Hapus boleh, path KTP NULL; kamar bisa didaftarkan lagi',
+  array[$q$create temp table hs_t as select public.daftar_penghuni('c1000000-0000-0000-0000-000000000001','Tanpa KTP','1',null,null,'harian','2026-10-18','2026-10-19') as id$q$,
+        $q$create temp table hs_out as select public.hapus_sewa((select id from public.rentals where tenant_id = (select id from hs_t))) as ktp$q$,
+        $q$select public.daftar_penghuni('c1000000-0000-0000-0000-000000000001','Lagi','1',null,null,'bulanan','2026-10-18','2026-11-18')$q$],
+  $q$select (select ktp is null from hs_out)
+        and (select status_kamar from public.rooms where id = 'c1000000-0000-0000-0000-000000000001') = 'Terisi'$q$);
+select qa.expect_err('HS-08', 'sewa yang sudah checkout tidak bisa dihapus paksa',
+  array[$q$create temp table hs_t as select public.daftar_penghuni('c1000000-0000-0000-0000-000000000001','Checkout','1',null,null,'bulanan','2026-10-18','2026-11-18') as id$q$,
+        $q$create temp table hs_r as select id from public.rentals where tenant_id = (select id from hs_t)$q$,
+        $q$select public.checkout_sewa((select id from hs_r),'2026-10-18','Bersih',null)$q$,
+        $q$select public.hapus_sewa((select id from hs_r))$q$],
+  'SIMKOS_SEWA_TIDAK_AKTIF');
+select qa.expect_err('HS-09', 'sewa milik org lain tidak bisa dihapus (RLS)',
+  array[$q$select public.hapus_sewa('b3000000-0000-0000-0000-000000000001')$q$],
+  'SIMKOS_SEWA_TIDAK_ADA');
+select qa.expect_err('HS-10', 'input kosong ditolak',
+  array[$q$select public.hapus_sewa(null)$q$],
+  'SIMKOS_INPUT_KOSONG');
+
 -- Constraint status_kamar persis ------------------------------------------------
 select qa.expect_err('ST-01', 'insert kamar dengan status ''kosong'' (huruf kecil) ditolak constraint',
   array[$q$insert into public.rooms (location_id, nomor_kamar, harga_harian, harga_bulanan, status_kamar) values ('a0000000-0000-0000-0000-000000000001','9',1,1,'kosong')$q$],
@@ -205,6 +256,8 @@ select qa.expect_err('ST-02', 'update status kamar ke ''kosong'' / '' Kosong'' d
 select qa.expect_err('ST-03', 'status lama form Tambah Kamar (''lunas'') ditolak constraint',
   array[$q$insert into public.rooms (location_id, nomor_kamar, harga_harian, harga_bulanan, status_kamar) values ('a0000000-0000-0000-0000-000000000001','9',1,1,'lunas')$q$],
   '23514');
+-- ST-04 (permintaan QA): kamar baru dengan payload persis seperti TambahKamarView
+-- (status_kamar = ROOM_STATUS.KOSONG = 'Kosong', org_id dari default) langsung bisa didaftarkan.
 select qa.after('ST-04', 'insert kamar ''Kosong'' (nilai yang ditulis Tambah Kamar) diterima & bisa langsung didaftarkan',
   array[$q$insert into public.rooms (id, location_id, nomor_kamar, harga_harian, harga_bulanan, status_kamar) values ('c1000000-0000-0000-0000-000000000009','a0000000-0000-0000-0000-000000000001','9',1,1,'Kosong')$q$,
         $q$select public.daftar_penghuni('c1000000-0000-0000-0000-000000000009','Kamar Baru','1',null,null,'bulanan','2026-10-18','2026-11-18')$q$],
@@ -245,20 +298,24 @@ select qa.expect_err('ANON-PK', 'anon tidak bisa memanggil pindah_kamar',
 select qa.expect_err('ANON-CO', 'anon tidak bisa memanggil checkout_sewa',
   array[$q$select public.checkout_sewa('a3000000-0000-0000-0000-000000000001','2026-10-18','Bersih',null)$q$],
   '42501');
+select qa.expect_err('ANON-HS', 'anon tidak bisa memanggil hapus_sewa',
+  array[$q$select public.hapus_sewa('a3000000-0000-0000-0000-000000000002')$q$],
+  '42501');
 select qa.expect_err('ANON-DP', 'anon tidak bisa memanggil daftar_penghuni',
   array[$q$select public.daftar_penghuni('c1000000-0000-0000-0000-000000000001','X','1',null,null,'bulanan','2026-10-18','2026-11-18')$q$],
   '42501');
 reset role;
 
 -- Metadata ------------------------------------------------------------------------
-select qa.after('META-01', 'ketiga fungsi SECURITY INVOKER, search_path kosong, public tidak punya EXECUTE',
+select qa.after('META-01', 'keempat fungsi SECURITY INVOKER, search_path kosong, public tidak punya EXECUTE',
   array[]::text[],
   $q$select bool_and(not p.prosecdef and p.proconfig @> array['search_path=""'])
         and bool_and(not has_function_privilege('anon', p.oid, 'execute'))
         and bool_and(has_function_privilege('authenticated', p.oid, 'execute'))
-        and count(*) = 3
+        and count(*) = 4
        from pg_proc p where p.oid in ('public.pindah_kamar(uuid,uuid,date,text)'::regprocedure,
                                       'public.checkout_sewa(uuid,date,text,text)'::regprocedure,
+                                      'public.hapus_sewa(uuid)'::regprocedure,
                                       'public.daftar_penghuni(uuid,text,text,text,text,text,date,date)'::regprocedure)$q$);
 
 drop trigger qa_fail_rental on public.rentals;
