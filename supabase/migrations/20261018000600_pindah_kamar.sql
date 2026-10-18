@@ -19,8 +19,17 @@
 --      -> uuid sewa baru.
 --   4. RPC public.daftar_penghuni(...) -> uuid penghuni baru. Menggantikan
 --      3 request terpisah di TambahPenghuniView (tenant, rental, status kamar).
+--      tipe_sewa hanya 'bulanan' / 'harian' (nilai yang dikirim form).
+--   5. RPC public.checkout_sewa(rental, tanggal, reputasi, catatan_reputasi)
+--      -> uuid sewa. Menggantikan 3 request terpisah checkout di
+--      DaftarPenghuniView (sewa, status kamar, reputasi penghuni).
+--      Reputasi hanya 'Bersih' / 'Peringatan' / 'Blacklist'.
+--   6. rooms.status_kamar dibatasi PERSIS ('Kosong','Terisi') lewat check
+--      constraint rooms_status_kamar_check. Guard: migration gagal dengan
+--      pesan jelas bila ada baris lain (mis. 'kosong' huruf kecil dari form
+--      Tambah Kamar lama). RPC membandingkan persis = 'Kosong'.
 --
--- Kedua RPC: SECURITY INVOKER (RLS migration 210 tetap berlaku), search_path
+-- Ketiga RPC: SECURITY INVOKER (RLS migration 210 tetap berlaku), search_path
 -- kosong, satu transaksi. Baris kamar dikunci `for update` sebelum dicek,
 -- jadi dua admin/owner yang memakai kamar yang sama bersamaan diserialkan:
 -- satu berhasil, yang lain mendapat "Kamar tujuan sudah terisi". Unique index
@@ -30,11 +39,12 @@
 -- Hak eksekusi: hanya authenticated (anon & public dicabut).
 --
 -- Idempotent: aman dijalankan ulang (if not exists / create or replace).
--- TIDAK berubah: policy RLS, storage, data yang sudah ada.
+-- TIDAK berubah: policy RLS, storage, data yang sudah ada (guard menolak,
+-- tidak menormalkan data diam-diam).
 --
 -- Urutan deploy: terapkan file ini DULU (SQL Editor / psql -1), baru
--- deploy frontend PR ini (checkout mengisi tanggal_keluar; daftar & pindah
--- memanggil RPC di atas).
+-- deploy frontend PR ini (daftar, pindah & checkout memanggil RPC di atas;
+-- Tambah Kamar menulis 'Kosong').
 -- Prasyarat: migration 200, 210 (dan 300 untuk trigger path KTP).
 -- Rollback: supabase/rollback/rollback_600_pindah_kamar.sql
 -- =====================================================================
@@ -72,6 +82,16 @@ begin
       message = format('Migration dibatalkan: %s penghuni punya lebih dari satu sewa aktif (contoh tenant_id %s).', n, sample),
       hint    = 'Checkout / nonaktifkan sewa ganda dulu, lalu jalankan ulang migration ini.';
   end if;
+
+  select count(*), string_agg(distinct coalesce(quote_literal(status_kamar), 'NULL'), ', ')
+    into n, sample
+    from public.rooms
+   where status_kamar is null or status_kamar not in ('Kosong', 'Terisi');
+  if n > 0 then
+    raise exception using
+      message = format('Migration dibatalkan: %s kamar punya status_kamar di luar ''Kosong''/''Terisi'' (nilai: %s).', n, sample),
+      hint    = 'Perbaiki manual dulu, mis. update public.rooms set status_kamar = ''Kosong'' where status_kamar = ''kosong''; lalu jalankan ulang migration ini.';
+  end if;
 end $$;
 
 -- 1. Kolom baru --------------------------------------------------------------
@@ -85,6 +105,11 @@ create unique index if not exists rentals_one_active_per_room
   on public.rentals (room_id) where status_aktif;
 create unique index if not exists rentals_one_active_per_tenant
   on public.rentals (tenant_id) where status_aktif;
+
+-- 2b. Status kamar persis 'Kosong' / 'Terisi' -----------------------------------
+alter table public.rooms drop constraint if exists rooms_status_kamar_check;
+alter table public.rooms
+  add constraint rooms_status_kamar_check check (status_kamar in ('Kosong', 'Terisi'));
 
 -- 3. RPC pindah_kamar ---------------------------------------------------------
 create or replace function public.pindah_kamar(
@@ -215,6 +240,10 @@ begin
     raise exception using errcode = 'P0001', detail = 'SIMKOS_INPUT_KOSONG',
       message = 'Data pendaftaran belum lengkap (kamar, nama, tipe sewa, tanggal).';
   end if;
+  if v_tipe not in ('bulanan', 'harian') then
+    raise exception using errcode = 'P0001', detail = 'SIMKOS_TIPE_SEWA',
+      message = 'Tipe sewa harus bulanan atau harian.';
+  end if;
   if p_tanggal_jatuh_tempo < p_tanggal_masuk then
     raise exception using errcode = 'P0001', detail = 'SIMKOS_TANGGAL_TEMPO',
       message = 'Tanggal jatuh tempo tidak boleh sebelum tanggal masuk.';
@@ -254,10 +283,87 @@ end $$;
 comment on function public.daftar_penghuni(uuid, text, text, text, text, text, date, date) is
   'Pendaftaran penghuni atomik: tenant + sewa + status kamar Terisi. Migration 600.';
 
--- 5. Hak eksekusi: hanya authenticated --------------------------------------
+-- 5. RPC checkout_sewa -----------------------------------------------------------
+create or replace function public.checkout_sewa(
+  p_rental_id        uuid,
+  p_tanggal          date,
+  p_status_reputasi  text,
+  p_catatan_reputasi text default null
+)
+returns uuid
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  v_rental public.rentals%rowtype;
+  n        int;
+begin
+  if p_rental_id is null or p_tanggal is null or p_status_reputasi is null then
+    raise exception using errcode = 'P0001', detail = 'SIMKOS_INPUT_KOSONG',
+      message = 'Data checkout belum lengkap (sewa, tanggal, reputasi).';
+  end if;
+  if p_status_reputasi not in ('Bersih', 'Peringatan', 'Blacklist') then
+    raise exception using errcode = 'P0001', detail = 'SIMKOS_REPUTASI',
+      message = 'Status reputasi harus Bersih, Peringatan, atau Blacklist.';
+  end if;
+
+  -- Urutan kunci sama dengan pindah_kamar: sewa dulu, lalu kamar.
+  select * into v_rental from public.rentals where id = p_rental_id for update;
+  if not found then
+    raise exception using errcode = 'P0001', detail = 'SIMKOS_SEWA_TIDAK_ADA',
+      message = 'Data sewa tidak ditemukan. Muat ulang halaman lalu coba lagi.';
+  end if;
+  if v_rental.status_aktif is not true then
+    raise exception using errcode = 'P0001', detail = 'SIMKOS_SEWA_TIDAK_AKTIF',
+      message = 'Sewa ini sudah tidak aktif (sudah checkout atau sudah dipindah).';
+  end if;
+  if p_tanggal < v_rental.tanggal_masuk then
+    raise exception using errcode = 'P0001', detail = 'SIMKOS_TANGGAL_KELUAR',
+      message = 'Tanggal checkout tidak boleh sebelum tanggal masuk sewa.';
+  end if;
+
+  if v_rental.room_id is not null then
+    perform 1 from public.rooms where id = v_rental.room_id for update;
+  end if;
+
+  update public.rentals
+     set status_aktif = false, tanggal_keluar = p_tanggal
+   where id = v_rental.id;
+
+  if v_rental.room_id is not null then
+    update public.rooms set status_kamar = 'Kosong' where id = v_rental.room_id;
+    get diagnostics n = row_count;
+    if n <> 1 then
+      raise exception using errcode = 'P0001', detail = 'SIMKOS_GAGAL_UPDATE_KAMAR',
+        message = 'Status kamar gagal diperbarui. Tidak ada data yang berubah.';
+    end if;
+  end if;
+
+  if v_rental.tenant_id is not null then
+    update public.tenants
+       set status_reputasi  = p_status_reputasi,
+           catatan_reputasi = nullif(btrim(p_catatan_reputasi), '')
+     where id = v_rental.tenant_id;
+    get diagnostics n = row_count;
+    if n <> 1 then
+      raise exception using errcode = 'P0001', detail = 'SIMKOS_GAGAL_UPDATE_PENGHUNI',
+        message = 'Reputasi penghuni gagal diperbarui. Tidak ada data yang berubah.';
+    end if;
+  end if;
+
+  return v_rental.id;
+end $$;
+
+comment on function public.checkout_sewa(uuid, date, text, text) is
+  'Checkout atomik: sewa nonaktif + tanggal_keluar, kamar Kosong, reputasi penghuni. Migration 600.';
+
+-- 6. Hak eksekusi: hanya authenticated --------------------------------------
 revoke all on function public.pindah_kamar(uuid, uuid, date, text) from public, anon;
 revoke all on function public.daftar_penghuni(uuid, text, text, text, text, text, date, date) from public, anon;
+revoke all on function public.checkout_sewa(uuid, date, text, text) from public, anon;
 grant execute on function public.pindah_kamar(uuid, uuid, date, text) to authenticated;
 grant execute on function public.daftar_penghuni(uuid, text, text, text, text, text, date, date) to authenticated;
+grant execute on function public.checkout_sewa(uuid, date, text, text) to authenticated;
 
 notify pgrst, 'reload schema';

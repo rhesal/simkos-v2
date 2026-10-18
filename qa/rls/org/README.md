@@ -14,9 +14,9 @@
 | S5 | Policy `bucket_id='x' or true` + `owner is not null and auth.uid() is not null` + bucket `avatars` → guard menahan (seluruh tes S1 + bucket lain). |
 | S6 | Kontrol: tanpa guard, policy `x or true` membocorkan KTP org1 ke org2. |
 | S7 | Rollback 300 → 210 → 200: policy live kembali persis, bucket tetap private. |
-| S10 | Migration 600 (pindah kamar + daftar penghuni atomik): kolom & unique index, idempotent, 30 tes RPC (`60_*`/`61_*`: pindah lintas lokasi, pemasukan lama tidak berubah, kamar terisi/org lain/kamar sama/sewa nonaktif ditolak, daftar atomik, anon ditolak). |
+| S10 | Migration 600 (pindah kamar, daftar penghuni & checkout atomik, constraint `status_kamar`): kolom/index/constraint, idempotent, 46 tes RPC (`60_*`/`61_*`: pindah lintas lokasi, pemasukan lama tidak berubah, kamar terisi/org lain/kamar sama/sewa nonaktif ditolak, daftar & checkout atomik, whitelist tipe sewa & reputasi, `'kosong'` huruf kecil ditolak, anon ditolak). |
 | S10r | Race 2 sesi: dua pindah (atau pindah + daftar) ke kamar kosong yang sama bersamaan → hanya satu yang berhasil. |
-| S10b/c | Rollback 600 (guard data, bisa diterapkan ulang) dan guard migration 600 (sewa aktif ganda, tanpa migration 200). |
+| S10b/c/d | Rollback 600 (guard data, bisa diterapkan ulang) dan guard migration 600 (sewa aktif ganda, `status_kamar` di luar `'Kosong'`/`'Terisi'`, tanpa migration 200). |
 
 File `00_supabase_stub.sql`, `15_harness.sql`, dan `06–09_*` adalah salinan dari
 `qa/rls/` milik QA, dengan tambahan (extensions/uuid-ossp, `auth.role()`, `qa.ids`,

@@ -1158,7 +1158,8 @@ function triggerCheckoutModal() {
   showCheckoutModal.value = true
 }
 
-// Execute Checkout process
+// Execute Checkout process: SATU RPC atomik checkout_sewa (migration 600):
+// sewa nonaktif + tanggal_keluar, kamar Kosong, reputasi penghuni sekaligus.
 async function executeCheckout() {
   const rental = selectedRoom.value?.activeRental
   if (!rental) return
@@ -1167,42 +1168,21 @@ async function executeCheckout() {
   showCheckoutModal.value = false
 
   try {
-    // 1. Update status sewa di rentals
-    const { error: rentalError } = await supabase
-      .from('rentals')
-      .update({ status_aktif: false, tanggal_keluar: localDateStamp() })
-      .eq('id', rental.id)
-
-    if (rentalError) throw new Error(`Gagal memperbarui status sewa: ${rentalError.message}`)
-
-    // 2. Update status kamar di rooms menjadi 'Kosong'
-    if (rental.room_id) {
-      const { error: roomError } = await supabase
-        .from('rooms')
-        .update({ status_kamar: 'Kosong' })
-        .eq('id', rental.room_id)
-
-      if (roomError) throw new Error(`Gagal mengosongkan status kamar: ${roomError.message}`)
-    }
-
-    // 3. Update status reputasi di tenants
-    if (rental.tenant_id) {
-      const { error: tenantUpdateError } = await supabase
-        .from('tenants')
-        .update({
-          status_reputasi: reputationStatus.value,
-          catatan_reputasi: reputationNotes.value
-        })
-        .eq('id', rental.tenant_id)
-
-      if (tenantUpdateError) throw new Error(`Gagal memperbarui reputasi penyewa: ${tenantUpdateError.message}`)
+    const { error } = await supabase.rpc('checkout_sewa', {
+      p_rental_id: rental.id,
+      p_tanggal: localDateStamp(), // tanggal lokal (WIB), bukan UTC
+      p_status_reputasi: reputationStatus.value,
+      p_catatan_reputasi: reputationNotes.value.trim() || null,
+    })
+    if (error) {
+      console.error('[SimKos] Checkout gagal:', error.code, error.message)
+      alert(`Gagal memproses checkout: ${rpcErrorMessage(error, 'Silakan coba lagi.')}`)
+      if (error.details === 'SIMKOS_SEWA_TIDAK_AKTIF') await loadRoomsAndRentals()
+      return
     }
 
     alert('Checkout berhasil diproses!')
     await loadRoomsAndRentals()
-  } catch (err) {
-    alert(`Gagal memproses checkout: ${err.message}`)
-    console.error('[SimKos] Checkout error:', err)
   } finally {
     isLoading.value = false
     // Reset state

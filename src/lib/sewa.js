@@ -2,12 +2,19 @@
 // kamar kosong, daftar kamar tujuan pindah, dan pesan error RPC
 // (pindah_kamar / daftar_penghuni, migration 600) untuk pengguna.
 
-// Kamar dianggap kosong bila status_kamar 'Kosong' DAN (kalau data sewa ikut
-// di-load) tidak ada sewa aktif. Sama dengan pengecekan di RPC.
+// Nilai yang diizinkan DB (migration 600). Dibandingkan PERSIS, tanpa
+// lower/trim: constraint rooms_status_kamar_check menjamin hanya dua nilai ini.
+export const ROOM_STATUS = Object.freeze({ KOSONG: 'Kosong', TERISI: 'Terisi' })
+// Whitelist RPC daftar_penghuni (nilai <option> di TambahPenghuniView).
+export const TIPE_SEWA = Object.freeze(['bulanan', 'harian'])
+// Whitelist RPC checkout_sewa (nilai <option> modal checkout).
+export const STATUS_REPUTASI = Object.freeze(['Bersih', 'Peringatan', 'Blacklist'])
+
+// Kamar dianggap kosong bila status_kamar PERSIS 'Kosong' DAN (kalau data sewa
+// ikut di-load) tidak ada sewa aktif. Aturan yang sama dengan RPC.
 export function isRoomEmpty(room) {
   if (!room) return false
-  const status = String(room.status_kamar || '').trim().toLowerCase()
-  if (status !== 'kosong') return false
+  if (room.status_kamar !== ROOM_STATUS.KOSONG) return false
   if (room.activeRental) return false
   if (Array.isArray(room.rentals) && room.rentals.some(r => r?.status_aktif === true)) return false
   return true
@@ -49,6 +56,10 @@ const DETAIL_MESSAGES = {
   SIMKOS_SEWA_TIDAK_AKTIF: 'Sewa ini sudah tidak aktif (sudah checkout atau sudah dipindah). Muat ulang halaman.',
   SIMKOS_TANGGAL_SEBELUM_MASUK: 'Tanggal pindah tidak boleh sebelum tanggal masuk.',
   SIMKOS_TANGGAL_TEMPO: 'Tanggal jatuh tempo tidak boleh sebelum tanggal masuk.',
+  SIMKOS_TANGGAL_KELUAR: 'Tanggal checkout tidak boleh sebelum tanggal masuk.',
+  SIMKOS_TIPE_SEWA: 'Tipe sewa harus Bulanan atau Harian.',
+  SIMKOS_REPUTASI: 'Pilih status reputasi: Bersih, Peringatan, atau Blacklist.',
+  SIMKOS_GAGAL_UPDATE_PENGHUNI: 'Reputasi penghuni gagal diperbarui. Tidak ada data yang berubah, silakan coba lagi.',
   SIMKOS_INPUT_KOSONG: 'Data belum lengkap. Periksa isian lalu coba lagi.',
   SIMKOS_GAGAL_UPDATE_KAMAR: 'Status kamar gagal diperbarui. Tidak ada data yang berubah, silakan coba lagi.',
 }
@@ -66,6 +77,9 @@ export function rpcErrorMessage(error, fallback = 'Terjadi kesalahan. Silakan co
   if (code === '23505') {
     if (/rentals_one_active_per_room/.test(message + details)) return DETAIL_MESSAGES.SIMKOS_KAMAR_TERISI
     if (/rentals_one_active_per_tenant/.test(message + details)) return 'Penghuni ini masih punya sewa aktif di kamar lain.'
+  }
+  if (code === '23514' && /rooms_status_kamar_check/.test(message + details)) {
+    return 'Status kamar tidak valid (harus Kosong atau Terisi).'
   }
   if (code === '42501') {
     if (/foto_ktp_url/.test(message)) return 'Foto KTP tidak valid untuk kos ini. Unggah ulang foto KTP.'

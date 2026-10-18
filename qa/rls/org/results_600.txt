@@ -527,9 +527,10 @@ PASS | S9b-02 | setelah ditolak tidak ada sisa
 === S10 Migration 600 pindah kamar ===
 PASS | S10-01 | kolom tanggal_keluar (date) & catatan (text) nullable, 2 unique index parsial
 PASS | S10-02 | migration 600 idempotent (apply kedua lolos)
+PASS | S10-01b | constraint rooms_status_kamar_check persis ('Kosong','Terisi'), 1 buah
 PASS | S10-03 | policy rentals tidak berubah (tetap 1: rentals_org_access)
 
-=== S10 RPC pindah_kamar & daftar_penghuni ===
+=== S10 RPC pindah_kamar, daftar_penghuni, checkout_sewa + constraint status_kamar ===
 PASS | PK-ORG-SU | service/superuser: pindah sewa org1 ke kamar org2 ditolak guard org | harap=SIMKOS_BEDA_ORG | aktual=SIMKOS_BEDA_ORG
 PASS | PK-01 | pindah lintas lokasi (Kos Satu kamar 1 -> Kos Dua kamar 4): sewa lama ditutup, sewa baru dibuat | harap=ok | aktual=ok
 PASS | PK-02 | pemasukan lama tetap di rental_id lama, tidak ada yang pindah ke sewa baru | harap=ok | aktual=ok
@@ -552,15 +553,31 @@ PASS | DP-04 | path KTP di folder org lain ditolak trigger migration 300 | harap
 PASS | DP-05 | kamar org lain tidak terlihat (RLS) -> ditolak | harap=SIMKOS_KAMAR_TIDAK_ADA | aktual=SIMKOS_KAMAR_TIDAK_ADA
 PASS | DP-06 | jatuh tempo sebelum tanggal masuk ditolak | harap=SIMKOS_TANGGAL_TEMPO | aktual=SIMKOS_TANGGAL_TEMPO
 PASS | DP-07 | nama kosong ditolak | harap=SIMKOS_INPUT_KOSONG | aktual=SIMKOS_INPUT_KOSONG
+PASS | DP-09 | tipe sewa harian diterima | harap=ok | aktual=ok
+PASS | DP-10 | tipe sewa di luar whitelist (mingguan) ditolak | harap=SIMKOS_TIPE_SEWA | aktual=SIMKOS_TIPE_SEWA
+PASS | DP-11 | tipe sewa beda huruf (Bulanan) ditolak: whitelist persis nilai form | harap=SIMKOS_TIPE_SEWA | aktual=SIMKOS_TIPE_SEWA
+PASS | CO-01 | checkout: sewa nonaktif + tanggal_keluar, kamar Kosong, reputasi & catatan penghuni, pemasukan utuh | harap=ok | aktual=ok
+PASS | CO-02 | setelah checkout, kamar bisa langsung didaftarkan lagi; catatan kosong -> NULL | harap=ok | aktual=ok
+PASS | CO-03 | reputasi di luar whitelist (blacklist huruf kecil) ditolak | harap=SIMKOS_REPUTASI | aktual=SIMKOS_REPUTASI
+PASS | CO-04 | reputasi NULL ditolak | harap=SIMKOS_INPUT_KOSONG | aktual=SIMKOS_INPUT_KOSONG
+PASS | CO-05 | checkout dua kali ditolak (sewa sudah tidak aktif) | harap=SIMKOS_SEWA_TIDAK_AKTIF | aktual=SIMKOS_SEWA_TIDAK_AKTIF
+PASS | CO-06 | tanggal checkout sebelum tanggal masuk ditolak | harap=SIMKOS_TANGGAL_KELUAR | aktual=SIMKOS_TANGGAL_KELUAR
+PASS | CO-07 | sewa milik org lain tidak bisa di-checkout (RLS) | harap=SIMKOS_SEWA_TIDAK_ADA | aktual=SIMKOS_SEWA_TIDAK_ADA
+PASS | CO-08 | atomik: gagal saat update reputasi -> sewa tetap aktif & kamar tetap Terisi | harap=ok | aktual=ok
+PASS | ST-01 | insert kamar dengan status 'kosong' (huruf kecil) ditolak constraint | harap=23514 | aktual=23514
+PASS | ST-02 | update status kamar ke 'kosong' / ' Kosong' ditolak constraint | harap=23514 | aktual=23514
+PASS | ST-03 | status lama form Tambah Kamar ('lunas') ditolak constraint | harap=23514 | aktual=23514
+PASS | ST-04 | insert kamar 'Kosong' (nilai yang ditulis Tambah Kamar) diterima & bisa langsung didaftarkan | harap=ok | aktual=ok
 PASS | DP-08 | kamar berstatus Terisi tanpa sewa ditolak | harap=SIMKOS_KAMAR_TERISI | aktual=SIMKOS_KAMAR_TERISI
 PASS | PK-15 | admin org1 juga bisa memindah penghuni | harap=ok | aktual=ok
 PASS | PK-16 | staff org2 memindah penghuni org2 di org-nya sendiri | harap=ok | aktual=ok
 PASS | PK-17 | staff org2 tidak bisa memindah ke kamar org1 | harap=SIMKOS_KAMAR_TIDAK_ADA | aktual=SIMKOS_KAMAR_TIDAK_ADA
 PASS | PK-18 | user tanpa organisasi: sewa org1 tidak terlihat | harap=SIMKOS_SEWA_TIDAK_ADA | aktual=SIMKOS_SEWA_TIDAK_ADA
 PASS | ANON-PK | anon tidak bisa memanggil pindah_kamar | harap=42501 | aktual=42501
+PASS | ANON-CO | anon tidak bisa memanggil checkout_sewa | harap=42501 | aktual=42501
 PASS | ANON-DP | anon tidak bisa memanggil daftar_penghuni | harap=42501 | aktual=42501
-PASS | META-01 | kedua fungsi SECURITY INVOKER, search_path kosong, public tidak punya EXECUTE | harap=ok | aktual=ok
---- S10 RPC pindah_kamar & daftar_penghuni: 30/30 lulus
+PASS | META-01 | ketiga fungsi SECURITY INVOKER, search_path kosong, public tidak punya EXECUTE | harap=ok | aktual=ok
+--- S10 RPC pindah_kamar, daftar_penghuni, checkout_sewa + constraint status_kamar: 46/46 lulus
 
 === S10r Race kamar tujuan yang sama (2 sesi) ===
 PASS | S10r-01 | admin & owner memindah 2 penghuni berbeda ke kamar 3 bersamaan -> 1 berhasil [ditolak: 1 sesi]
@@ -572,6 +589,11 @@ PASS | S10b-02 | rollback: fungsi, index, kolom hilang; sewa & pemasukan tetap
 PASS | S10b-03 | migration 600 bisa diterapkan ulang setelah rollback
 PASS | S10b-04 | 20261018000600_pindah_kamar.sql menolak apply: ERROR:  Migration dibatalkan: 1 kamar punya lebih dari satu sewa aktif (contoh room_id c1000000-0000-0000-0000-000000000002).
 PASS | S10b-05 | setelah ditolak tidak ada sisa (kolom & fungsi tidak dibuat)
+
+=== S10d Guard status_kamar di luar 'Kosong'/'Terisi' ===
+PASS | S10d-01 | 20261018000600_pindah_kamar.sql menolak apply: ERROR:  Migration dibatalkan: 2 kamar punya status_kamar di luar 'Kosong'/'Terisi' (nilai: 'kosong', 'lunas').
+PASS | S10d-02 | setelah ditolak tidak ada sisa (constraint, kolom, fungsi tidak dibuat; data tidak diubah)
+PASS | S10d-03 | setelah data diperbaiki (hint migration), migration 600 lolos
 PASS | S10c-01 | 20261018000600_pindah_kamar.sql menolak apply: ERROR:  rentals.org_id tidak ada. Terapkan migration 200 & 210 dulu.
 
 TOTAL GAGAL: 0

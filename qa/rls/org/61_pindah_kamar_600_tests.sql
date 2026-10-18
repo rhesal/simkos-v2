@@ -38,12 +38,15 @@ begin
 end $$;
 grant execute on function qa.after(text, text, text[], text), qa.expect_err(text, text, text[], text) to anon, authenticated;
 
--- Trigger uji atomik: insert rentals dengan tipe_sewa 'GAGAL' selalu error
--- (gagal SETELAH tenant ter-insert di daftar_penghuni).
-create or replace function qa.fail_rental() returns trigger language plpgsql as $$
-begin raise exception 'qa: gagal buatan setelah tenant ter-insert'; end $$;
+-- Trigger uji atomik (gagal buatan di TENGAH RPC):
+--   - insert rentals dengan tanggal_masuk 2099-01-01 -> gagal SETELAH tenant ter-insert (daftar_penghuni)
+--   - update tenants dengan catatan_reputasi 'QA_GAGAL' -> gagal SETELAH sewa & kamar diubah (checkout_sewa)
+create or replace function qa.fail_now() returns trigger language plpgsql as $$
+begin raise exception 'qa: gagal buatan di tengah RPC'; end $$;
 create trigger qa_fail_rental before insert on public.rentals
-  for each row when (new.tipe_sewa = 'GAGAL') execute function qa.fail_rental();
+  for each row when (new.tanggal_masuk = '2099-01-01') execute function qa.fail_now();
+create trigger qa_fail_tenant before update on public.tenants
+  for each row when (new.catatan_reputasi = 'QA_GAGAL') execute function qa.fail_now();
 
 -- Superuser (bypass RLS): guard beda organisasi di dalam fungsi -----------------
 select qa.expect_err('PK-ORG-SU', 'service/superuser: pindah sewa org1 ke kamar org2 ditolak guard org',
@@ -133,7 +136,7 @@ select qa.expect_err('DP-02', 'daftar ke kamar yang sudah terisi ditolak',
   array[format($q$select public.daftar_penghuni('a1000000-0000-0000-0000-000000000001','X','1',null,'%s/ktp_x.jpg','bulanan','2026-10-18','2026-11-18')$q$, qa.id('org1'))],
   'SIMKOS_KAMAR_TERISI');
 select qa.after('DP-03', 'atomik: gagal setelah tenant ter-insert -> tenant TIDAK tersisa, kamar tetap Kosong',
-  array[format($q$do $d$ begin perform public.daftar_penghuni('c1000000-0000-0000-0000-000000000001','Gagal Tengah','1',null,'%s/ktp_g.jpg','GAGAL','2026-10-18','2026-11-18'); exception when others then null; end $d$$q$, qa.id('org1'))],
+  array[format($q$do $d$ begin perform public.daftar_penghuni('c1000000-0000-0000-0000-000000000001','Gagal Tengah','1',null,'%s/ktp_g.jpg','bulanan','2099-01-01','2099-02-01'); exception when others then null; end $d$$q$, qa.id('org1'))],
   $q$select not exists (select 1 from public.tenants where nama_lengkap = 'Gagal Tengah')
         and (select status_kamar from public.rooms where id = 'c1000000-0000-0000-0000-000000000001') = 'Kosong'$q$);
 select qa.expect_err('DP-04', 'path KTP di folder org lain ditolak trigger migration 300',
@@ -148,6 +151,65 @@ select qa.expect_err('DP-06', 'jatuh tempo sebelum tanggal masuk ditolak',
 select qa.expect_err('DP-07', 'nama kosong ditolak',
   array[$q$select public.daftar_penghuni('c1000000-0000-0000-0000-000000000001','  ','1',null,null,'bulanan','2026-10-18','2026-11-18')$q$],
   'SIMKOS_INPUT_KOSONG');
+select qa.after('DP-09', 'tipe sewa harian diterima',
+  array[$q$select public.daftar_penghuni('c1000000-0000-0000-0000-000000000001','Harian','1',null,null,'harian','2026-10-18','2026-10-19')$q$],
+  $q$select exists (select 1 from public.rentals where room_id = 'c1000000-0000-0000-0000-000000000001' and status_aktif and tipe_sewa = 'harian')$q$);
+select qa.expect_err('DP-10', 'tipe sewa di luar whitelist (mingguan) ditolak',
+  array[$q$select public.daftar_penghuni('c1000000-0000-0000-0000-000000000001','X','1',null,null,'mingguan','2026-10-18','2026-11-18')$q$],
+  'SIMKOS_TIPE_SEWA');
+select qa.expect_err('DP-11', 'tipe sewa beda huruf (Bulanan) ditolak: whitelist persis nilai form',
+  array[$q$select public.daftar_penghuni('c1000000-0000-0000-0000-000000000001','X','1',null,null,'Bulanan','2026-10-18','2026-11-18')$q$],
+  'SIMKOS_TIPE_SEWA');
+
+-- checkout_sewa -------------------------------------------------------------------
+select qa.after('CO-01', 'checkout: sewa nonaktif + tanggal_keluar, kamar Kosong, reputasi & catatan penghuni, pemasukan utuh',
+  array[$q$select public.checkout_sewa('a3000000-0000-0000-0000-000000000001','2026-10-18','Peringatan','  Telat bayar 2x ')$q$],
+  $q$select (select status_aktif = false and tanggal_keluar = '2026-10-18' from public.rentals where id = 'a3000000-0000-0000-0000-000000000001')
+        and (select status_kamar from public.rooms where id = 'a1000000-0000-0000-0000-000000000001') = 'Kosong'
+        and (select status_reputasi = 'Peringatan' and catatan_reputasi = 'Telat bayar 2x' and foto_ktp_url is not null
+               from public.tenants where id = 'a2000000-0000-0000-0000-000000000001')
+        and (select count(*) = 1 from public.incomes where rental_id = 'a3000000-0000-0000-0000-000000000001')$q$);
+select qa.after('CO-02', 'setelah checkout, kamar bisa langsung didaftarkan lagi; catatan kosong -> NULL',
+  array[$q$select public.checkout_sewa('a3000000-0000-0000-0000-000000000001','2026-10-18','Bersih','')$q$,
+        $q$select public.daftar_penghuni('a1000000-0000-0000-0000-000000000001','Baru','1',null,null,'bulanan','2026-10-18','2026-11-18')$q$],
+  $q$select (select status_kamar from public.rooms where id = 'a1000000-0000-0000-0000-000000000001') = 'Terisi'
+        and (select catatan_reputasi is null from public.tenants where id = 'a2000000-0000-0000-0000-000000000001')$q$);
+select qa.expect_err('CO-03', 'reputasi di luar whitelist (blacklist huruf kecil) ditolak',
+  array[$q$select public.checkout_sewa('a3000000-0000-0000-0000-000000000001','2026-10-18','blacklist',null)$q$],
+  'SIMKOS_REPUTASI');
+select qa.expect_err('CO-04', 'reputasi NULL ditolak',
+  array[$q$select public.checkout_sewa('a3000000-0000-0000-0000-000000000001','2026-10-18',null,null)$q$],
+  'SIMKOS_INPUT_KOSONG');
+select qa.expect_err('CO-05', 'checkout dua kali ditolak (sewa sudah tidak aktif)',
+  array[$q$select public.checkout_sewa('a3000000-0000-0000-0000-000000000001','2026-10-18','Bersih',null)$q$,
+        $q$select public.checkout_sewa('a3000000-0000-0000-0000-000000000001','2026-10-18','Bersih',null)$q$],
+  'SIMKOS_SEWA_TIDAK_AKTIF');
+select qa.expect_err('CO-06', 'tanggal checkout sebelum tanggal masuk ditolak',
+  array[$q$select public.checkout_sewa('a3000000-0000-0000-0000-000000000001','2026-07-01','Bersih',null)$q$],
+  'SIMKOS_TANGGAL_KELUAR');
+select qa.expect_err('CO-07', 'sewa milik org lain tidak bisa di-checkout (RLS)',
+  array[$q$select public.checkout_sewa('b3000000-0000-0000-0000-000000000001','2026-10-18','Bersih',null)$q$],
+  'SIMKOS_SEWA_TIDAK_ADA');
+select qa.after('CO-08', 'atomik: gagal saat update reputasi -> sewa tetap aktif & kamar tetap Terisi',
+  array[$q$do $d$ begin perform public.checkout_sewa('a3000000-0000-0000-0000-000000000001','2026-10-18','Bersih','QA_GAGAL'); exception when others then null; end $d$$q$],
+  $q$select (select status_aktif and tanggal_keluar is null from public.rentals where id = 'a3000000-0000-0000-0000-000000000001')
+        and (select status_kamar from public.rooms where id = 'a1000000-0000-0000-0000-000000000001') = 'Terisi'$q$);
+
+-- Constraint status_kamar persis ------------------------------------------------
+select qa.expect_err('ST-01', 'insert kamar dengan status ''kosong'' (huruf kecil) ditolak constraint',
+  array[$q$insert into public.rooms (location_id, nomor_kamar, harga_harian, harga_bulanan, status_kamar) values ('a0000000-0000-0000-0000-000000000001','9',1,1,'kosong')$q$],
+  '23514');
+select qa.expect_err('ST-02', 'update status kamar ke ''kosong'' / '' Kosong'' ditolak constraint',
+  array[$q$update public.rooms set status_kamar = ' Kosong' where id = 'c1000000-0000-0000-0000-000000000001'$q$],
+  '23514');
+select qa.expect_err('ST-03', 'status lama form Tambah Kamar (''lunas'') ditolak constraint',
+  array[$q$insert into public.rooms (location_id, nomor_kamar, harga_harian, harga_bulanan, status_kamar) values ('a0000000-0000-0000-0000-000000000001','9',1,1,'lunas')$q$],
+  '23514');
+select qa.after('ST-04', 'insert kamar ''Kosong'' (nilai yang ditulis Tambah Kamar) diterima & bisa langsung didaftarkan',
+  array[$q$insert into public.rooms (id, location_id, nomor_kamar, harga_harian, harga_bulanan, status_kamar) values ('c1000000-0000-0000-0000-000000000009','a0000000-0000-0000-0000-000000000001','9',1,1,'Kosong')$q$,
+        $q$select public.daftar_penghuni('c1000000-0000-0000-0000-000000000009','Kamar Baru','1',null,null,'bulanan','2026-10-18','2026-11-18')$q$],
+  $q$select (select status_kamar from public.rooms where id = 'c1000000-0000-0000-0000-000000000009') = 'Terisi'$q$);
+
 select qa.expect_err('DP-08', 'kamar berstatus Terisi tanpa sewa ditolak',
   array[$q$select public.daftar_penghuni('c1000000-0000-0000-0000-000000000003','X','1',null,null,'bulanan','2026-10-18','2026-11-18')$q$],
   'SIMKOS_KAMAR_TERISI');
@@ -180,19 +242,24 @@ select set_config('request.jwt.claims', '', false);
 select qa.expect_err('ANON-PK', 'anon tidak bisa memanggil pindah_kamar',
   array[$q$select public.pindah_kamar('a3000000-0000-0000-0000-000000000001','c1000000-0000-0000-0000-000000000001','2026-10-18')$q$],
   '42501');
+select qa.expect_err('ANON-CO', 'anon tidak bisa memanggil checkout_sewa',
+  array[$q$select public.checkout_sewa('a3000000-0000-0000-0000-000000000001','2026-10-18','Bersih',null)$q$],
+  '42501');
 select qa.expect_err('ANON-DP', 'anon tidak bisa memanggil daftar_penghuni',
   array[$q$select public.daftar_penghuni('c1000000-0000-0000-0000-000000000001','X','1',null,null,'bulanan','2026-10-18','2026-11-18')$q$],
   '42501');
 reset role;
 
 -- Metadata ------------------------------------------------------------------------
-select qa.after('META-01', 'kedua fungsi SECURITY INVOKER, search_path kosong, public tidak punya EXECUTE',
+select qa.after('META-01', 'ketiga fungsi SECURITY INVOKER, search_path kosong, public tidak punya EXECUTE',
   array[]::text[],
   $q$select bool_and(not p.prosecdef and p.proconfig @> array['search_path=""'])
         and bool_and(not has_function_privilege('anon', p.oid, 'execute'))
         and bool_and(has_function_privilege('authenticated', p.oid, 'execute'))
-        and count(*) = 2
+        and count(*) = 3
        from pg_proc p where p.oid in ('public.pindah_kamar(uuid,uuid,date,text)'::regprocedure,
+                                      'public.checkout_sewa(uuid,date,text,text)'::regprocedure,
                                       'public.daftar_penghuni(uuid,text,text,text,text,text,date,date)'::regprocedure)$q$);
 
 drop trigger qa_fail_rental on public.rentals;
+drop trigger qa_fail_tenant on public.tenants;
