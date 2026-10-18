@@ -28,6 +28,20 @@ echo "=== M: 200 -> 210 -> upload bundle lama -> 300 sebelum pindah -> pindah ->
 base qa_ind_m && rej qa_ind_m "$MIG/20261010000300_private_storage_buckets.sql" D-01 && \
   ap qa_ind_m "$HERE/13_simulated_move.sql" "$MIG/20261010000300_private_storage_buckets.sql" "${PRE[@]}" "$HERE/14_org_b_and_users.sql" "${MID[@]}" "$HERE/15_harness.sql" "$HERE/20_tests.sql" "${POST[@]}" && report qa_ind_m "M tes RLS org"
 
+M600="$MIG/20261018000600_pindah_kamar.sql"
+if [ -f "$M600" ]; then
+echo "=== P: migration 600 (pindah kamar + daftar atomik) ==="
+base qa_ind_p && ap qa_ind_p "$HERE/13_simulated_move.sql" "$MIG/20261010000300_private_storage_buckets.sql" "${PRE[@]}" "$HERE/14_org_b_and_users.sql" "${MID[@]}" "$M600" "$M600" "$HERE/15_harness.sql" "$HERE/65_pindah_600_tests.sql" && ok P-IDEMP "migration 600 diterapkan 2x tanpa error" && report qa_ind_p "P tes 600"
+  out=$("$HERE/66_pindah_600_race.sh" qa_ind_p); echo "$out"
+  TOTAL=$((TOTAL+$(grep -c '^\(PASS\|FAIL\)' <<<"$out"))); FAILS=$((FAILS+$(grep -c '^FAIL' <<<"$out")))
+  rej qa_ind_p "$RB/rollback_600_pindah_kamar.sql" P-RB-GUARD
+  fresh qa_ind_p2; ap qa_ind_p2 "$LIVE" "$HERE/05_live_state.sql" "$MIG/20261010000200_organizations_and_backfill.sql" "$MIG/20261010000210_org_rls_policies.sql" "$M600" "$RB/rollback_600_pindah_kamar.sql" "$M600" && ok P-RB "600 -> rollback (data kosong) -> 600 lagi berjalan"
+  $PSQL -d qa_ind_p2 -c "insert into public.rentals (room_id, tenant_id, tipe_sewa, tanggal_masuk, tanggal_jatuh_tempo, org_id) select 'a0000000-0000-0000-0000-000000000002','a0000000-0000-0000-0000-000000000013','bulanan',current_date,current_date,org_id from public.rooms where id='a0000000-0000-0000-0000-000000000002'" >/dev/null 2>&1 && bad P-DUP "sewa aktif ganda bisa dibuat" || ok P-DUP "sewa aktif ganda per kamar ditolak index"
+  $PSQL -d qa_ind_p2 -f "$RB/rollback_600_pindah_kamar.sql" >/dev/null 2>&1; $PSQL -d qa_ind_p2 -c "insert into public.rentals (room_id, tenant_id, tipe_sewa, tanggal_masuk, tanggal_jatuh_tempo, org_id) select 'a0000000-0000-0000-0000-000000000002','a0000000-0000-0000-0000-000000000013','bulanan',current_date,current_date,org_id from public.rooms where id='a0000000-0000-0000-0000-000000000002'" >/dev/null
+  rej qa_ind_p2 "$M600" P-PRECHECK
+  fresh qa_ind_p3; ap qa_ind_p3 "$LIVE" "$HERE/05_live_state.sql" "$MIG/20261010000200_organizations_and_backfill.sql" "$MIG/20261010000210_org_rls_policies.sql" && $PSQL -d qa_ind_p3 -c "update public.rooms set status_kamar='kosong'" >/dev/null && rej qa_ind_p3 "$M600" P-PRECHECK-STATUS
+fi
+
 echo "=== G: policy storage 'or true' + 'owner is not null' sebelum 300 ==="
 base qa_ind_g && ap qa_ind_g "$HERE/../rls/07_legacy_or_true_policy.sql" "$HERE/../rls/08_legacy_owner_not_null_policy.sql" "$HERE/13_simulated_move.sql" \
   "$MIG/20261010000300_private_storage_buckets.sql" "${PRE[@]}" "$HERE/14_org_b_and_users.sql" "${MID[@]}" "$HERE/15_harness.sql" "$HERE/20_tests.sql" "${POST[@]}" && report qa_ind_g "G guard RESTRICTIVE"
