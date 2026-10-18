@@ -351,6 +351,14 @@
             </button>
           </div>
 
+          <!-- Pindah Kamar -->
+          <button
+            @click="triggerPindahModal"
+            class="w-full flex items-center justify-center gap-2 py-3 bg-navy/5 hover:bg-navy/10 active:scale-95 text-navy rounded-xl text-sm font-bold shadow-sm transition-all duration-150 border border-navy/20"
+          >
+            🔁 Pindah Kamar
+          </button>
+
           <div class="grid grid-cols-2 gap-3">
             <!-- Checkout -->
             <button
@@ -697,7 +705,7 @@
         <!-- Konten Teks -->
         <h3 class="text-sm font-bold text-white mb-2">Peringatan: Bahaya Hard Delete!</h3>
         <p class="text-xs text-slate-400 leading-relaxed mb-6">
-          Tindakan menghapus data sewa <span class="text-white font-semibold">{{ selectedRoom?.activeRental?.tenants?.nama_lengkap || 'Penghuni' }}</span> akan menghapus seluruh riwayat sewa ini dari database. Buku Besar keuangan masa lalu bisa menjadi tidak seimbang.
+          Tindakan menghapus data sewa <span class="text-white font-semibold">{{ selectedRoom?.activeRental?.tenants?.nama_lengkap || 'Penghuni' }}</span> akan menghapus sewa ini <strong class="text-white">beserta data penghuni dan foto KTP-nya</strong> dari database. Gunakan hanya untuk koreksi salah input.
         </p>
 
         <!-- Tombol Aksi Pilihan -->
@@ -718,12 +726,132 @@
 
           <!-- Teks Keterangan Tambahan Jika Terkunci -->
           <p v-if="hasPayments" class="text-[10px] text-amber-500/80 italic mt-1 leading-snug">
-            *Tombol hapus dikunci karena penyewa sudah memiliki riwayat pembayaran di Buku Besar. Gunakan Alur Checkout.
+            *{{ RIWAYAT_SEWA_MSG }}
           </p>
 
           <!-- Batal -->
           <button @click="showHapusEdukasiModal = false" class="w-full bg-transparent text-slate-500 hover:text-slate-400 py-1 text-xs transition">
             Kembali
+          </button>
+        </div>
+      </div>
+    </BaseModal>
+
+    <!-- Modal 8: Pindah Kamar (RPC pindah_kamar, migration 600) -->
+    <BaseModal v-if="showPindahModal" class="bg-navy/60 backdrop-blur-sm animate-fade-in">
+      <div class="bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl w-full max-w-md p-6 space-y-4 max-h-[85dvh] overflow-y-auto pb-8 animate-fade-in-up">
+        <div class="flex items-center justify-between border-b-2 border-border pb-3">
+          <div class="flex-1 min-w-0">
+            <h3 class="text-xl font-black text-text-primary flex items-center gap-2">
+              <span>🔁</span> Pindah Kamar
+            </h3>
+            <p class="text-xs font-bold text-text-secondary mt-0.5 truncate">
+              {{ selectedRoom?.activeRental?.tenants?.nama_lengkap }} · saat ini {{ selectedRoom?.locations?.nama_lokasi }} Kamar {{ selectedRoom?.nomor_kamar }}
+            </p>
+          </div>
+          <button @click="batalPindah" :disabled="isPindahSubmitting" class="text-text-muted hover:text-text-primary text-xl font-bold disabled:opacity-40">✕</button>
+        </div>
+
+        <!-- Error -->
+        <div v-if="pindahError" class="bg-expense-light border-2 border-expense/30 text-expense rounded-xl p-3 text-sm font-bold">
+          {{ pindahError }}
+        </div>
+
+        <div class="space-y-4">
+          <!-- Kamar tujuan -->
+          <div class="space-y-1.5">
+            <label for="pindah-kamar" class="block text-sm font-bold text-text-primary">
+              Kamar Tujuan <span class="text-expense">*</span>
+            </label>
+            <div class="relative">
+              <select
+                id="pindah-kamar"
+                v-model="pindahForm.room_id"
+                :disabled="pindahTargets.length === 0 || isPindahSubmitting"
+                class="w-full px-4 py-3 bg-white border-2 border-border rounded-xl appearance-none focus:outline-none focus:border-navy text-base font-semibold text-gray-800 shadow-sm disabled:opacity-50"
+              >
+                <option value="" disabled hidden>
+                  {{ pindahTargets.length === 0 ? '-- Tidak ada kamar kosong --' : '-- Pilih kamar kosong --' }}
+                </option>
+                <option v-for="room in pindahTargets" :key="room.id" :value="room.id">
+                  {{ roomOptionLabel(room) }}
+                </option>
+              </select>
+              <div class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+              </div>
+            </div>
+            <p v-if="pindahTargets.length === 0" class="text-xs font-semibold text-jatuh-tempo">
+              ⚠️ Semua kamar di semua lokasi sedang terisi.
+            </p>
+          </div>
+
+          <!-- Tanggal pindah -->
+          <div class="space-y-1.5">
+            <label for="pindah-tanggal" class="block text-sm font-bold text-text-primary">
+              Tanggal Pindah <span class="text-expense">*</span>
+            </label>
+            <div class="relative rounded-xl border-2 border-border bg-card focus-within:border-navy transition-all duration-200 shadow-sm">
+              <div class="w-full px-4 py-3 text-base font-semibold text-text-primary flex items-center justify-between pointer-events-none">
+                <span>{{ pindahForm.tanggal ? formatDateDisplay(pindahForm.tanggal) : 'Pilih Tanggal' }}</span>
+                <span class="text-text-muted">📅</span>
+              </div>
+              <input
+                id="pindah-tanggal"
+                v-model="pindahForm.tanggal"
+                type="date"
+                :min="selectedRoom?.activeRental?.tanggal_masuk || undefined"
+                :disabled="isPindahSubmitting"
+                class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              />
+            </div>
+          </div>
+
+          <!-- Catatan -->
+          <div class="space-y-1.5">
+            <label for="pindah-catatan" class="block text-sm font-bold text-text-primary">Alasan / Catatan (opsional)</label>
+            <textarea
+              id="pindah-catatan"
+              v-model="pindahForm.catatan"
+              rows="2"
+              maxlength="300"
+              :disabled="isPindahSubmitting"
+              placeholder="Contoh: AC rusak, minta kamar lebih besar"
+              class="w-full bg-card border-2 border-border rounded-xl px-4 py-3 text-sm font-semibold text-text-primary focus:border-navy focus:outline-none"
+            ></textarea>
+          </div>
+
+          <!-- Info aturan -->
+          <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs font-semibold text-amber-800 space-y-1 leading-snug">
+            <p>📅 Jatuh tempo tetap <strong>{{ formatDateDisplay(selectedRoom?.activeRental?.tanggal_jatuh_tempo) }}</strong> (tidak dihitung ulang).</p>
+            <p>
+              💰 Harga kamar baru<template v-if="pindahSelectedRoom"> ({{ formatCurrency(pindahSelectedRoom.harga_bulanan || 0) }}/bln)</template>
+              berlaku mulai tagihan berikutnya. Selisih bulan ini tidak dihitung otomatis; bila ada kekurangan, catat sebagai pemasukan biasa.
+            </p>
+            <p>🧾 Riwayat pembayaran tetap tercatat di sewa kamar lama. Data & KTP penghuni tidak perlu diisi ulang.</p>
+          </div>
+        </div>
+
+        <div class="flex gap-3 pt-3 border-t-2 border-border">
+          <button
+            @click="batalPindah"
+            :disabled="isPindahSubmitting"
+            class="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-50"
+          >
+            Batal
+          </button>
+          <button
+            @click="executePindahKamar"
+            :disabled="!isPindahValid || isPindahSubmitting"
+            class="flex-1 py-3 bg-navy text-white font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            <svg v-if="isPindahSubmitting" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <span>{{ isPindahSubmitting ? 'Memindahkan...' : 'Pindahkan' }}</span>
           </button>
         </div>
       </div>
@@ -749,6 +877,8 @@ import { supabase } from '../supabase.js'
 import { KTP_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile, removeStorageFile, deleteStorageFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
 import KtpViewerModal from '../components/KtpViewerModal.vue'
+import { localDateStamp } from '../lib/date.js'
+import { pindahTargetRooms, roomOptionLabel, rpcErrorMessage, RIWAYAT_SEWA_MSG } from '../lib/sewa.js'
 
 const isLoading = ref(true)
 const roomsList = ref([])
@@ -1028,7 +1158,8 @@ function triggerCheckoutModal() {
   showCheckoutModal.value = true
 }
 
-// Execute Checkout process
+// Execute Checkout process: SATU RPC atomik checkout_sewa (migration 600):
+// sewa nonaktif + tanggal_keluar, kamar Kosong, reputasi penghuni sekaligus.
 async function executeCheckout() {
   const rental = selectedRoom.value?.activeRental
   if (!rental) return
@@ -1037,42 +1168,21 @@ async function executeCheckout() {
   showCheckoutModal.value = false
 
   try {
-    // 1. Update status sewa di rentals
-    const { error: rentalError } = await supabase
-      .from('rentals')
-      .update({ status_aktif: false })
-      .eq('id', rental.id)
-
-    if (rentalError) throw new Error(`Gagal memperbarui status sewa: ${rentalError.message}`)
-
-    // 2. Update status kamar di rooms menjadi 'Kosong'
-    if (rental.room_id) {
-      const { error: roomError } = await supabase
-        .from('rooms')
-        .update({ status_kamar: 'Kosong' })
-        .eq('id', rental.room_id)
-
-      if (roomError) throw new Error(`Gagal mengosongkan status kamar: ${roomError.message}`)
-    }
-
-    // 3. Update status reputasi di tenants
-    if (rental.tenant_id) {
-      const { error: tenantUpdateError } = await supabase
-        .from('tenants')
-        .update({
-          status_reputasi: reputationStatus.value,
-          catatan_reputasi: reputationNotes.value
-        })
-        .eq('id', rental.tenant_id)
-
-      if (tenantUpdateError) throw new Error(`Gagal memperbarui reputasi penyewa: ${tenantUpdateError.message}`)
+    const { error } = await supabase.rpc('checkout_sewa', {
+      p_rental_id: rental.id,
+      p_tanggal: localDateStamp(), // tanggal lokal (WIB), bukan UTC
+      p_status_reputasi: reputationStatus.value,
+      p_catatan_reputasi: reputationNotes.value.trim() || null,
+    })
+    if (error) {
+      console.error('[SimKos] Checkout gagal:', error.code, error.message)
+      alert(`Gagal memproses checkout: ${rpcErrorMessage(error, 'Silakan coba lagi.')}`)
+      if (error.details === 'SIMKOS_SEWA_TIDAK_AKTIF') await loadRoomsAndRentals()
+      return
     }
 
     alert('Checkout berhasil diproses!')
     await loadRoomsAndRentals()
-  } catch (err) {
-    alert(`Gagal memproses checkout: ${err.message}`)
-    console.error('[SimKos] Checkout error:', err)
   } finally {
     isLoading.value = false
     // Reset state
@@ -1081,32 +1191,118 @@ async function executeCheckout() {
   }
 }
 
-// Trigger hard delete educational modal with database check for existing payments
+// --- Pindah Kamar (RPC atomik pindah_kamar, migration 600) ---
+// Sewa lama ditutup, sewa baru dibuat untuk penghuni yang sama di kamar tujuan
+// (boleh lokasi lain), jatuh tempo tetap, status kedua kamar ikut berubah.
+const showPindahModal = ref(false)
+const isPindahSubmitting = ref(false)
+const pindahError = ref('')
+const pindahForm = reactive({ room_id: '', tanggal: '', catatan: '' })
+
+const pindahTargets = computed(() => pindahTargetRooms(roomsList.value, selectedRoom.value?.id))
+const pindahSelectedRoom = computed(() => pindahTargets.value.find(r => r.id === pindahForm.room_id) || null)
+const isPindahValid = computed(() => Boolean(
+  selectedRoom.value?.activeRental?.id && pindahSelectedRoom.value && pindahForm.tanggal
+))
+
+function triggerPindahModal() {
+  if (!selectedRoom.value?.activeRental) return
+  pindahForm.room_id = ''
+  pindahForm.tanggal = localDateStamp() // tanggal lokal (WIB), bukan UTC
+  pindahForm.catatan = ''
+  pindahError.value = ''
+  showDetailModal.value = false
+  showPindahModal.value = true
+}
+
+function batalPindah() {
+  if (isPindahSubmitting.value) return
+  showPindahModal.value = false
+  showDetailModal.value = true
+}
+
+async function executePindahKamar() {
+  if (!isPindahValid.value || isPindahSubmitting.value) return
+  const rental = selectedRoom.value.activeRental
+  const tujuan = pindahSelectedRoom.value
+  const masuk = rental.tanggal_masuk
+  if (masuk && pindahForm.tanggal < masuk) {
+    pindahError.value = 'Tanggal pindah tidak boleh sebelum tanggal masuk.'
+    return
+  }
+
+  isPindahSubmitting.value = true
+  pindahError.value = ''
+  try {
+    const { error } = await supabase.rpc('pindah_kamar', {
+      p_rental_id: rental.id,
+      p_room_baru: tujuan.id,
+      p_tanggal: pindahForm.tanggal,
+      p_catatan: pindahForm.catatan.trim() || null,
+    })
+    if (error) {
+      console.error('[SimKos] Pindah kamar gagal:', error.code, error.message)
+      pindahError.value = rpcErrorMessage(error, 'Gagal memindahkan penghuni. Silakan coba lagi.')
+      // Kamar tujuan ternyata sudah terisi / sewa sudah berubah: segarkan daftar.
+      if (['SIMKOS_KAMAR_TERISI', 'SIMKOS_SEWA_TIDAK_AKTIF'].includes(error.details) || error.code === '23505') {
+        await loadRoomsAndRentals()
+        selectedRoom.value = roomsList.value.find(r => r.id === selectedRoom.value?.id) || selectedRoom.value
+        if (!pindahTargets.value.some(r => r.id === pindahForm.room_id)) pindahForm.room_id = ''
+      }
+      return
+    }
+
+    const nama = rental.tenants?.nama_lengkap || 'Penghuni'
+    showPindahModal.value = false
+    alert(`${nama} berhasil dipindah ke ${tujuan.locations?.nama_lokasi || ''} Kamar ${tujuan.nomor_kamar}.`)
+    await loadRoomsAndRentals()
+  } finally {
+    isPindahSubmitting.value = false
+  }
+}
+
+// Trigger hard delete educational modal. Pra-cek di klien (hanya untuk
+// mengunci tombol): penghuni punya sewa lain (mis. sewa lama hasil Pindah
+// Kamar) atau pemasukan di sewa mana pun miliknya. Penentu akhirnya tetap
+// RPC hapus_sewa di server.
 async function checkRentalHistoryBeforeDelete() {
   showDetailModal.value = false
   isLoading.value = true
   hasPayments.value = false
 
   try {
-    const rentalId = selectedRoom.value?.activeRental?.id
-    if (!rentalId) {
+    const rental = selectedRoom.value?.activeRental
+    if (!rental?.id) {
       showHapusEdukasiModal.value = true
       return
     }
 
-    // Query efficiently: select count of incomes for this rental
-    const { count, error } = await supabase
-      .from('incomes')
-      .select('id', { count: 'exact', head: true })
-      .eq('rental_id', rentalId)
+    let rentalIds = [rental.id]
+    if (rental.tenant_id) {
+      const { data, error } = await supabase
+        .from('rentals')
+        .select('id')
+        .eq('tenant_id', rental.tenant_id)
+      if (error) throw error
+      rentalIds = (data || []).map(r => r.id)
+      if (!rentalIds.includes(rental.id)) rentalIds.push(rental.id)
+    }
 
-    if (error) throw error
+    let adaRiwayat = rentalIds.length > 1
+    if (!adaRiwayat) {
+      const { count, error } = await supabase
+        .from('incomes')
+        .select('id', { count: 'exact', head: true })
+        .in('rental_id', rentalIds)
+      if (error) throw error
+      adaRiwayat = count > 0
+    }
 
-    hasPayments.value = count > 0
+    hasPayments.value = adaRiwayat
     showHapusEdukasiModal.value = true
   } catch (err) {
-    console.error('Gagal memeriksa riwayat transaksi:', err.message || err)
-    // Fallback safe: assume payments exist
+    console.error('Gagal memeriksa riwayat sewa:', err.message || err)
+    // Fallback safe: anggap ada riwayat
     hasPayments.value = true
     showHapusEdukasiModal.value = true
   } finally {
@@ -1114,7 +1310,10 @@ async function checkRentalHistoryBeforeDelete() {
   }
 }
 
-// Execute hard delete bypass confirm
+// Hapus paksa lewat SATU RPC atomik hapus_sewa (migration 600): sewa +
+// penghuni dihapus, kamar Kosong. Ditolak server bila ada riwayat sewa/pindah
+// kamar atau pemasukan. File KTP dihapus SETELAH RPC sukses (baris dulu,
+// file belakangan); gagal hapus file = file yatim, bukan error.
 async function executeHardDelete() {
   const rental = selectedRoom.value?.activeRental
   if (!rental) return
@@ -1123,34 +1322,32 @@ async function executeHardDelete() {
   isLoading.value = true
 
   try {
-    // 1. Hapus dari rentals
-    const { error: deleteError } = await supabase
-      .from('rentals')
-      .delete()
-      .eq('id', rental.id)
-
-    if (deleteError) throw deleteError
-
-    // 2. Kembalikan status kamar menjadi 'Kosong'
-    if (rental.room_id) {
-      const { error: roomError } = await supabase
-        .from('rooms')
-        .update({ status_kamar: 'Kosong' })
-        .eq('id', rental.room_id)
-
-      if (roomError) throw roomError
+    const { data: ktpPath, error } = await supabase.rpc('hapus_sewa', { p_rental_id: rental.id })
+    if (error) {
+      console.error('[SimKos] Hapus sewa gagal:', error.code, error.message)
+      if (error.details === 'SIMKOS_ADA_RIWAYAT') {
+        alert(RIWAYAT_SEWA_MSG)
+      } else {
+        alert(`Gagal menghapus data sewa: ${rpcErrorMessage(error, 'Silakan coba lagi.')}`)
+      }
+      if (['SIMKOS_ADA_RIWAYAT', 'SIMKOS_SEWA_TIDAK_AKTIF', 'SIMKOS_SEWA_TIDAK_ADA'].includes(error.details)) {
+        await loadRoomsAndRentals()
+      }
+      return
     }
 
-    alert('Data sewa berhasil dihapus!')
+    let note = ''
+    if (ktpPath) {
+      try {
+        await deleteStorageFile(KTP_BUCKET, ktpPath)
+      } catch (delErr) {
+        console.error('[SimKos] Sewa terhapus, tapi file KTP gagal dihapus (file yatim):', delErr?.message || delErr)
+        note = KTP_ORPHAN_NOTE
+      }
+    }
+
+    alert(`Data sewa berhasil dihapus!${note}`)
     await loadRoomsAndRentals()
-  } catch (err) {
-    const errorMsg = String(err.message || err).toLowerCase()
-    if (errorMsg.includes('foreign key constraint') || errorMsg.includes('incomes_rental_id_fkey')) {
-      showModalEdukasiHapus.value = true
-    } else {
-      alert(`Gagal menghapus data sewa: ${err.message}`)
-    }
-    console.error('[SimKos] Delete error:', err)
   } finally {
     isLoading.value = false
   }

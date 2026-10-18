@@ -1,0 +1,402 @@
+=== M: 200 -> 210 -> upload bundle lama -> 300 sebelum pindah -> pindah -> 300 ===
+PASS | D-01 | 20261010000300_private_storage_buckets.sql ditolak: ERROR:  Migration dibatalkan: 4 baris masih menunjuk file di luar folder "<org_id>/". Setelah migration ini file tsb tidak bisa dibuka.
+=== M tes RLS org ===
+PASS | AN-T-locations | anon tidak bisa baca locations | harap=denied | aktual=denied
+PASS | AN-T-rooms | anon tidak bisa baca rooms | harap=denied | aktual=denied
+PASS | AN-T-tenants | anon tidak bisa baca tenants | harap=denied | aktual=denied
+PASS | AN-T-rentals | anon tidak bisa baca rentals | harap=denied | aktual=denied
+PASS | AN-T-incomes | anon tidak bisa baca incomes | harap=denied | aktual=denied
+PASS | AN-T-expenses | anon tidak bisa baca expenses | harap=denied | aktual=denied
+PASS | AN-T-inventories | anon tidak bisa baca inventories | harap=denied | aktual=denied
+PASS | AN-T-organizations | anon tidak bisa baca organizations | harap=denied | aktual=denied
+PASS | AN-T-organization_members | anon tidak bisa baca organization_members | harap=denied | aktual=denied
+PASS | AN-S-01 | anon tidak lihat objek KTP/nota | harap=rows:0 | aktual=rows:0
+PASS | AN-S-02 | anon tidak bisa upload ke folder org A | harap=denied | aktual=denied
+PASS | X-POS-01 | X melihat penghuni org B | harap=rows:1 | aktual=rows:1
+PASS | X-POS-02 | X bisa tambah lokasi (org_id default org B) | harap=rows:1 | aktual=rows:1
+PASS | X-POS-03 | X bisa upload ke folder org B | harap=rows:1 | aktual=rows:1
+PASS | X-SEL-locations | X tidak melihat baris org A di locations | harap=rows:0 | aktual=rows:0
+PASS | X-SEL-rooms | X tidak melihat baris org A di rooms | harap=rows:0 | aktual=rows:0
+PASS | X-SEL-tenants | X tidak melihat baris org A di tenants | harap=rows:0 | aktual=rows:0
+PASS | X-SEL-rentals | X tidak melihat baris org A di rentals | harap=rows:0 | aktual=rows:0
+PASS | X-SEL-incomes | X tidak melihat baris org A di incomes | harap=rows:0 | aktual=rows:0
+PASS | X-SEL-expenses | X tidak melihat baris org A di expenses | harap=rows:0 | aktual=rows:0
+PASS | X-SEL-inventories | X tidak melihat baris org A di inventories | harap=rows:0 | aktual=rows:0
+PASS | X-UPD-locations | X tidak bisa ubah baris org A di locations | harap=rows:0 | aktual=rows:0
+PASS | X-UPD-rooms | X tidak bisa ubah baris org A di rooms | harap=rows:0 | aktual=rows:0
+PASS | X-UPD-tenants | X tidak bisa ubah baris org A di tenants | harap=rows:0 | aktual=rows:0
+PASS | X-UPD-rentals | X tidak bisa ubah baris org A di rentals | harap=rows:0 | aktual=rows:0
+PASS | X-UPD-incomes | X tidak bisa ubah baris org A di incomes | harap=rows:0 | aktual=rows:0
+PASS | X-UPD-expenses | X tidak bisa ubah baris org A di expenses | harap=rows:0 | aktual=rows:0
+PASS | X-UPD-inventories | X tidak bisa ubah baris org A di inventories | harap=rows:0 | aktual=rows:0
+PASS | X-DEL-locations | X tidak bisa hapus baris org A di locations | harap=rows:0 | aktual=rows:0
+PASS | X-DEL-rooms | X tidak bisa hapus baris org A di rooms | harap=rows:0 | aktual=rows:0
+PASS | X-DEL-tenants | X tidak bisa hapus baris org A di tenants | harap=rows:0 | aktual=rows:0
+PASS | X-DEL-rentals | X tidak bisa hapus baris org A di rentals | harap=rows:0 | aktual=rows:0
+PASS | X-DEL-incomes | X tidak bisa hapus baris org A di incomes | harap=rows:0 | aktual=rows:0
+PASS | X-DEL-expenses | X tidak bisa hapus baris org A di expenses | harap=rows:0 | aktual=rows:0
+PASS | X-DEL-inventories | X tidak bisa hapus baris org A di inventories | harap=rows:0 | aktual=rows:0
+PASS | X-INS-01 | X tidak bisa insert dengan org_id A | harap=denied | aktual=denied
+PASS | X-INS-02 | X tidak bisa tambah kamar ke lokasi org A | harap=denied | aktual=denied
+PASS | X-INS-03 | X tidak bisa buat sewa dengan penghuni org A | harap=denied | aktual=denied
+PASS | X-INS-04 | X tidak bisa catat pemasukan ke sewa org A | harap=denied | aktual=denied
+PASS | X-INS-05 | X tidak bisa catat pengeluaran ke lokasi org A | harap=denied | aktual=denied
+PASS | X-INS-06 | X tidak bisa tambah inventaris ke kamar org A | harap=denied | aktual=denied
+PASS | X-MOV-01 | X tidak bisa memindah penghuninya ke org A | harap=denied | aktual=denied
+PASS | X-PATH-01 | X tidak bisa set foto_ktp_url ke file org A | harap=denied | aktual=denied
+PASS | X-PATH-02 | X tidak bisa set foto_ktp_url ke path root | harap=denied | aktual=denied
+PASS | X-PATH-03 | X tidak bisa set foto_ktp_url dengan ../ | harap=denied | aktual=denied
+PASS | X-PATH-04 | X tidak bisa insert penghuni baru dengan path org A | harap=denied | aktual=denied
+PASS | X-PATH-05 | X tidak bisa set bukti_nota_url ke nota org A | harap=denied | aktual=denied
+PASS | X-PATH-06 | X boleh simpan ulang baris tanpa mengubah path | harap=rows:1 | aktual=rows:1
+PASS | X-MEM-01 | X tidak bisa memasukkan dirinya ke org A | harap=denied | aktual=denied
+PASS | X-MEM-02 | X tidak bisa memindah keanggotaannya ke org A | harap=denied | aktual=denied
+PASS | X-MEM-03 | X tidak bisa menambah U ke org A | harap=denied | aktual=denied
+PASS | X-MEM-04 | X tidak melihat anggota org A | harap=rows:0 | aktual=rows:0
+PASS | X-MEM-05 | X tidak bisa hapus anggota org A | harap=rows:0 | aktual=rows:0
+PASS | X-MEM-06 | X tidak bisa memindah anggota org B ke org A | harap=denied | aktual=denied
+PASS | X-ORG-01 | X tidak melihat organisasi A | harap=rows:0 | aktual=rows:0
+PASS | X-ORG-02 | X tidak bisa ganti nama org A | harap=rows:0 | aktual=rows:0
+PASS | X-ORG-03 | X tidak bisa membuat organisasi | harap=denied | aktual=denied
+PASS | X-ORG-04 | X tidak bisa hapus organisasi | harap=denied | aktual=denied
+PASS | X-S-01 | X tidak melihat KTP/nota org A | harap=rows:0 | aktual=rows:0
+PASS | X-S-02 | X tidak melihat file yatim di root | harap=rows:0 | aktual=rows:0
+PASS | X-S-03 | X tidak bisa upload ke folder org A | harap=denied | aktual=denied
+PASS | X-S-04 | X tidak bisa upload ke root | harap=denied | aktual=denied
+PASS | X-S-05 | X tidak bisa upload ke folder uid sendiri (pola bundle lama) | harap=denied | aktual=denied
+PASS | X-S-06 | X tidak bisa upload ke folder org A huruf besar | harap=denied | aktual=denied
+PASS | X-S-07 | X tidak bisa menimpa file org A | harap=rows:0 | aktual=rows:0
+PASS | X-S-08 | X tidak bisa memindah file org B ke folder org A | harap=denied | aktual=denied
+PASS | X-S-09 | X tidak bisa hapus file org A | harap=rows:0 | aktual=rows:0
+PASS | P-POS-01 | Partner melihat semua penghuni org A (termasuk yang diinput Rhesal) | harap=rows:3 | aktual=rows:3
+PASS | P-POS-02 | Partner melihat KTP yang diupload Rhesal (sudah dipindah) | harap=rows:1 | aktual=rows:1
+PASS | P-POS-03 | Partner melihat KTP dari bundle lama yang ikut dipindah | harap=rows:1 | aktual=rows:1
+PASS | P-POS-04 | Partner melihat nota org A | harap=rows:1 | aktual=rows:1
+PASS | P-POS-05 | Partner bisa hapus file KTP org A | harap=rows:1 | aktual=rows:1
+PASS | P-NEG-01 | Partner tidak melihat file yatim di root | harap=rows:0 | aktual=rows:0
+PASS | P-NEG-02 | Partner tidak bisa hapus dirinya sendiri | harap=rows:0 | aktual=rows:0
+PASS | P-INFO-01 | Partner menghapus Rhesal: bisa sebelum migration 500, ditolak sesudahnya | harap=rows:0 | aktual=rows:0
+PASS | R-POS-01 | Rhesal bisa menambah U sebagai staff | harap=rows:1 | aktual=rows:1
+PASS | R-NEG-01 | Rhesal tidak bisa menarik X (anggota org B) | harap=error:23505 duplicate key value violates unique constraint "organization_members_user_id_key" | aktual=error:23505 duplicate key value violates unique constraint "organization_members_user_id_key"
+PASS | R-NEG-02 | Rhesal tidak bisa memindah T ke org B | harap=denied | aktual=denied
+PASS | R-NEG-03 | Rhesal tidak bisa upload dengan path uid lama setelah 300 | harap=denied | aktual=denied
+PASS | R-NEG-05 | Rhesal tidak bisa upload ke folder org sendiri huruf besar (f4a44d4) | harap=denied | aktual=denied
+PASS | R-NEG-04 | Rhesal tidak bisa simpan path uid lama di tenants setelah 300 | harap=denied | aktual=denied
+PASS | T-POS-01 | Staff melihat data org A | harap=rows:1 | aktual=rows:1
+PASS | T-NEG-01 | Staff tidak bisa menambah anggota | harap=denied | aktual=denied
+PASS | T-NEG-02 | Staff tidak bisa menaikkan dirinya jadi owner | harap=rows:0 | aktual=rows:0
+PASS | T-NEG-03 | Staff tidak bisa menghapus owner | harap=rows:0 | aktual=rows:0
+PASS | T-NEG-04 | Staff tidak bisa ganti nama org | harap=rows:0 | aktual=rows:0
+PASS | U-NEG-01 | Akun tanpa org tidak melihat penghuni | harap=rows:0 | aktual=rows:0
+PASS | U-NEG-02 | Akun tanpa org tidak bisa insert lokasi | harap=denied | aktual=denied
+PASS | U-NEG-03 | Akun tanpa org tidak melihat file | harap=rows:0 | aktual=rows:0
+PASS | U-NEG-04 | Akun tanpa org tidak bisa menjadikan dirinya anggota | harap=denied | aktual=denied
+PASS | CFG-01 | Bucket private, 5 MB, JPEG/PNG/WEBP | harap=rows:2 | aktual=rows:2
+PASS | CFG-02 | RLS aktif di 7 tabel + 2 tabel org | harap=rows:9 | aktual=rows:9
+PASS | CFG-03 | Policy live lama "Hanya user login..." & "Izinkan ... KTP" sudah hilang | harap=rows:0 | aktual=rows:0
+PASS | CFG-04 | Kedua akun live anggota pengelola org SimKos (admin+owner) | harap=rows:2 | aktual=rows:2
+PASS | CFG-05 | Tidak ada referensi file di luar folder org | harap=rows:0 | aktual=rows:0
+PASS | CFG-06 | Fungsi helper SECURITY DEFINER pakai search_path kosong | harap=rows:3 | aktual=rows:3
+PASS | INV-POS-01 | Rhesal bisa simpan aset lengkap dengan nota (dulu gagal di production) | harap=rows:1 | aktual=rows:1
+PASS | INV-POS-02 | Aset umum tanpa kamar, tanpa harga, tanpa nota | harap=rows:1 | aktual=rows:1
+PASS | INV-POS-03 | Harga 0 diterima | harap=rows:1 | aktual=rows:1
+PASS | INV-POS-04 | Ubah aset lama tanpa menyentuh nota tetap jalan | harap=rows:1 | aktual=rows:1
+PASS | INV-NEG-01 | Harga negatif ditolak | harap=error:23514 new row for relation "inventories" violates check constraint "inventories_harga_nonnegative" | aktual=error:23514 new row for relation "inventories" violates check constraint "inventories_harga_nonnegative"
+PASS | INV-NEG-02 | tipe_fasilitas di luar kamar/umum ditolak | harap=error:23514 new row for relation "inventories" violates check constraint "inventories_tipe_fasilitas_check" | aktual=error:23514 new row for relation "inventories" violates check constraint "inventories_tipe_fasilitas_check"
+PASS | INV-NEG-03 | receipt_url di root ditolak | harap=denied | aktual=denied
+PASS | INV-NEG-04 | receipt_url folder uid lama ditolak | harap=denied | aktual=denied
+PASS | INV-NEG-05 | Org B tidak bisa isi receipt_url dengan nota org A | harap=denied | aktual=denied
+PASS | INV-NEG-06 | Org B: receipt_url dengan ../ ditolak | harap=denied | aktual=denied
+PASS | INV-NEG-07 | Org B tidak melihat aset org A | harap=rows:0 | aktual=rows:0
+PASS | INV-NEG-08 | Org B tidak bisa ubah harga aset org A | harap=rows:0 | aktual=rows:0
+PASS | INV-POS-05 | Org B bisa simpan aset dengan nota di folder sendiri | harap=rows:1 | aktual=rows:1
+PASS | INV-DEL-01 | Hapus kamar berisi aset tipe kamar berhasil | harap=rows:1 | aktual=rows:1
+PASS | INV-H-01 | Anggota org melihat aset harga NULL sebagai NULL | harap=rows:1 | aktual=rows:1
+PASS | INV-H-02 | Harga 0 tetap 0, bukan NULL | harap=rows:1 | aktual=rows:1
+PASS | INV-H-03 | Edit dengan payload harga NULL diterima | harap=rows:1 | aktual=rows:1
+PASS | INV-T-01 | Aset tipe_fasilitas NULL terlihat anggota org | harap=rows:1 | aktual=rows:1
+PASS | INV-T-02 | Edit aset NULL -> umum berhasil | harap=rows:1 | aktual=rows:1
+PASS | ADM-00 | Rhesal (1111) jadi admin, owner/staff lain tetap | harap=rows:3 | aktual=rows:3
+PASS | ADM-01 | Admin turunkan owner jadi staff | harap=rows:1 | aktual=rows:1
+PASS | ADM-02 | Admin naikkan staff jadi owner | harap=rows:1 | aktual=rows:1
+PASS | ADM-03 | Admin TIDAK bisa menjadikan orang lain admin lewat API | harap=denied | aktual=denied
+PASS | ADM-04 | Admin keluarkan owner | harap=rows:1 | aktual=rows:1
+PASS | ADM-05 | Admin tidak bisa hapus dirinya | harap=rows:0 | aktual=rows:0
+PASS | ADM-06 | Admin tidak bisa turunkan dirinya | harap=rows:0 | aktual=rows:0
+PASS | ADM-07 | Admin tidak bisa ubah user_id baris anggota (grant kolom) | harap=denied | aktual=denied
+PASS | ADM-08 | Admin tidak bisa pindahkan anggota ke org lain (grant kolom) | harap=denied | aktual=denied
+PASS | ADM-09 | Admin org A tidak bisa ubah anggota org B | harap=rows:0 | aktual=rows:0
+PASS | ADM-10 | Admin org A tidak bisa hapus anggota org B | harap=rows:0 | aktual=rows:0
+PASS | ADM-11 | Admin tidak bisa insert anggota ke org B | harap=denied | aktual=denied
+PASS | ADM-12 | Admin tidak bisa insert anggota baru sebagai admin | harap=denied | aktual=denied
+PASS | ADM-13 | Admin tetap akses data kos org A | harap=rows:1 | aktual=rows:1
+PASS | ADM-14 | Admin ganti nama org | harap=rows:1 | aktual=rows:1
+PASS | ADM-15 | is_org_admin(org B) = false bagi admin org A | harap=rows:0 | aktual=rows:0
+PASS | OWN-01 | Owner tidak bisa turunkan admin | harap=rows:0 | aktual=rows:0
+PASS | OWN-02 | Owner tidak bisa hapus admin | harap=rows:0 | aktual=rows:0
+PASS | OWN-03 | Owner tidak bisa naikkan dirinya jadi admin | harap=rows:0 | aktual=rows:0
+PASS | OWN-04 | Owner tidak bisa naikkan staff jadi admin/owner | harap=rows:0 | aktual=rows:0
+PASS | OWN-05 | Owner tidak bisa hapus staff | harap=rows:0 | aktual=rows:0
+PASS | OWN-06 | Owner tidak bisa tambah anggota | harap=denied | aktual=denied
+PASS | OWN-07 | Owner tetap bisa ganti nama org | harap=rows:1 | aktual=rows:1
+PASS | OWN-08 | Owner tetap akses data kos | harap=rows:1 | aktual=rows:1
+PASS | OWN-09 | Owner tetap lihat daftar anggota org | harap=rows:3 | aktual=rows:3
+PASS | STF-01 | Staff tidak bisa naikkan dirinya jadi admin | harap=rows:0 | aktual=rows:0
+PASS | STF-02 | Staff tidak bisa naikkan dirinya jadi owner | harap=rows:0 | aktual=rows:0
+PASS | STF-03 | Staff tidak bisa hapus owner | harap=rows:0 | aktual=rows:0
+PASS | STF-04 | Staff tidak bisa ganti nama org | harap=rows:0 | aktual=rows:0
+PASS | X-01 | Owner org B tidak melihat anggota org A | harap=rows:0 | aktual=rows:0
+PASS | X-02 | Owner org B (tanpa admin) tidak bisa ubah anggota org B | harap=rows:0 | aktual=rows:0
+PASS | ANON-01 | Anon tidak bisa ubah anggota | harap=denied | aktual=denied
+PASS | GRD-01 | SQL Editor: turunkan admin terakhir ditolak | harap=denied | aktual=denied
+PASS | GRD-02 | SQL Editor: hapus admin terakhir ditolak | harap=denied | aktual=denied
+PASS | GRD-03 | Hapus akun auth admin terakhir ditolak | harap=denied | aktual=denied
+PASS | GRD-04 | Pindah admin terakhir ke org lain ditolak | harap=denied | aktual=denied
+PASS | GRD-05 | Dengan admin kedua, admin pertama boleh diturunkan | harap=rows:1 | aktual=rows:1
+PASS | GRD-06 | Hapus org (cascade) tidak diblok guard admin terakhir | harap=rows:1 | aktual=rows:1
+--- M tes RLS org: 153/153
+=== P: migration 600 (pindah kamar + daftar atomik) ===
+PASS | P-IDEMP | migration 600 diterapkan 2x tanpa error
+=== P tes 600 ===
+PASS | PK-ANON | Anon tidak bisa execute pindah_kamar | harap=denied | aktual=denied
+PASS | DP-ANON | Anon tidak bisa execute daftar_penghuni | harap=denied | aktual=denied
+PASS | PK-XORG-1 | Owner org B tidak bisa memindah sewa org A | harap=like error:P0001 Data sewa tidak ditemukan% | aktual=error:P0001 Data sewa tidak ditemukan. Muat ulang halaman lalu coba lagi.
+PASS | DP-XORG | Owner org B tidak bisa daftar ke kamar org A | harap=like error:P0001 Kamar tidak ditemukan% | aktual=error:P0001 Kamar tidak ditemukan.
+PASS | PK-NOORG | User tanpa org tidak bisa memindah | harap=like error:P0001 Data sewa tidak ditemukan% | aktual=error:P0001 Data sewa tidak ditemukan. Muat ulang halaman lalu coba lagi.
+PASS | PK-XORG-2 | Admin org A tidak bisa memindah ke kamar org B (tak terlihat) | harap=like error:P0001 Kamar tujuan tidak ditemukan% | aktual=error:P0001 Kamar tujuan tidak ditemukan.
+PASS | PK-TERISI | Tolak kamar tujuan Terisi | harap=like error:P0001 Kamar tujuan sudah terisi% | aktual=error:P0001 Kamar tujuan sudah terisi. Pilih kamar lain yang kosong.
+PASS | CK-LOWER | Constraint: kamar baru status 'kosong' huruf kecil (form lama) ditolak | harap=like error:23514%rooms_status_kamar_check% | aktual=error:23514 new row for relation "rooms" violates check constraint "rooms_status_kamar_check"
+PASS | CK-LAIN | Constraint: status 'lunas'/'Perbaikan' ditolak | harap=like error:23514%rooms_status_kamar_check% | aktual=error:23514 new row for relation "rooms" violates check constraint "rooms_status_kamar_check"
+PASS | NEWROOM | Kamar baru (payload Tambah Kamar baru: Kosong) langsung bisa didaftari penghuni | harap=rows:1 | aktual=rows:1
+PASS | PK-SAMA | Tolak kamar tujuan = kamar sekarang | harap=like error:P0001 Kamar tujuan sama% | aktual=error:P0001 Kamar tujuan sama dengan kamar sekarang.
+PASS | PK-TGL | Tolak tanggal pindah sebelum tanggal masuk | harap=like error:P0001 Tanggal pindah tidak boleh% | aktual=error:P0001 Tanggal pindah tidak boleh sebelum tanggal masuk sewa sekarang.
+PASS | PK-NULL | Tolak input kosong | harap=like error:P0001 Data pindah kamar belum lengkap% | aktual=error:P0001 Data pindah kamar belum lengkap (sewa, kamar tujuan, tanggal).
+PASS | PK-NOROOM | Tolak kamar yang tidak ada | harap=like error:P0001 Kamar tujuan tidak ditemukan% | aktual=error:P0001 Kamar tujuan tidak ditemukan.
+PASS | PK-BEDAORG-SU | Service role/SQL Editor (lihat semua org): tetap tolak kamar org lain | harap=like error:P0001 Kamar tujuan bukan milik organisasi% | aktual=error:P0001 Kamar tujuan bukan milik organisasi yang sama.
+PASS | PK-NOCHANGE | Semua penolakan di atas tidak mengubah data | harap=true | aktual=true
+PASS | PK-01 | Sewa lama ditutup: status_aktif=false, tanggal_keluar=tanggal pindah | harap=true | aktual=true
+PASS | PK-02 | Jatuh tempo sewa baru = jatuh tempo lama (tidak bergeser ke tanggal pindah) | harap=true | aktual=true
+PASS | PK-03 | Sewa baru: penghuni, tipe sewa, org sama; tanggal_masuk=tanggal pindah; aktif; kamar 7 | harap=true | aktual=true
+PASS | PK-04 | Kamar lama Kosong, kamar baru Terisi | harap=true | aktual=true
+PASS | PK-05 | Pemasukan lama tetap di sewa lama | harap=true | aktual=true
+PASS | PK-06 | Data penghuni & KTP tidak berubah, tidak ada penghuni baru | harap=true | aktual=true
+PASS | PK-07 | Catatan: "Pindah ke kamar 7: AC rusak" & "Pindah dari kamar 1: AC rusak" (alasan di-trim) | harap=true | aktual=true
+PASS | PK-08 | Harga sewa tidak diprorata: tidak ada pemasukan/tagihan baru dibuat | harap=true | aktual=true
+PASS | PK-STALE | Pindah ulang memakai id sewa lama (layar basi) ditolak | harap=like error:P0001 Sewa ini sudah tidak aktif% | aktual=error:P0001 Sewa ini sudah tidak aktif (sudah checkout atau sudah dipindah).
+PASS | PK-BACK | Partner bisa memindah lagi (7 -> 1, kembali ke kamar semula) | harap=rows:1 | aktual=rows:1
+PASS | IDX-ROOM | Insert sewa aktif kedua ke kamar terisi lewat REST ditolak index | harap=like error:23505%rentals_one_active_per_room% | aktual=error:23505 duplicate key value violates unique constraint "rentals_one_active_per_room"
+PASS | IDX-TENANT | Aktifkan lagi sewa lama penghuni yang sudah pindah lewat REST ditolak index | harap=like error:23505%rentals_one_active_per_tenant% | aktual=error:23505 duplicate key value violates unique constraint "rentals_one_active_per_tenant"
+PASS | DP-TERISI | Daftar ke kamar Terisi ditolak | harap=like error:P0001 Kamar ini sudah terisi% | aktual=error:P0001 Kamar ini sudah terisi. Pilih kamar lain yang kosong.
+PASS | DP-TEMPO | Jatuh tempo < tanggal masuk ditolak | harap=like error:P0001 Tanggal jatuh tempo% | aktual=error:P0001 Tanggal jatuh tempo tidak boleh sebelum tanggal masuk.
+PASS | DP-NAMA | Nama hanya spasi ditolak | harap=like error:P0001 Data pendaftaran belum lengkap% | aktual=error:P0001 Data pendaftaran belum lengkap (kamar, nama, tipe sewa, tanggal).
+PASS | DP-KTP-XORG | Path KTP milik org B ditolak trigger storage, tidak ada yang tersimpan | harap=denied | aktual=denied
+PASS | DP-TIPE | tipe_sewa di luar bulanan/harian ditolak | harap=like error:P0001 Tipe sewa harus% | aktual=error:P0001 Tipe sewa harus bulanan atau harian.
+PASS | DP-01 | Daftar sukses: penghuni (nama trim, kontak kosong->null, org A), sewa aktif, kamar 2 Terisi | harap=true | aktual=true
+PASS | DP-ATOMIC | Pendaftaran yang ditolak tidak meninggalkan penghuni setengah jadi | harap=true | aktual=true
+PASS | CO-ANON | Anon tidak bisa execute checkout_sewa | harap=denied | aktual=denied
+PASS | CO-XORG | Owner org B tidak bisa checkout sewa org A | harap=like error:P0001 Data sewa tidak ditemukan% | aktual=error:P0001 Data sewa tidak ditemukan. Muat ulang halaman lalu coba lagi.
+PASS | CO-REP | Reputasi di luar whitelist ditolak | harap=like error:P0001 Status reputasi harus% | aktual=error:P0001 Status reputasi harus Bersih, Peringatan, atau Blacklist.
+PASS | CO-TGL | Tanggal checkout sebelum tanggal masuk ditolak | harap=like error:P0001 Tanggal checkout% | aktual=error:P0001 Tanggal checkout tidak boleh sebelum tanggal masuk sewa.
+PASS | CO-OK-RB | Checkout sukses (dicek di subtransaksi) | harap=rows:1 | aktual=rows:1
+PASS | CO-01 | Checkout: sewa nonaktif + tanggal_keluar, kamar 2 Kosong, reputasi Peringatan + catatan di-trim | harap=true | aktual=true
+PASS | CO-STALE | Checkout dua kali (layar basi) ditolak | harap=like error:P0001 Sewa ini sudah tidak aktif% | aktual=error:P0001 Sewa ini sudah tidak aktif (sudah checkout atau sudah dipindah).
+PASS | CO-REUSE | Kamar hasil checkout langsung bisa didaftari lagi | harap=rows:1 | aktual=rows:1
+PASS | HS-ANON | Anon tidak bisa execute hapus_sewa | harap=denied | aktual=denied
+PASS | HS-XORG | Owner org B tidak melihat sewa org A (subquery RLS -> null -> ditolak) | harap=like error:P0001 Data sewa yang akan dihapus belum dipilih% | aktual=error:P0001 Data sewa yang akan dihapus belum dipilih.
+PASS | HS-XORG2 | Owner org B, id sewa org A ditulis langsung: tidak ditemukan | harap=like error:P0001 Data sewa tidak ditemukan% | aktual=error:P0001 Data sewa tidak ditemukan. Muat ulang halaman lalu coba lagi.
+PASS | HS-REPRO | REPRO QA: Hapus sewa hasil pindah (sewa baru tanpa pemasukan) ditolak | harap=like error:P0001 Penghuni ini punya riwayat% | aktual=error:P0001 Penghuni ini punya riwayat sewa/pindah kamar. Gunakan Checkout atau Pindah Kamar untuk koreksi.
+PASS | HS-NONAKTIF | Hapus sewa lama yang sudah nonaktif ditolak | harap=like error:P0001 Sewa ini sudah tidak aktif% | aktual=error:P0001 Sewa ini sudah tidak aktif (sudah checkout atau sudah dipindah).
+PASS | HS-NULL | Input kosong ditolak | harap=like error:P0001 Data sewa yang akan dihapus belum dipilih% | aktual=error:P0001 Data sewa yang akan dihapus belum dipilih.
+PASS | HS-INCOME | Sewa sendiri punya pemasukan -> ditolak | harap=like error:P0001 Penghuni ini punya riwayat% | aktual=error:P0001 Penghuni ini punya riwayat sewa/pindah kamar. Gunakan Checkout atau Pindah Kamar untuk koreksi.
+PASS | HS-NOCHANGE | Penolakan tidak mengubah data: sewa pindah masih aktif, penghuni & kamar utuh | harap=true | aktual=true
+PASS | HS-01 | Hapus salah input: sewa & penghuni "Lagi" terhapus, kamar 2 Kosong, KTP null dikembalikan null | harap=true | aktual=true
+PASS | HS-KTP | Penghuni dengan KTP: hapus mengembalikan path KTP (untuk dihapus dari storage) | harap=rows:1 | aktual=rows:1
+PASS | HS-REUSE2 | Kamar yang dipakai K tidak bisa didaftari selama sewa K aktif | harap=error:P0001 Kamar ini sudah terisi. Pilih kamar lain yang kosong. | aktual=error:P0001 Kamar ini sudah terisi. Pilih kamar lain yang kosong.
+PASS | HS-REUSE | Kamar hasil hapus langsung bisa didaftari lagi | harap=rows:1 | aktual=rows:1
+--- P tes 600: 55/55
+PASS | R1-SESI2 | aktual=Kamar tujuan sudah terisi
+PASS | R1-SATU | aktual=1
+PASS | R1-ASAL | aktual=Terisi
+PASS | R2-SESI2 | aktual=Kamar tujuan sudah terisi
+PASS | R2-SATU | aktual=1
+PASS | R3-SESI2 | aktual=Sewa ini sudah tidak aktif
+PASS | R3-AKTIF | aktual=1
+PASS | R3-KAMAR7 | aktual=Kosong
+PASS | R5-SESI2 | aktual=Sewa ini sudah tidak aktif
+PASS | R5-AKTIF | aktual=0
+PASS | R6-HAPUS-DITOLAK | aktual=punya riwayat
+PASS | R6-UTUH | aktual=1
+PASS | R7-PINDAH-DITOLAK | aktual=Data sewa tidak ditemukan
+PASS | R7-KAMAR | aktual=Kosong||Kosong
+PASS | R4-KONSISTEN | aktual=0
+PASS | P-RB-GUARD | rollback_600_pindah_kamar.sql ditolak: ERROR:  Rollback dibatalkan: 6 baris rentals sudah berisi data di kolom tanggal_keluar/catatan. Backup dulu, lalu hapus guard ini secara sad
+PASS | P-RB | 600 -> rollback (data kosong) -> 600 lagi berjalan
+PASS | P-DUP | sewa aktif ganda per kamar ditolak index
+PASS | P-PRECHECK | 20261018000600_pindah_kamar.sql ditolak: ERROR:  Migration dibatalkan: 1 kamar punya lebih dari satu sewa aktif (contoh room_id a0000000-0000-0000-0000-000000000002).
+PASS | P-PRECHECK-STATUS | 20261018000600_pindah_kamar.sql ditolak: ERROR:  Migration dibatalkan: 1 kamar punya status_kamar di luar 'Kosong'/'Terisi' (nilai: 'kosong').
+=== G: policy storage 'or true' + 'owner is not null' sebelum 300 ===
+=== G guard RESTRICTIVE ===
+PASS | AN-T-locations | anon tidak bisa baca locations | harap=denied | aktual=denied
+PASS | AN-T-rooms | anon tidak bisa baca rooms | harap=denied | aktual=denied
+PASS | AN-T-tenants | anon tidak bisa baca tenants | harap=denied | aktual=denied
+PASS | AN-T-rentals | anon tidak bisa baca rentals | harap=denied | aktual=denied
+PASS | AN-T-incomes | anon tidak bisa baca incomes | harap=denied | aktual=denied
+PASS | AN-T-expenses | anon tidak bisa baca expenses | harap=denied | aktual=denied
+PASS | AN-T-inventories | anon tidak bisa baca inventories | harap=denied | aktual=denied
+PASS | AN-T-organizations | anon tidak bisa baca organizations | harap=denied | aktual=denied
+PASS | AN-T-organization_members | anon tidak bisa baca organization_members | harap=denied | aktual=denied
+PASS | AN-S-01 | anon tidak lihat objek KTP/nota | harap=rows:0 | aktual=rows:0
+PASS | AN-S-02 | anon tidak bisa upload ke folder org A | harap=denied | aktual=denied
+PASS | X-POS-01 | X melihat penghuni org B | harap=rows:1 | aktual=rows:1
+PASS | X-POS-02 | X bisa tambah lokasi (org_id default org B) | harap=rows:1 | aktual=rows:1
+PASS | X-POS-03 | X bisa upload ke folder org B | harap=rows:1 | aktual=rows:1
+PASS | X-SEL-locations | X tidak melihat baris org A di locations | harap=rows:0 | aktual=rows:0
+PASS | X-SEL-rooms | X tidak melihat baris org A di rooms | harap=rows:0 | aktual=rows:0
+PASS | X-SEL-tenants | X tidak melihat baris org A di tenants | harap=rows:0 | aktual=rows:0
+PASS | X-SEL-rentals | X tidak melihat baris org A di rentals | harap=rows:0 | aktual=rows:0
+PASS | X-SEL-incomes | X tidak melihat baris org A di incomes | harap=rows:0 | aktual=rows:0
+PASS | X-SEL-expenses | X tidak melihat baris org A di expenses | harap=rows:0 | aktual=rows:0
+PASS | X-SEL-inventories | X tidak melihat baris org A di inventories | harap=rows:0 | aktual=rows:0
+PASS | X-UPD-locations | X tidak bisa ubah baris org A di locations | harap=rows:0 | aktual=rows:0
+PASS | X-UPD-rooms | X tidak bisa ubah baris org A di rooms | harap=rows:0 | aktual=rows:0
+PASS | X-UPD-tenants | X tidak bisa ubah baris org A di tenants | harap=rows:0 | aktual=rows:0
+PASS | X-UPD-rentals | X tidak bisa ubah baris org A di rentals | harap=rows:0 | aktual=rows:0
+PASS | X-UPD-incomes | X tidak bisa ubah baris org A di incomes | harap=rows:0 | aktual=rows:0
+PASS | X-UPD-expenses | X tidak bisa ubah baris org A di expenses | harap=rows:0 | aktual=rows:0
+PASS | X-UPD-inventories | X tidak bisa ubah baris org A di inventories | harap=rows:0 | aktual=rows:0
+PASS | X-DEL-locations | X tidak bisa hapus baris org A di locations | harap=rows:0 | aktual=rows:0
+PASS | X-DEL-rooms | X tidak bisa hapus baris org A di rooms | harap=rows:0 | aktual=rows:0
+PASS | X-DEL-tenants | X tidak bisa hapus baris org A di tenants | harap=rows:0 | aktual=rows:0
+PASS | X-DEL-rentals | X tidak bisa hapus baris org A di rentals | harap=rows:0 | aktual=rows:0
+PASS | X-DEL-incomes | X tidak bisa hapus baris org A di incomes | harap=rows:0 | aktual=rows:0
+PASS | X-DEL-expenses | X tidak bisa hapus baris org A di expenses | harap=rows:0 | aktual=rows:0
+PASS | X-DEL-inventories | X tidak bisa hapus baris org A di inventories | harap=rows:0 | aktual=rows:0
+PASS | X-INS-01 | X tidak bisa insert dengan org_id A | harap=denied | aktual=denied
+PASS | X-INS-02 | X tidak bisa tambah kamar ke lokasi org A | harap=denied | aktual=denied
+PASS | X-INS-03 | X tidak bisa buat sewa dengan penghuni org A | harap=denied | aktual=denied
+PASS | X-INS-04 | X tidak bisa catat pemasukan ke sewa org A | harap=denied | aktual=denied
+PASS | X-INS-05 | X tidak bisa catat pengeluaran ke lokasi org A | harap=denied | aktual=denied
+PASS | X-INS-06 | X tidak bisa tambah inventaris ke kamar org A | harap=denied | aktual=denied
+PASS | X-MOV-01 | X tidak bisa memindah penghuninya ke org A | harap=denied | aktual=denied
+PASS | X-PATH-01 | X tidak bisa set foto_ktp_url ke file org A | harap=denied | aktual=denied
+PASS | X-PATH-02 | X tidak bisa set foto_ktp_url ke path root | harap=denied | aktual=denied
+PASS | X-PATH-03 | X tidak bisa set foto_ktp_url dengan ../ | harap=denied | aktual=denied
+PASS | X-PATH-04 | X tidak bisa insert penghuni baru dengan path org A | harap=denied | aktual=denied
+PASS | X-PATH-05 | X tidak bisa set bukti_nota_url ke nota org A | harap=denied | aktual=denied
+PASS | X-PATH-06 | X boleh simpan ulang baris tanpa mengubah path | harap=rows:1 | aktual=rows:1
+PASS | X-MEM-01 | X tidak bisa memasukkan dirinya ke org A | harap=denied | aktual=denied
+PASS | X-MEM-02 | X tidak bisa memindah keanggotaannya ke org A | harap=denied | aktual=denied
+PASS | X-MEM-03 | X tidak bisa menambah U ke org A | harap=denied | aktual=denied
+PASS | X-MEM-04 | X tidak melihat anggota org A | harap=rows:0 | aktual=rows:0
+PASS | X-MEM-05 | X tidak bisa hapus anggota org A | harap=rows:0 | aktual=rows:0
+PASS | X-MEM-06 | X tidak bisa memindah anggota org B ke org A | harap=denied | aktual=denied
+PASS | X-ORG-01 | X tidak melihat organisasi A | harap=rows:0 | aktual=rows:0
+PASS | X-ORG-02 | X tidak bisa ganti nama org A | harap=rows:0 | aktual=rows:0
+PASS | X-ORG-03 | X tidak bisa membuat organisasi | harap=denied | aktual=denied
+PASS | X-ORG-04 | X tidak bisa hapus organisasi | harap=denied | aktual=denied
+PASS | X-S-01 | X tidak melihat KTP/nota org A | harap=rows:0 | aktual=rows:0
+PASS | X-S-02 | X tidak melihat file yatim di root | harap=rows:0 | aktual=rows:0
+PASS | X-S-03 | X tidak bisa upload ke folder org A | harap=denied | aktual=denied
+PASS | X-S-04 | X tidak bisa upload ke root | harap=denied | aktual=denied
+PASS | X-S-05 | X tidak bisa upload ke folder uid sendiri (pola bundle lama) | harap=denied | aktual=denied
+PASS | X-S-06 | X tidak bisa upload ke folder org A huruf besar | harap=denied | aktual=denied
+PASS | X-S-07 | X tidak bisa menimpa file org A | harap=rows:0 | aktual=rows:0
+PASS | X-S-08 | X tidak bisa memindah file org B ke folder org A | harap=denied | aktual=denied
+PASS | X-S-09 | X tidak bisa hapus file org A | harap=rows:0 | aktual=rows:0
+PASS | P-POS-01 | Partner melihat semua penghuni org A (termasuk yang diinput Rhesal) | harap=rows:3 | aktual=rows:3
+PASS | P-POS-02 | Partner melihat KTP yang diupload Rhesal (sudah dipindah) | harap=rows:1 | aktual=rows:1
+PASS | P-POS-03 | Partner melihat KTP dari bundle lama yang ikut dipindah | harap=rows:1 | aktual=rows:1
+PASS | P-POS-04 | Partner melihat nota org A | harap=rows:1 | aktual=rows:1
+PASS | P-POS-05 | Partner bisa hapus file KTP org A | harap=rows:1 | aktual=rows:1
+PASS | P-NEG-01 | Partner tidak melihat file yatim di root | harap=rows:0 | aktual=rows:0
+PASS | P-NEG-02 | Partner tidak bisa hapus dirinya sendiri | harap=rows:0 | aktual=rows:0
+PASS | P-INFO-01 | Partner menghapus Rhesal: bisa sebelum migration 500, ditolak sesudahnya | harap=rows:0 | aktual=rows:0
+PASS | R-POS-01 | Rhesal bisa menambah U sebagai staff | harap=rows:1 | aktual=rows:1
+PASS | R-NEG-01 | Rhesal tidak bisa menarik X (anggota org B) | harap=error:23505 duplicate key value violates unique constraint "organization_members_user_id_key" | aktual=error:23505 duplicate key value violates unique constraint "organization_members_user_id_key"
+PASS | R-NEG-02 | Rhesal tidak bisa memindah T ke org B | harap=denied | aktual=denied
+PASS | R-NEG-03 | Rhesal tidak bisa upload dengan path uid lama setelah 300 | harap=denied | aktual=denied
+PASS | R-NEG-05 | Rhesal tidak bisa upload ke folder org sendiri huruf besar (f4a44d4) | harap=denied | aktual=denied
+PASS | R-NEG-04 | Rhesal tidak bisa simpan path uid lama di tenants setelah 300 | harap=denied | aktual=denied
+PASS | T-POS-01 | Staff melihat data org A | harap=rows:1 | aktual=rows:1
+PASS | T-NEG-01 | Staff tidak bisa menambah anggota | harap=denied | aktual=denied
+PASS | T-NEG-02 | Staff tidak bisa menaikkan dirinya jadi owner | harap=rows:0 | aktual=rows:0
+PASS | T-NEG-03 | Staff tidak bisa menghapus owner | harap=rows:0 | aktual=rows:0
+PASS | T-NEG-04 | Staff tidak bisa ganti nama org | harap=rows:0 | aktual=rows:0
+PASS | U-NEG-01 | Akun tanpa org tidak melihat penghuni | harap=rows:0 | aktual=rows:0
+PASS | U-NEG-02 | Akun tanpa org tidak bisa insert lokasi | harap=denied | aktual=denied
+PASS | U-NEG-03 | Akun tanpa org tidak melihat file | harap=rows:0 | aktual=rows:0
+PASS | U-NEG-04 | Akun tanpa org tidak bisa menjadikan dirinya anggota | harap=denied | aktual=denied
+PASS | CFG-01 | Bucket private, 5 MB, JPEG/PNG/WEBP | harap=rows:2 | aktual=rows:2
+PASS | CFG-02 | RLS aktif di 7 tabel + 2 tabel org | harap=rows:9 | aktual=rows:9
+PASS | CFG-03 | Policy live lama "Hanya user login..." & "Izinkan ... KTP" sudah hilang | harap=rows:0 | aktual=rows:0
+PASS | CFG-04 | Kedua akun live anggota pengelola org SimKos (admin+owner) | harap=rows:2 | aktual=rows:2
+PASS | CFG-05 | Tidak ada referensi file di luar folder org | harap=rows:0 | aktual=rows:0
+PASS | CFG-06 | Fungsi helper SECURITY DEFINER pakai search_path kosong | harap=rows:3 | aktual=rows:3
+PASS | INV-POS-01 | Rhesal bisa simpan aset lengkap dengan nota (dulu gagal di production) | harap=rows:1 | aktual=rows:1
+PASS | INV-POS-02 | Aset umum tanpa kamar, tanpa harga, tanpa nota | harap=rows:1 | aktual=rows:1
+PASS | INV-POS-03 | Harga 0 diterima | harap=rows:1 | aktual=rows:1
+PASS | INV-POS-04 | Ubah aset lama tanpa menyentuh nota tetap jalan | harap=rows:1 | aktual=rows:1
+PASS | INV-NEG-01 | Harga negatif ditolak | harap=error:23514 new row for relation "inventories" violates check constraint "inventories_harga_nonnegative" | aktual=error:23514 new row for relation "inventories" violates check constraint "inventories_harga_nonnegative"
+PASS | INV-NEG-02 | tipe_fasilitas di luar kamar/umum ditolak | harap=error:23514 new row for relation "inventories" violates check constraint "inventories_tipe_fasilitas_check" | aktual=error:23514 new row for relation "inventories" violates check constraint "inventories_tipe_fasilitas_check"
+PASS | INV-NEG-03 | receipt_url di root ditolak | harap=denied | aktual=denied
+PASS | INV-NEG-04 | receipt_url folder uid lama ditolak | harap=denied | aktual=denied
+PASS | INV-NEG-05 | Org B tidak bisa isi receipt_url dengan nota org A | harap=denied | aktual=denied
+PASS | INV-NEG-06 | Org B: receipt_url dengan ../ ditolak | harap=denied | aktual=denied
+PASS | INV-NEG-07 | Org B tidak melihat aset org A | harap=rows:0 | aktual=rows:0
+PASS | INV-NEG-08 | Org B tidak bisa ubah harga aset org A | harap=rows:0 | aktual=rows:0
+PASS | INV-POS-05 | Org B bisa simpan aset dengan nota di folder sendiri | harap=rows:1 | aktual=rows:1
+PASS | INV-DEL-01 | Hapus kamar berisi aset tipe kamar berhasil | harap=rows:1 | aktual=rows:1
+PASS | INV-H-01 | Anggota org melihat aset harga NULL sebagai NULL | harap=rows:1 | aktual=rows:1
+PASS | INV-H-02 | Harga 0 tetap 0, bukan NULL | harap=rows:1 | aktual=rows:1
+PASS | INV-H-03 | Edit dengan payload harga NULL diterima | harap=rows:1 | aktual=rows:1
+PASS | INV-T-01 | Aset tipe_fasilitas NULL terlihat anggota org | harap=rows:1 | aktual=rows:1
+PASS | INV-T-02 | Edit aset NULL -> umum berhasil | harap=rows:1 | aktual=rows:1
+PASS | ADM-00 | Rhesal (1111) jadi admin, owner/staff lain tetap | harap=rows:3 | aktual=rows:3
+PASS | ADM-01 | Admin turunkan owner jadi staff | harap=rows:1 | aktual=rows:1
+PASS | ADM-02 | Admin naikkan staff jadi owner | harap=rows:1 | aktual=rows:1
+PASS | ADM-03 | Admin TIDAK bisa menjadikan orang lain admin lewat API | harap=denied | aktual=denied
+PASS | ADM-04 | Admin keluarkan owner | harap=rows:1 | aktual=rows:1
+PASS | ADM-05 | Admin tidak bisa hapus dirinya | harap=rows:0 | aktual=rows:0
+PASS | ADM-06 | Admin tidak bisa turunkan dirinya | harap=rows:0 | aktual=rows:0
+PASS | ADM-07 | Admin tidak bisa ubah user_id baris anggota (grant kolom) | harap=denied | aktual=denied
+PASS | ADM-08 | Admin tidak bisa pindahkan anggota ke org lain (grant kolom) | harap=denied | aktual=denied
+PASS | ADM-09 | Admin org A tidak bisa ubah anggota org B | harap=rows:0 | aktual=rows:0
+PASS | ADM-10 | Admin org A tidak bisa hapus anggota org B | harap=rows:0 | aktual=rows:0
+PASS | ADM-11 | Admin tidak bisa insert anggota ke org B | harap=denied | aktual=denied
+PASS | ADM-12 | Admin tidak bisa insert anggota baru sebagai admin | harap=denied | aktual=denied
+PASS | ADM-13 | Admin tetap akses data kos org A | harap=rows:1 | aktual=rows:1
+PASS | ADM-14 | Admin ganti nama org | harap=rows:1 | aktual=rows:1
+PASS | ADM-15 | is_org_admin(org B) = false bagi admin org A | harap=rows:0 | aktual=rows:0
+PASS | OWN-01 | Owner tidak bisa turunkan admin | harap=rows:0 | aktual=rows:0
+PASS | OWN-02 | Owner tidak bisa hapus admin | harap=rows:0 | aktual=rows:0
+PASS | OWN-03 | Owner tidak bisa naikkan dirinya jadi admin | harap=rows:0 | aktual=rows:0
+PASS | OWN-04 | Owner tidak bisa naikkan staff jadi admin/owner | harap=rows:0 | aktual=rows:0
+PASS | OWN-05 | Owner tidak bisa hapus staff | harap=rows:0 | aktual=rows:0
+PASS | OWN-06 | Owner tidak bisa tambah anggota | harap=denied | aktual=denied
+PASS | OWN-07 | Owner tetap bisa ganti nama org | harap=rows:1 | aktual=rows:1
+PASS | OWN-08 | Owner tetap akses data kos | harap=rows:1 | aktual=rows:1
+PASS | OWN-09 | Owner tetap lihat daftar anggota org | harap=rows:3 | aktual=rows:3
+PASS | STF-01 | Staff tidak bisa naikkan dirinya jadi admin | harap=rows:0 | aktual=rows:0
+PASS | STF-02 | Staff tidak bisa naikkan dirinya jadi owner | harap=rows:0 | aktual=rows:0
+PASS | STF-03 | Staff tidak bisa hapus owner | harap=rows:0 | aktual=rows:0
+PASS | STF-04 | Staff tidak bisa ganti nama org | harap=rows:0 | aktual=rows:0
+PASS | X-01 | Owner org B tidak melihat anggota org A | harap=rows:0 | aktual=rows:0
+PASS | X-02 | Owner org B (tanpa admin) tidak bisa ubah anggota org B | harap=rows:0 | aktual=rows:0
+PASS | ANON-01 | Anon tidak bisa ubah anggota | harap=denied | aktual=denied
+PASS | GRD-01 | SQL Editor: turunkan admin terakhir ditolak | harap=denied | aktual=denied
+PASS | GRD-02 | SQL Editor: hapus admin terakhir ditolak | harap=denied | aktual=denied
+PASS | GRD-03 | Hapus akun auth admin terakhir ditolak | harap=denied | aktual=denied
+PASS | GRD-04 | Pindah admin terakhir ke org lain ditolak | harap=denied | aktual=denied
+PASS | GRD-05 | Dengan admin kedua, admin pertama boleh diturunkan | harap=rows:1 | aktual=rows:1
+PASS | GRD-06 | Hapus org (cascade) tidak diblok guard admin terakhir | harap=rows:1 | aktual=rows:1
+--- G guard RESTRICTIVE: 153/153
+=== B: 3 user saat migration 200 ===
+PASS | B-01 | 20261010000200_organizations_and_backfill.sql ditolak: ERROR:  Backfill dibatalkan: auth.users berisi 3 user, diharapkan 2.
+PASS | B-02 | tidak ada sisa tabel organizations
+=== R: rollback 300 -> 210 -> 200 ===
+PASS | R-01 | rollback berjalan
+PASS | R-02 | bucket tetap private
+PASS | R-03 | anon tidak melihat file
+PASS | R-04 | partner masih bisa membuka KTP setelah rollback
+
+TOTAL: 389/389 lulus, 0 gagal

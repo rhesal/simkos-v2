@@ -143,30 +143,6 @@
           </div>
         </div>
 
-        <!-- Status Kamar -->
-        <div class="space-y-2 animate-fade-in-up animate-stagger-4">
-          <label for="status-kamar" class="block text-lg font-bold text-text-primary">
-            Status Kamar
-          </label>
-          <div class="relative">
-            <select
-              id="status-kamar"
-              v-model="form.status"
-              class="w-full px-5 py-4 bg-white border-2 border-gray-200 rounded-xl appearance-none focus:outline-none focus:border-navy text-lg font-medium text-gray-800 shadow-sm"
-            >
-              <option value="kosong">⚪ Kosong</option>
-              <option value="lunas">🟢 Lunas</option>
-              <option value="jatuh-tempo">🟡 Jatuh Tempo</option>
-              <option value="terlambat">🔴 Terlambat</option>
-            </select>
-            <div class="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-              </svg>
-            </div>
-          </div>
-        </div>
-
         <!-- Submit Button -->
         <div class="animate-fade-in-up animate-stagger-5 pt-2">
           <button
@@ -200,6 +176,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '../supabase.js'
+import { ROOM_STATUS } from '../lib/sewa.js'
 
 const router = useRouter()
 const isSubmitting = ref(false)
@@ -213,7 +190,6 @@ const form = reactive({
   nomor_kamar: '',
   harga_harian: null,
   harga_bulanan: null,
-  status: 'kosong',
 })
 
 const isFormValid = computed(() => {
@@ -249,7 +225,9 @@ async function handleSubmit() {
     nomor_kamar: form.nomor_kamar.trim(),
     harga_harian: form.harga_harian || 0,
     harga_bulanan: form.harga_bulanan || 0,
-    status_kamar: form.status, // Perbaikan: ubah status menjadi status_kamar
+    // Kamar baru selalu 'Kosong' (persis, sesuai constraint rooms_status_kamar_check
+    // migration 600). 'Terisi' hanya diset RPC daftar_penghuni / pindah_kamar.
+    status_kamar: ROOM_STATUS.KOSONG,
   }
 
   const { data, error } = await supabase

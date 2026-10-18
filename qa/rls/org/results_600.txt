@@ -1,0 +1,610 @@
+
+=== S1 Deploy normal (2 owner, org kedua, user tanpa org, anon) ===
+PASS | ANON-T-locations | anon tidak bisa baca tabel locations | harap=denied | aktual=denied
+PASS | ANON-T-rooms | anon tidak bisa baca tabel rooms | harap=denied | aktual=denied
+PASS | ANON-T-tenants | anon tidak bisa baca tabel tenants | harap=denied | aktual=denied
+PASS | ANON-T-rentals | anon tidak bisa baca tabel rentals | harap=denied | aktual=denied
+PASS | ANON-T-incomes | anon tidak bisa baca tabel incomes | harap=denied | aktual=denied
+PASS | ANON-T-expenses | anon tidak bisa baca tabel expenses | harap=denied | aktual=denied
+PASS | ANON-T-inventories | anon tidak bisa baca tabel inventories | harap=denied | aktual=denied
+PASS | ANON-T-organizations | anon tidak bisa baca tabel organizations | harap=denied | aktual=denied
+PASS | ANON-T-organization_members | anon tidak bisa baca tabel organization_members | harap=denied | aktual=denied
+PASS | ANON-T-INS | anon tidak bisa insert inventories (dulu RLS mati) | harap=denied | aktual=denied
+PASS | ANON-S-01 | anon tidak bisa lihat objek ktp_images | harap=rows:0 | aktual=rows:0
+PASS | ANON-S-02 | anon tidak bisa lihat objek receipt_images | harap=rows:0 | aktual=rows:0
+PASS | ANON-S-03 | anon tidak bisa upload ke folder org1 | harap=denied | aktual=denied
+PASS | U1-SEE-locations | u1 melihat semua baris org1 di locations | harap=rows:2 | aktual=rows:2
+PASS | U1-SEE-rooms | u1 melihat semua baris org1 di rooms | harap=rows:2 | aktual=rows:2
+PASS | U1-SEE-tenants | u1 melihat semua baris org1 di tenants | harap=rows:3 | aktual=rows:3
+PASS | U1-SEE-rentals | u1 melihat semua baris org1 di rentals | harap=rows:2 | aktual=rows:2
+PASS | U1-SEE-incomes | u1 melihat semua baris org1 di incomes | harap=rows:2 | aktual=rows:2
+PASS | U1-SEE-expenses | u1 melihat semua baris org1 di expenses | harap=rows:1 | aktual=rows:1
+PASS | U1-SEE-inventories | u1 melihat semua baris org1 di inventories | harap=rows:1 | aktual=rows:1
+PASS | U1-ORG-01 | u1 melihat organisasinya (hanya 1) | harap=rows:1 | aktual=rows:1
+PASS | U1-ORG-02 | u1 melihat daftar anggota org1 (2 owner) | harap=rows:2 | aktual=rows:2
+PASS | U1-ORG-03 | u1: is_org_member(org2) = false | harap=rows:0 | aktual=rows:0
+PASS | U1-S-READ-01 | u1 bisa baca KTP lama unggahan u2 (dipindah ke folder org1) | harap=rows:1 | aktual=rows:1
+PASS | U1-S-READ-02 | u1 bisa baca KTP lama unggahan u1 (dipindah ke folder org1) | harap=rows:1 | aktual=rows:1
+PASS | U1-S-READ-03 | u1 bisa baca nota lama (dipindah ke folder org1) | harap=rows:1 | aktual=rows:1
+PASS | U1-S-READ-04 | u1 TIDAK melihat file root yang tidak dipindah (ktp_orphan.jpg) | harap=rows:0 | aktual=rows:0
+PASS | U1-S-READ-05 | u1 tidak melihat KTP org2 | harap=rows:0 | aktual=rows:0
+PASS | U1-INS-01 | u1 bisa tambah lokasi tanpa mengirim org_id | harap=rows:1 | aktual=rows:1
+PASS | U1-INS-02 | u1 bisa tambah kamar di lokasi org1 | harap=rows:1 | aktual=rows:1
+PASS | U1-INS-03 | u1 bisa catat pemasukan tanpa rental (FK nullable) | harap=rows:1 | aktual=rows:1
+PASS | U1-INS-04 | u1 CHECK incomes tetap berlaku (nominal 0 ditolak) | harap=error:23514 new row for relation "incomes" violates check constraint "incomes_nominal_positif_check" | aktual=error:23514 new row for relation "incomes" violates check constraint "incomes_nominal_positif_check"
+PASS | U1-UPD-01 | u1 bisa ubah data yang dibuat owner lain | harap=rows:1 | aktual=rows:1
+PASS | U1-DEL-01 | u1 bisa hapus pemasukan | harap=rows:1 | aktual=rows:1
+PASS | U1-PATH-01 | u1 bisa set foto_ktp_url ke <org1>/... | harap=rows:1 | aktual=rows:1
+PASS | U1-PATH-02 | u1 tidak bisa set foto_ktp_url ke path root | harap=denied | aktual=denied
+PASS | U1-PATH-03 | u1 tidak bisa menautkan KTP org2 ke penghuni org1 | harap=denied | aktual=denied
+PASS | U1-PATH-04 | u1 tidak bisa insert penghuni dengan KTP folder user (bukan org) | harap=denied | aktual=denied
+PASS | U1-PATH-05 | u1 tidak bisa pakai path dengan .. | harap=denied | aktual=denied
+PASS | U1-PATH-06 | u1 tidak bisa set bukti_nota_url ke path root | harap=denied | aktual=denied
+PASS | U1-PATH-07 | u1 update kolom lain tetap boleh walau path tidak diubah | harap=rows:1 | aktual=rows:1
+PASS | U1-S-UP-01 | u1 bisa upload ke folder org1 | harap=rows:1 | aktual=rows:1
+PASS | U1-S-UP-02 | u1 tidak bisa upload ke root bucket | harap=denied | aktual=denied
+PASS | U1-S-UP-03 | u1 tidak bisa upload ke folder <user_id>/ (skema lama) | harap=denied | aktual=denied
+PASS | U1-S-UP-04 | u1 tidak bisa upload ke folder org2 | harap=denied | aktual=denied
+PASS | U1-S-DEL-01 | u1 bisa hapus KTP yang diunggah owner lain (co-owner) | harap=rows:1 | aktual=rows:1
+PASS | U1-S-MOV-01 | u1 tidak bisa memindah file org1 ke folder org2 | harap=denied | aktual=denied
+PASS | U1-S-MOV-02 | u1 tidak bisa memindah file org1 ke root | harap=denied | aktual=denied
+PASS | U1-S-DEL-02 | u1 tidak bisa hapus KTP org2 | harap=rows:0 | aktual=rows:0
+PASS | U1-X-SEL-locations | u1 tidak bisa baca baris org2 di locations | harap=rows:0 | aktual=rows:0
+PASS | U1-X-SEL-rooms | u1 tidak bisa baca baris org2 di rooms | harap=rows:0 | aktual=rows:0
+PASS | U1-X-SEL-tenants | u1 tidak bisa baca baris org2 di tenants | harap=rows:0 | aktual=rows:0
+PASS | U1-X-SEL-rentals | u1 tidak bisa baca baris org2 di rentals | harap=rows:0 | aktual=rows:0
+PASS | U1-X-SEL-incomes | u1 tidak bisa baca baris org2 di incomes | harap=rows:0 | aktual=rows:0
+PASS | U1-X-SEL-expenses | u1 tidak bisa baca baris org2 di expenses | harap=rows:0 | aktual=rows:0
+PASS | U1-X-SEL-inventories | u1 tidak bisa baca baris org2 di inventories | harap=rows:0 | aktual=rows:0
+PASS | U1-X-UPD-locations | u1 tidak bisa ubah baris org2 di locations | harap=rows:0 | aktual=rows:0
+PASS | U1-X-UPD-rooms | u1 tidak bisa ubah baris org2 di rooms | harap=rows:0 | aktual=rows:0
+PASS | U1-X-UPD-tenants | u1 tidak bisa ubah baris org2 di tenants | harap=rows:0 | aktual=rows:0
+PASS | U1-X-UPD-rentals | u1 tidak bisa ubah baris org2 di rentals | harap=rows:0 | aktual=rows:0
+PASS | U1-X-UPD-incomes | u1 tidak bisa ubah baris org2 di incomes | harap=rows:0 | aktual=rows:0
+PASS | U1-X-UPD-expenses | u1 tidak bisa ubah baris org2 di expenses | harap=rows:0 | aktual=rows:0
+PASS | U1-X-UPD-inventories | u1 tidak bisa ubah baris org2 di inventories | harap=rows:0 | aktual=rows:0
+PASS | U1-X-DEL-locations | u1 tidak bisa hapus baris org2 di locations | harap=rows:0 | aktual=rows:0
+PASS | U1-X-DEL-rooms | u1 tidak bisa hapus baris org2 di rooms | harap=rows:0 | aktual=rows:0
+PASS | U1-X-DEL-tenants | u1 tidak bisa hapus baris org2 di tenants | harap=rows:0 | aktual=rows:0
+PASS | U1-X-DEL-rentals | u1 tidak bisa hapus baris org2 di rentals | harap=rows:0 | aktual=rows:0
+PASS | U1-X-DEL-incomes | u1 tidak bisa hapus baris org2 di incomes | harap=rows:0 | aktual=rows:0
+PASS | U1-X-DEL-expenses | u1 tidak bisa hapus baris org2 di expenses | harap=rows:0 | aktual=rows:0
+PASS | U1-X-DEL-inventories | u1 tidak bisa hapus baris org2 di inventories | harap=rows:0 | aktual=rows:0
+PASS | U1-X-INS-01 | u1 tidak bisa insert lokasi dengan org_id org2 | harap=denied | aktual=denied
+PASS | U1-X-INS-02 | u1 tidak bisa tambah kamar ke lokasi org2 | harap=denied | aktual=denied
+PASS | U1-X-INS-03 | u1 tidak bisa buat sewa dengan penghuni org2 | harap=denied | aktual=denied
+PASS | U1-X-INS-04 | u1 tidak bisa buat sewa di kamar org2 | harap=denied | aktual=denied
+PASS | U1-X-INS-05 | u1 tidak bisa catat pemasukan ke sewa org2 | harap=denied | aktual=denied
+PASS | U1-X-INS-06 | u1 tidak bisa catat pengeluaran ke lokasi org2 | harap=denied | aktual=denied
+PASS | U1-X-INS-07 | u1 tidak bisa tambah inventaris ke kamar org2 (lokasi sendiri) | harap=denied | aktual=denied
+PASS | U1-X-MOV-01 | u1 tidak bisa memindah baris org1 ke org2 | harap=denied | aktual=denied
+PASS | U1-X-MOV-02 | u1 tidak bisa memindah kamar org1 ke lokasi org2 | harap=denied | aktual=denied
+PASS | U1-M-01 | u1 tidak bisa join sendiri ke org2 | harap=denied | aktual=denied
+PASS | U1-M-02 | u1 tidak bisa mengubah role sendiri | harap=rows:0 | aktual=rows:0
+PASS | U1-M-03 | u1 tidak bisa memindah keanggotaan sendiri ke org2 | harap=rows:0 | aktual=rows:0
+PASS | U1-M-04 | u1 (owner) bisa menambah user tanpa org sebagai staff org1 | harap=rows:1 | aktual=rows:1
+PASS | U1-M-05 | u1 tidak bisa menambah anggota ke org2 | harap=denied | aktual=denied
+PASS | U1-M-06 | u1 tidak bisa menghapus anggota org2 | harap=rows:0 | aktual=rows:0
+PASS | U1-M-07 | u1 tidak bisa mengeluarkan diri sendiri | harap=rows:0 | aktual=rows:0
+PASS | U1-M-08 | u1 tidak bisa membuat organisasi baru | harap=denied | aktual=denied
+PASS | U1-M-09 | u1 (owner) bisa ganti nama organisasinya | harap=rows:1 | aktual=rows:1
+PASS | U1-M-10 | u1 tidak bisa ganti nama org2 | harap=rows:0 | aktual=rows:0
+PASS | U2-SEE-locations | u2 melihat semua baris org1 di locations | harap=rows:2 | aktual=rows:2
+PASS | U2-SEE-rooms | u2 melihat semua baris org1 di rooms | harap=rows:2 | aktual=rows:2
+PASS | U2-SEE-tenants | u2 melihat semua baris org1 di tenants | harap=rows:3 | aktual=rows:3
+PASS | U2-SEE-rentals | u2 melihat semua baris org1 di rentals | harap=rows:2 | aktual=rows:2
+PASS | U2-SEE-incomes | u2 melihat semua baris org1 di incomes | harap=rows:2 | aktual=rows:2
+PASS | U2-SEE-expenses | u2 melihat semua baris org1 di expenses | harap=rows:1 | aktual=rows:1
+PASS | U2-SEE-inventories | u2 melihat semua baris org1 di inventories | harap=rows:1 | aktual=rows:1
+PASS | U2-ORG-01 | u2 melihat organisasinya (hanya 1) | harap=rows:1 | aktual=rows:1
+PASS | U2-ORG-02 | u2 melihat daftar anggota org1 (2 owner) | harap=rows:2 | aktual=rows:2
+PASS | U2-ORG-03 | u2: is_org_member(org2) = false | harap=rows:0 | aktual=rows:0
+PASS | U2-S-READ-01 | u2 bisa baca KTP lama unggahan u2 (dipindah ke folder org1) | harap=rows:1 | aktual=rows:1
+PASS | U2-S-READ-02 | u2 bisa baca KTP lama unggahan u1 (dipindah ke folder org1) | harap=rows:1 | aktual=rows:1
+PASS | U2-S-READ-03 | u2 bisa baca nota lama (dipindah ke folder org1) | harap=rows:1 | aktual=rows:1
+PASS | U2-S-READ-04 | u2 TIDAK melihat file root yang tidak dipindah (ktp_orphan.jpg) | harap=rows:0 | aktual=rows:0
+PASS | U2-S-READ-05 | u2 tidak melihat KTP org2 | harap=rows:0 | aktual=rows:0
+PASS | U2-INS-01 | u2 bisa tambah lokasi tanpa mengirim org_id | harap=rows:1 | aktual=rows:1
+PASS | U2-INS-02 | u2 bisa tambah kamar di lokasi org1 | harap=rows:1 | aktual=rows:1
+PASS | U2-INS-03 | u2 bisa catat pemasukan tanpa rental (FK nullable) | harap=rows:1 | aktual=rows:1
+PASS | U2-INS-04 | u2 CHECK incomes tetap berlaku (nominal 0 ditolak) | harap=error:23514 new row for relation "incomes" violates check constraint "incomes_nominal_positif_check" | aktual=error:23514 new row for relation "incomes" violates check constraint "incomes_nominal_positif_check"
+PASS | U2-UPD-01 | u2 bisa ubah data yang dibuat owner lain | harap=rows:1 | aktual=rows:1
+PASS | U2-DEL-01 | u2 bisa hapus pemasukan | harap=rows:1 | aktual=rows:1
+PASS | U2-PATH-01 | u2 bisa set foto_ktp_url ke <org1>/... | harap=rows:1 | aktual=rows:1
+PASS | U2-PATH-02 | u2 tidak bisa set foto_ktp_url ke path root | harap=denied | aktual=denied
+PASS | U2-PATH-03 | u2 tidak bisa menautkan KTP org2 ke penghuni org1 | harap=denied | aktual=denied
+PASS | U2-PATH-04 | u2 tidak bisa insert penghuni dengan KTP folder user (bukan org) | harap=denied | aktual=denied
+PASS | U2-PATH-05 | u2 tidak bisa pakai path dengan .. | harap=denied | aktual=denied
+PASS | U2-PATH-06 | u2 tidak bisa set bukti_nota_url ke path root | harap=denied | aktual=denied
+PASS | U2-PATH-07 | u2 update kolom lain tetap boleh walau path tidak diubah | harap=rows:1 | aktual=rows:1
+PASS | U2-S-UP-01 | u2 bisa upload ke folder org1 | harap=rows:1 | aktual=rows:1
+PASS | U2-S-UP-02 | u2 tidak bisa upload ke root bucket | harap=denied | aktual=denied
+PASS | U2-S-UP-03 | u2 tidak bisa upload ke folder <user_id>/ (skema lama) | harap=denied | aktual=denied
+PASS | U2-S-UP-04 | u2 tidak bisa upload ke folder org2 | harap=denied | aktual=denied
+PASS | U2-S-DEL-01 | u2 bisa hapus KTP yang diunggah owner lain (co-owner) | harap=rows:1 | aktual=rows:1
+PASS | U2-S-MOV-01 | u2 tidak bisa memindah file org1 ke folder org2 | harap=denied | aktual=denied
+PASS | U2-S-MOV-02 | u2 tidak bisa memindah file org1 ke root | harap=denied | aktual=denied
+PASS | U2-S-DEL-02 | u2 tidak bisa hapus KTP org2 | harap=rows:0 | aktual=rows:0
+PASS | U2-X-SEL-locations | u2 tidak bisa baca baris org2 di locations | harap=rows:0 | aktual=rows:0
+PASS | U2-X-SEL-rooms | u2 tidak bisa baca baris org2 di rooms | harap=rows:0 | aktual=rows:0
+PASS | U2-X-SEL-tenants | u2 tidak bisa baca baris org2 di tenants | harap=rows:0 | aktual=rows:0
+PASS | U2-X-SEL-rentals | u2 tidak bisa baca baris org2 di rentals | harap=rows:0 | aktual=rows:0
+PASS | U2-X-SEL-incomes | u2 tidak bisa baca baris org2 di incomes | harap=rows:0 | aktual=rows:0
+PASS | U2-X-SEL-expenses | u2 tidak bisa baca baris org2 di expenses | harap=rows:0 | aktual=rows:0
+PASS | U2-X-SEL-inventories | u2 tidak bisa baca baris org2 di inventories | harap=rows:0 | aktual=rows:0
+PASS | U2-X-UPD-locations | u2 tidak bisa ubah baris org2 di locations | harap=rows:0 | aktual=rows:0
+PASS | U2-X-UPD-rooms | u2 tidak bisa ubah baris org2 di rooms | harap=rows:0 | aktual=rows:0
+PASS | U2-X-UPD-tenants | u2 tidak bisa ubah baris org2 di tenants | harap=rows:0 | aktual=rows:0
+PASS | U2-X-UPD-rentals | u2 tidak bisa ubah baris org2 di rentals | harap=rows:0 | aktual=rows:0
+PASS | U2-X-UPD-incomes | u2 tidak bisa ubah baris org2 di incomes | harap=rows:0 | aktual=rows:0
+PASS | U2-X-UPD-expenses | u2 tidak bisa ubah baris org2 di expenses | harap=rows:0 | aktual=rows:0
+PASS | U2-X-UPD-inventories | u2 tidak bisa ubah baris org2 di inventories | harap=rows:0 | aktual=rows:0
+PASS | U2-X-DEL-locations | u2 tidak bisa hapus baris org2 di locations | harap=rows:0 | aktual=rows:0
+PASS | U2-X-DEL-rooms | u2 tidak bisa hapus baris org2 di rooms | harap=rows:0 | aktual=rows:0
+PASS | U2-X-DEL-tenants | u2 tidak bisa hapus baris org2 di tenants | harap=rows:0 | aktual=rows:0
+PASS | U2-X-DEL-rentals | u2 tidak bisa hapus baris org2 di rentals | harap=rows:0 | aktual=rows:0
+PASS | U2-X-DEL-incomes | u2 tidak bisa hapus baris org2 di incomes | harap=rows:0 | aktual=rows:0
+PASS | U2-X-DEL-expenses | u2 tidak bisa hapus baris org2 di expenses | harap=rows:0 | aktual=rows:0
+PASS | U2-X-DEL-inventories | u2 tidak bisa hapus baris org2 di inventories | harap=rows:0 | aktual=rows:0
+PASS | U2-X-INS-01 | u2 tidak bisa insert lokasi dengan org_id org2 | harap=denied | aktual=denied
+PASS | U2-X-INS-02 | u2 tidak bisa tambah kamar ke lokasi org2 | harap=denied | aktual=denied
+PASS | U2-X-INS-03 | u2 tidak bisa buat sewa dengan penghuni org2 | harap=denied | aktual=denied
+PASS | U2-X-INS-04 | u2 tidak bisa buat sewa di kamar org2 | harap=denied | aktual=denied
+PASS | U2-X-INS-05 | u2 tidak bisa catat pemasukan ke sewa org2 | harap=denied | aktual=denied
+PASS | U2-X-INS-06 | u2 tidak bisa catat pengeluaran ke lokasi org2 | harap=denied | aktual=denied
+PASS | U2-X-INS-07 | u2 tidak bisa tambah inventaris ke kamar org2 (lokasi sendiri) | harap=denied | aktual=denied
+PASS | U2-X-MOV-01 | u2 tidak bisa memindah baris org1 ke org2 | harap=denied | aktual=denied
+PASS | U2-X-MOV-02 | u2 tidak bisa memindah kamar org1 ke lokasi org2 | harap=denied | aktual=denied
+PASS | U2-M-01 | u2 tidak bisa join sendiri ke org2 | harap=denied | aktual=denied
+PASS | U2-M-02 | u2 tidak bisa mengubah role sendiri | harap=rows:0 | aktual=rows:0
+PASS | U2-M-03 | u2 tidak bisa memindah keanggotaan sendiri ke org2 | harap=rows:0 | aktual=rows:0
+PASS | U2-M-04 | u2 (owner) bisa menambah user tanpa org sebagai staff org1 | harap=rows:1 | aktual=rows:1
+PASS | U2-M-05 | u2 tidak bisa menambah anggota ke org2 | harap=denied | aktual=denied
+PASS | U2-M-06 | u2 tidak bisa menghapus anggota org2 | harap=rows:0 | aktual=rows:0
+PASS | U2-M-07 | u2 tidak bisa mengeluarkan diri sendiri | harap=rows:0 | aktual=rows:0
+PASS | U2-M-08 | u2 tidak bisa membuat organisasi baru | harap=denied | aktual=denied
+PASS | U2-M-09 | u2 (owner) bisa ganti nama organisasinya | harap=rows:1 | aktual=rows:1
+PASS | U2-M-10 | u2 tidak bisa ganti nama org2 | harap=rows:0 | aktual=rows:0
+PASS | C-SEE-locations | owner org2 hanya melihat 1 baris org2 di locations | harap=rows:1 | aktual=rows:1
+PASS | C-SEE-rooms | owner org2 hanya melihat 1 baris org2 di rooms | harap=rows:1 | aktual=rows:1
+PASS | C-SEE-tenants | owner org2 hanya melihat 1 baris org2 di tenants | harap=rows:1 | aktual=rows:1
+PASS | C-SEE-rentals | owner org2 hanya melihat 1 baris org2 di rentals | harap=rows:1 | aktual=rows:1
+PASS | C-SEE-incomes | owner org2 hanya melihat 1 baris org2 di incomes | harap=rows:1 | aktual=rows:1
+PASS | C-SEE-expenses | owner org2 hanya melihat 1 baris org2 di expenses | harap=rows:1 | aktual=rows:1
+PASS | C-SEE-inventories | owner org2 hanya melihat 1 baris org2 di inventories | harap=rows:1 | aktual=rows:1
+PASS | C-S-01 | owner org2 tidak melihat KTP org1 (termasuk file lama yang dipindah) | harap=rows:0 | aktual=rows:0
+PASS | C-S-02 | owner org2 melihat KTP org2 | harap=rows:1 | aktual=rows:1
+PASS | C-M-01 | owner org2 bisa menambah user tanpa org ke org2 (kontrol positif utk staff) | harap=rows:1 | aktual=rows:1
+PASS | C-M-02 | owner org2 tidak bisa memindah owner org1 ke org2 | harap=rows:0 | aktual=rows:0
+PASS | S-SEE-01 | staff org2 melihat data org2 | harap=rows:1 | aktual=rows:1
+PASS | S-SEE-02 | staff org2 melihat anggota org2 | harap=rows:2 | aktual=rows:2
+PASS | S-M-01 | staff TIDAK bisa menambah anggota | harap=denied | aktual=denied
+PASS | S-M-02 | staff tidak bisa menaikkan role sendiri | harap=rows:0 | aktual=rows:0
+PASS | S-M-03 | staff tidak bisa menghapus owner | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-locations | user tanpa org tidak melihat apa pun di locations | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-rooms | user tanpa org tidak melihat apa pun di rooms | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-tenants | user tanpa org tidak melihat apa pun di tenants | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-rentals | user tanpa org tidak melihat apa pun di rentals | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-incomes | user tanpa org tidak melihat apa pun di incomes | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-expenses | user tanpa org tidak melihat apa pun di expenses | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-inventories | user tanpa org tidak melihat apa pun di inventories | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-organizations | user tanpa org tidak melihat apa pun di organizations | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-organization_members | user tanpa org tidak melihat apa pun di organization_members | harap=rows:0 | aktual=rows:0
+PASS | D-INS-01 | user tanpa org tidak bisa insert (current_org_id menolak) | harap=denied | aktual=denied
+PASS | D-INS-02 | user tanpa org tidak bisa insert dengan org_id org1 | harap=denied | aktual=denied
+PASS | D-M-01 | user tanpa org tidak bisa join sendiri ke org1 | harap=denied | aktual=denied
+PASS | D-S-01 | user tanpa org tidak melihat file apa pun | harap=rows:0 | aktual=rows:0
+PASS | D-S-02 | user tanpa org tidak bisa upload ke folder org1 | harap=denied | aktual=denied
+PASS | CFG-01 | Bucket ktp_images & receipt_images private, 5 MB, hanya jpeg/png/webp | harap=rows:2 | aktual=rows:2
+PASS | CFG-02 | RLS aktif di 9 tabel (7 aplikasi + 2 organisasi) | harap=rows:9 | aktual=rows:9
+PASS | CFG-03 | org_id NOT NULL + default current_org_id() di 7 tabel | harap=rows:7 | aktual=rows:7
+PASS | CFG-04 | anon tidak punya hak apa pun di 9 tabel | harap=rows:0 | aktual=rows:0
+PASS | CFG-05 | Policy lama "Hanya user login ..." & "Izinkan ... KTP" sudah tidak ada | harap=rows:0 | aktual=rows:0
+PASS | CFG-06 | Helper SECURITY DEFINER dengan search_path kosong | harap=rows:3 | aktual=rows:3
+PASS | CFG-07 | Tidak ada referensi file di luar folder org | harap=rows:0 | aktual=rows:0
+PASS | CFG-08 | unique(user_id): user tidak bisa jadi anggota 2 org (dicek sebagai superuser) | harap=error:23505 duplicate key value violates unique constraint "organization_members_user_id_key" | aktual=error:23505 duplicate key value violates unique constraint "organization_members_user_id_key"
+PASS | CFG-09 | Guard RESTRICTIVE terpasang | harap=rows:1 | aktual=rows:1
+--- S1 Deploy normal (2 owner, org kedua, user tanpa org, anon): 204/204 lulus
+
+=== S2 Backfill: jumlah user di auth.users ===
+PASS | S2-01 | 20261010000200_organizations_and_backfill.sql menolak apply: ERROR:  Backfill dibatalkan: auth.users berisi 3 user, diharapkan 2.
+PASS | S2-02 | setelah ditolak tidak ada sisa (transaksi di-rollback)
+PASS | S2-03 | override: 3 user jadi owner org SimKos, semua baris punya org_id
+PASS | S2-04 | 2 user (seperti live) -> keduanya owner org 'SimKos', org_id NOT NULL di 7 tabel
+PASS | S2-05 | hanya migration 200: policy lama masih ada (app lama tetap jalan)
+PASS | S2-06 | 20261010000200_organizations_and_backfill.sql menolak apply: ERROR:  relation "organizations" already exists
+
+=== S3 Migration 300 sebelum file dipindah ===
+PASS | S3-01 | 20261010000300_private_storage_buckets.sql menolak apply: ERROR:  Migration dibatalkan: 3 baris masih menunjuk file di luar folder "<org_id>/". Setelah migration ini file tsb tidak bisa dibuka.
+PASS | S3-02 | policy storage lama masih utuh setelah penolakan
+
+=== S4 Policy storage generik 'using (true)' ===
+PASS | S4-01 | 20261010000300_private_storage_buckets.sql menolak apply: ERROR:  Migration dibatalkan: ada policy storage.objects permisif yang tidak membatasi bucket/pemilik, sehingga ktp_images/receipt_images tetap bisa d
+
+=== S5 Policy permisif 'x or true' + 'owner not null' + guard RESTRICTIVE (dengan user org lain) ===
+PASS | ANON-T-locations | anon tidak bisa baca tabel locations | harap=denied | aktual=denied
+PASS | ANON-T-rooms | anon tidak bisa baca tabel rooms | harap=denied | aktual=denied
+PASS | ANON-T-tenants | anon tidak bisa baca tabel tenants | harap=denied | aktual=denied
+PASS | ANON-T-rentals | anon tidak bisa baca tabel rentals | harap=denied | aktual=denied
+PASS | ANON-T-incomes | anon tidak bisa baca tabel incomes | harap=denied | aktual=denied
+PASS | ANON-T-expenses | anon tidak bisa baca tabel expenses | harap=denied | aktual=denied
+PASS | ANON-T-inventories | anon tidak bisa baca tabel inventories | harap=denied | aktual=denied
+PASS | ANON-T-organizations | anon tidak bisa baca tabel organizations | harap=denied | aktual=denied
+PASS | ANON-T-organization_members | anon tidak bisa baca tabel organization_members | harap=denied | aktual=denied
+PASS | ANON-T-INS | anon tidak bisa insert inventories (dulu RLS mati) | harap=denied | aktual=denied
+PASS | ANON-S-01 | anon tidak bisa lihat objek ktp_images | harap=rows:0 | aktual=rows:0
+PASS | ANON-S-02 | anon tidak bisa lihat objek receipt_images | harap=rows:0 | aktual=rows:0
+PASS | ANON-S-03 | anon tidak bisa upload ke folder org1 | harap=denied | aktual=denied
+PASS | U1-SEE-locations | u1 melihat semua baris org1 di locations | harap=rows:2 | aktual=rows:2
+PASS | U1-SEE-rooms | u1 melihat semua baris org1 di rooms | harap=rows:2 | aktual=rows:2
+PASS | U1-SEE-tenants | u1 melihat semua baris org1 di tenants | harap=rows:3 | aktual=rows:3
+PASS | U1-SEE-rentals | u1 melihat semua baris org1 di rentals | harap=rows:2 | aktual=rows:2
+PASS | U1-SEE-incomes | u1 melihat semua baris org1 di incomes | harap=rows:2 | aktual=rows:2
+PASS | U1-SEE-expenses | u1 melihat semua baris org1 di expenses | harap=rows:1 | aktual=rows:1
+PASS | U1-SEE-inventories | u1 melihat semua baris org1 di inventories | harap=rows:1 | aktual=rows:1
+PASS | U1-ORG-01 | u1 melihat organisasinya (hanya 1) | harap=rows:1 | aktual=rows:1
+PASS | U1-ORG-02 | u1 melihat daftar anggota org1 (2 owner) | harap=rows:2 | aktual=rows:2
+PASS | U1-ORG-03 | u1: is_org_member(org2) = false | harap=rows:0 | aktual=rows:0
+PASS | U1-S-READ-01 | u1 bisa baca KTP lama unggahan u2 (dipindah ke folder org1) | harap=rows:1 | aktual=rows:1
+PASS | U1-S-READ-02 | u1 bisa baca KTP lama unggahan u1 (dipindah ke folder org1) | harap=rows:1 | aktual=rows:1
+PASS | U1-S-READ-03 | u1 bisa baca nota lama (dipindah ke folder org1) | harap=rows:1 | aktual=rows:1
+PASS | U1-S-READ-04 | u1 TIDAK melihat file root yang tidak dipindah (ktp_orphan.jpg) | harap=rows:0 | aktual=rows:0
+PASS | U1-S-READ-05 | u1 tidak melihat KTP org2 | harap=rows:0 | aktual=rows:0
+PASS | U1-INS-01 | u1 bisa tambah lokasi tanpa mengirim org_id | harap=rows:1 | aktual=rows:1
+PASS | U1-INS-02 | u1 bisa tambah kamar di lokasi org1 | harap=rows:1 | aktual=rows:1
+PASS | U1-INS-03 | u1 bisa catat pemasukan tanpa rental (FK nullable) | harap=rows:1 | aktual=rows:1
+PASS | U1-INS-04 | u1 CHECK incomes tetap berlaku (nominal 0 ditolak) | harap=error:23514 new row for relation "incomes" violates check constraint "incomes_nominal_positif_check" | aktual=error:23514 new row for relation "incomes" violates check constraint "incomes_nominal_positif_check"
+PASS | U1-UPD-01 | u1 bisa ubah data yang dibuat owner lain | harap=rows:1 | aktual=rows:1
+PASS | U1-DEL-01 | u1 bisa hapus pemasukan | harap=rows:1 | aktual=rows:1
+PASS | U1-PATH-01 | u1 bisa set foto_ktp_url ke <org1>/... | harap=rows:1 | aktual=rows:1
+PASS | U1-PATH-02 | u1 tidak bisa set foto_ktp_url ke path root | harap=denied | aktual=denied
+PASS | U1-PATH-03 | u1 tidak bisa menautkan KTP org2 ke penghuni org1 | harap=denied | aktual=denied
+PASS | U1-PATH-04 | u1 tidak bisa insert penghuni dengan KTP folder user (bukan org) | harap=denied | aktual=denied
+PASS | U1-PATH-05 | u1 tidak bisa pakai path dengan .. | harap=denied | aktual=denied
+PASS | U1-PATH-06 | u1 tidak bisa set bukti_nota_url ke path root | harap=denied | aktual=denied
+PASS | U1-PATH-07 | u1 update kolom lain tetap boleh walau path tidak diubah | harap=rows:1 | aktual=rows:1
+PASS | U1-S-UP-01 | u1 bisa upload ke folder org1 | harap=rows:1 | aktual=rows:1
+PASS | U1-S-UP-02 | u1 tidak bisa upload ke root bucket | harap=denied | aktual=denied
+PASS | U1-S-UP-03 | u1 tidak bisa upload ke folder <user_id>/ (skema lama) | harap=denied | aktual=denied
+PASS | U1-S-UP-04 | u1 tidak bisa upload ke folder org2 | harap=denied | aktual=denied
+PASS | U1-S-DEL-01 | u1 bisa hapus KTP yang diunggah owner lain (co-owner) | harap=rows:1 | aktual=rows:1
+PASS | U1-S-MOV-01 | u1 tidak bisa memindah file org1 ke folder org2 | harap=denied | aktual=denied
+PASS | U1-S-MOV-02 | u1 tidak bisa memindah file org1 ke root | harap=denied | aktual=denied
+PASS | U1-S-DEL-02 | u1 tidak bisa hapus KTP org2 | harap=rows:0 | aktual=rows:0
+PASS | U1-X-SEL-locations | u1 tidak bisa baca baris org2 di locations | harap=rows:0 | aktual=rows:0
+PASS | U1-X-SEL-rooms | u1 tidak bisa baca baris org2 di rooms | harap=rows:0 | aktual=rows:0
+PASS | U1-X-SEL-tenants | u1 tidak bisa baca baris org2 di tenants | harap=rows:0 | aktual=rows:0
+PASS | U1-X-SEL-rentals | u1 tidak bisa baca baris org2 di rentals | harap=rows:0 | aktual=rows:0
+PASS | U1-X-SEL-incomes | u1 tidak bisa baca baris org2 di incomes | harap=rows:0 | aktual=rows:0
+PASS | U1-X-SEL-expenses | u1 tidak bisa baca baris org2 di expenses | harap=rows:0 | aktual=rows:0
+PASS | U1-X-SEL-inventories | u1 tidak bisa baca baris org2 di inventories | harap=rows:0 | aktual=rows:0
+PASS | U1-X-UPD-locations | u1 tidak bisa ubah baris org2 di locations | harap=rows:0 | aktual=rows:0
+PASS | U1-X-UPD-rooms | u1 tidak bisa ubah baris org2 di rooms | harap=rows:0 | aktual=rows:0
+PASS | U1-X-UPD-tenants | u1 tidak bisa ubah baris org2 di tenants | harap=rows:0 | aktual=rows:0
+PASS | U1-X-UPD-rentals | u1 tidak bisa ubah baris org2 di rentals | harap=rows:0 | aktual=rows:0
+PASS | U1-X-UPD-incomes | u1 tidak bisa ubah baris org2 di incomes | harap=rows:0 | aktual=rows:0
+PASS | U1-X-UPD-expenses | u1 tidak bisa ubah baris org2 di expenses | harap=rows:0 | aktual=rows:0
+PASS | U1-X-UPD-inventories | u1 tidak bisa ubah baris org2 di inventories | harap=rows:0 | aktual=rows:0
+PASS | U1-X-DEL-locations | u1 tidak bisa hapus baris org2 di locations | harap=rows:0 | aktual=rows:0
+PASS | U1-X-DEL-rooms | u1 tidak bisa hapus baris org2 di rooms | harap=rows:0 | aktual=rows:0
+PASS | U1-X-DEL-tenants | u1 tidak bisa hapus baris org2 di tenants | harap=rows:0 | aktual=rows:0
+PASS | U1-X-DEL-rentals | u1 tidak bisa hapus baris org2 di rentals | harap=rows:0 | aktual=rows:0
+PASS | U1-X-DEL-incomes | u1 tidak bisa hapus baris org2 di incomes | harap=rows:0 | aktual=rows:0
+PASS | U1-X-DEL-expenses | u1 tidak bisa hapus baris org2 di expenses | harap=rows:0 | aktual=rows:0
+PASS | U1-X-DEL-inventories | u1 tidak bisa hapus baris org2 di inventories | harap=rows:0 | aktual=rows:0
+PASS | U1-X-INS-01 | u1 tidak bisa insert lokasi dengan org_id org2 | harap=denied | aktual=denied
+PASS | U1-X-INS-02 | u1 tidak bisa tambah kamar ke lokasi org2 | harap=denied | aktual=denied
+PASS | U1-X-INS-03 | u1 tidak bisa buat sewa dengan penghuni org2 | harap=denied | aktual=denied
+PASS | U1-X-INS-04 | u1 tidak bisa buat sewa di kamar org2 | harap=denied | aktual=denied
+PASS | U1-X-INS-05 | u1 tidak bisa catat pemasukan ke sewa org2 | harap=denied | aktual=denied
+PASS | U1-X-INS-06 | u1 tidak bisa catat pengeluaran ke lokasi org2 | harap=denied | aktual=denied
+PASS | U1-X-INS-07 | u1 tidak bisa tambah inventaris ke kamar org2 (lokasi sendiri) | harap=denied | aktual=denied
+PASS | U1-X-MOV-01 | u1 tidak bisa memindah baris org1 ke org2 | harap=denied | aktual=denied
+PASS | U1-X-MOV-02 | u1 tidak bisa memindah kamar org1 ke lokasi org2 | harap=denied | aktual=denied
+PASS | U1-M-01 | u1 tidak bisa join sendiri ke org2 | harap=denied | aktual=denied
+PASS | U1-M-02 | u1 tidak bisa mengubah role sendiri | harap=rows:0 | aktual=rows:0
+PASS | U1-M-03 | u1 tidak bisa memindah keanggotaan sendiri ke org2 | harap=rows:0 | aktual=rows:0
+PASS | U1-M-04 | u1 (owner) bisa menambah user tanpa org sebagai staff org1 | harap=rows:1 | aktual=rows:1
+PASS | U1-M-05 | u1 tidak bisa menambah anggota ke org2 | harap=denied | aktual=denied
+PASS | U1-M-06 | u1 tidak bisa menghapus anggota org2 | harap=rows:0 | aktual=rows:0
+PASS | U1-M-07 | u1 tidak bisa mengeluarkan diri sendiri | harap=rows:0 | aktual=rows:0
+PASS | U1-M-08 | u1 tidak bisa membuat organisasi baru | harap=denied | aktual=denied
+PASS | U1-M-09 | u1 (owner) bisa ganti nama organisasinya | harap=rows:1 | aktual=rows:1
+PASS | U1-M-10 | u1 tidak bisa ganti nama org2 | harap=rows:0 | aktual=rows:0
+PASS | U2-SEE-locations | u2 melihat semua baris org1 di locations | harap=rows:2 | aktual=rows:2
+PASS | U2-SEE-rooms | u2 melihat semua baris org1 di rooms | harap=rows:2 | aktual=rows:2
+PASS | U2-SEE-tenants | u2 melihat semua baris org1 di tenants | harap=rows:3 | aktual=rows:3
+PASS | U2-SEE-rentals | u2 melihat semua baris org1 di rentals | harap=rows:2 | aktual=rows:2
+PASS | U2-SEE-incomes | u2 melihat semua baris org1 di incomes | harap=rows:2 | aktual=rows:2
+PASS | U2-SEE-expenses | u2 melihat semua baris org1 di expenses | harap=rows:1 | aktual=rows:1
+PASS | U2-SEE-inventories | u2 melihat semua baris org1 di inventories | harap=rows:1 | aktual=rows:1
+PASS | U2-ORG-01 | u2 melihat organisasinya (hanya 1) | harap=rows:1 | aktual=rows:1
+PASS | U2-ORG-02 | u2 melihat daftar anggota org1 (2 owner) | harap=rows:2 | aktual=rows:2
+PASS | U2-ORG-03 | u2: is_org_member(org2) = false | harap=rows:0 | aktual=rows:0
+PASS | U2-S-READ-01 | u2 bisa baca KTP lama unggahan u2 (dipindah ke folder org1) | harap=rows:1 | aktual=rows:1
+PASS | U2-S-READ-02 | u2 bisa baca KTP lama unggahan u1 (dipindah ke folder org1) | harap=rows:1 | aktual=rows:1
+PASS | U2-S-READ-03 | u2 bisa baca nota lama (dipindah ke folder org1) | harap=rows:1 | aktual=rows:1
+PASS | U2-S-READ-04 | u2 TIDAK melihat file root yang tidak dipindah (ktp_orphan.jpg) | harap=rows:0 | aktual=rows:0
+PASS | U2-S-READ-05 | u2 tidak melihat KTP org2 | harap=rows:0 | aktual=rows:0
+PASS | U2-INS-01 | u2 bisa tambah lokasi tanpa mengirim org_id | harap=rows:1 | aktual=rows:1
+PASS | U2-INS-02 | u2 bisa tambah kamar di lokasi org1 | harap=rows:1 | aktual=rows:1
+PASS | U2-INS-03 | u2 bisa catat pemasukan tanpa rental (FK nullable) | harap=rows:1 | aktual=rows:1
+PASS | U2-INS-04 | u2 CHECK incomes tetap berlaku (nominal 0 ditolak) | harap=error:23514 new row for relation "incomes" violates check constraint "incomes_nominal_positif_check" | aktual=error:23514 new row for relation "incomes" violates check constraint "incomes_nominal_positif_check"
+PASS | U2-UPD-01 | u2 bisa ubah data yang dibuat owner lain | harap=rows:1 | aktual=rows:1
+PASS | U2-DEL-01 | u2 bisa hapus pemasukan | harap=rows:1 | aktual=rows:1
+PASS | U2-PATH-01 | u2 bisa set foto_ktp_url ke <org1>/... | harap=rows:1 | aktual=rows:1
+PASS | U2-PATH-02 | u2 tidak bisa set foto_ktp_url ke path root | harap=denied | aktual=denied
+PASS | U2-PATH-03 | u2 tidak bisa menautkan KTP org2 ke penghuni org1 | harap=denied | aktual=denied
+PASS | U2-PATH-04 | u2 tidak bisa insert penghuni dengan KTP folder user (bukan org) | harap=denied | aktual=denied
+PASS | U2-PATH-05 | u2 tidak bisa pakai path dengan .. | harap=denied | aktual=denied
+PASS | U2-PATH-06 | u2 tidak bisa set bukti_nota_url ke path root | harap=denied | aktual=denied
+PASS | U2-PATH-07 | u2 update kolom lain tetap boleh walau path tidak diubah | harap=rows:1 | aktual=rows:1
+PASS | U2-S-UP-01 | u2 bisa upload ke folder org1 | harap=rows:1 | aktual=rows:1
+PASS | U2-S-UP-02 | u2 tidak bisa upload ke root bucket | harap=denied | aktual=denied
+PASS | U2-S-UP-03 | u2 tidak bisa upload ke folder <user_id>/ (skema lama) | harap=denied | aktual=denied
+PASS | U2-S-UP-04 | u2 tidak bisa upload ke folder org2 | harap=denied | aktual=denied
+PASS | U2-S-DEL-01 | u2 bisa hapus KTP yang diunggah owner lain (co-owner) | harap=rows:1 | aktual=rows:1
+PASS | U2-S-MOV-01 | u2 tidak bisa memindah file org1 ke folder org2 | harap=denied | aktual=denied
+PASS | U2-S-MOV-02 | u2 tidak bisa memindah file org1 ke root | harap=denied | aktual=denied
+PASS | U2-S-DEL-02 | u2 tidak bisa hapus KTP org2 | harap=rows:0 | aktual=rows:0
+PASS | U2-X-SEL-locations | u2 tidak bisa baca baris org2 di locations | harap=rows:0 | aktual=rows:0
+PASS | U2-X-SEL-rooms | u2 tidak bisa baca baris org2 di rooms | harap=rows:0 | aktual=rows:0
+PASS | U2-X-SEL-tenants | u2 tidak bisa baca baris org2 di tenants | harap=rows:0 | aktual=rows:0
+PASS | U2-X-SEL-rentals | u2 tidak bisa baca baris org2 di rentals | harap=rows:0 | aktual=rows:0
+PASS | U2-X-SEL-incomes | u2 tidak bisa baca baris org2 di incomes | harap=rows:0 | aktual=rows:0
+PASS | U2-X-SEL-expenses | u2 tidak bisa baca baris org2 di expenses | harap=rows:0 | aktual=rows:0
+PASS | U2-X-SEL-inventories | u2 tidak bisa baca baris org2 di inventories | harap=rows:0 | aktual=rows:0
+PASS | U2-X-UPD-locations | u2 tidak bisa ubah baris org2 di locations | harap=rows:0 | aktual=rows:0
+PASS | U2-X-UPD-rooms | u2 tidak bisa ubah baris org2 di rooms | harap=rows:0 | aktual=rows:0
+PASS | U2-X-UPD-tenants | u2 tidak bisa ubah baris org2 di tenants | harap=rows:0 | aktual=rows:0
+PASS | U2-X-UPD-rentals | u2 tidak bisa ubah baris org2 di rentals | harap=rows:0 | aktual=rows:0
+PASS | U2-X-UPD-incomes | u2 tidak bisa ubah baris org2 di incomes | harap=rows:0 | aktual=rows:0
+PASS | U2-X-UPD-expenses | u2 tidak bisa ubah baris org2 di expenses | harap=rows:0 | aktual=rows:0
+PASS | U2-X-UPD-inventories | u2 tidak bisa ubah baris org2 di inventories | harap=rows:0 | aktual=rows:0
+PASS | U2-X-DEL-locations | u2 tidak bisa hapus baris org2 di locations | harap=rows:0 | aktual=rows:0
+PASS | U2-X-DEL-rooms | u2 tidak bisa hapus baris org2 di rooms | harap=rows:0 | aktual=rows:0
+PASS | U2-X-DEL-tenants | u2 tidak bisa hapus baris org2 di tenants | harap=rows:0 | aktual=rows:0
+PASS | U2-X-DEL-rentals | u2 tidak bisa hapus baris org2 di rentals | harap=rows:0 | aktual=rows:0
+PASS | U2-X-DEL-incomes | u2 tidak bisa hapus baris org2 di incomes | harap=rows:0 | aktual=rows:0
+PASS | U2-X-DEL-expenses | u2 tidak bisa hapus baris org2 di expenses | harap=rows:0 | aktual=rows:0
+PASS | U2-X-DEL-inventories | u2 tidak bisa hapus baris org2 di inventories | harap=rows:0 | aktual=rows:0
+PASS | U2-X-INS-01 | u2 tidak bisa insert lokasi dengan org_id org2 | harap=denied | aktual=denied
+PASS | U2-X-INS-02 | u2 tidak bisa tambah kamar ke lokasi org2 | harap=denied | aktual=denied
+PASS | U2-X-INS-03 | u2 tidak bisa buat sewa dengan penghuni org2 | harap=denied | aktual=denied
+PASS | U2-X-INS-04 | u2 tidak bisa buat sewa di kamar org2 | harap=denied | aktual=denied
+PASS | U2-X-INS-05 | u2 tidak bisa catat pemasukan ke sewa org2 | harap=denied | aktual=denied
+PASS | U2-X-INS-06 | u2 tidak bisa catat pengeluaran ke lokasi org2 | harap=denied | aktual=denied
+PASS | U2-X-INS-07 | u2 tidak bisa tambah inventaris ke kamar org2 (lokasi sendiri) | harap=denied | aktual=denied
+PASS | U2-X-MOV-01 | u2 tidak bisa memindah baris org1 ke org2 | harap=denied | aktual=denied
+PASS | U2-X-MOV-02 | u2 tidak bisa memindah kamar org1 ke lokasi org2 | harap=denied | aktual=denied
+PASS | U2-M-01 | u2 tidak bisa join sendiri ke org2 | harap=denied | aktual=denied
+PASS | U2-M-02 | u2 tidak bisa mengubah role sendiri | harap=rows:0 | aktual=rows:0
+PASS | U2-M-03 | u2 tidak bisa memindah keanggotaan sendiri ke org2 | harap=rows:0 | aktual=rows:0
+PASS | U2-M-04 | u2 (owner) bisa menambah user tanpa org sebagai staff org1 | harap=rows:1 | aktual=rows:1
+PASS | U2-M-05 | u2 tidak bisa menambah anggota ke org2 | harap=denied | aktual=denied
+PASS | U2-M-06 | u2 tidak bisa menghapus anggota org2 | harap=rows:0 | aktual=rows:0
+PASS | U2-M-07 | u2 tidak bisa mengeluarkan diri sendiri | harap=rows:0 | aktual=rows:0
+PASS | U2-M-08 | u2 tidak bisa membuat organisasi baru | harap=denied | aktual=denied
+PASS | U2-M-09 | u2 (owner) bisa ganti nama organisasinya | harap=rows:1 | aktual=rows:1
+PASS | U2-M-10 | u2 tidak bisa ganti nama org2 | harap=rows:0 | aktual=rows:0
+PASS | C-SEE-locations | owner org2 hanya melihat 1 baris org2 di locations | harap=rows:1 | aktual=rows:1
+PASS | C-SEE-rooms | owner org2 hanya melihat 1 baris org2 di rooms | harap=rows:1 | aktual=rows:1
+PASS | C-SEE-tenants | owner org2 hanya melihat 1 baris org2 di tenants | harap=rows:1 | aktual=rows:1
+PASS | C-SEE-rentals | owner org2 hanya melihat 1 baris org2 di rentals | harap=rows:1 | aktual=rows:1
+PASS | C-SEE-incomes | owner org2 hanya melihat 1 baris org2 di incomes | harap=rows:1 | aktual=rows:1
+PASS | C-SEE-expenses | owner org2 hanya melihat 1 baris org2 di expenses | harap=rows:1 | aktual=rows:1
+PASS | C-SEE-inventories | owner org2 hanya melihat 1 baris org2 di inventories | harap=rows:1 | aktual=rows:1
+PASS | C-S-01 | owner org2 tidak melihat KTP org1 (termasuk file lama yang dipindah) | harap=rows:0 | aktual=rows:0
+PASS | C-S-02 | owner org2 melihat KTP org2 | harap=rows:1 | aktual=rows:1
+PASS | C-M-01 | owner org2 bisa menambah user tanpa org ke org2 (kontrol positif utk staff) | harap=rows:1 | aktual=rows:1
+PASS | C-M-02 | owner org2 tidak bisa memindah owner org1 ke org2 | harap=rows:0 | aktual=rows:0
+PASS | S-SEE-01 | staff org2 melihat data org2 | harap=rows:1 | aktual=rows:1
+PASS | S-SEE-02 | staff org2 melihat anggota org2 | harap=rows:2 | aktual=rows:2
+PASS | S-M-01 | staff TIDAK bisa menambah anggota | harap=denied | aktual=denied
+PASS | S-M-02 | staff tidak bisa menaikkan role sendiri | harap=rows:0 | aktual=rows:0
+PASS | S-M-03 | staff tidak bisa menghapus owner | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-locations | user tanpa org tidak melihat apa pun di locations | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-rooms | user tanpa org tidak melihat apa pun di rooms | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-tenants | user tanpa org tidak melihat apa pun di tenants | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-rentals | user tanpa org tidak melihat apa pun di rentals | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-incomes | user tanpa org tidak melihat apa pun di incomes | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-expenses | user tanpa org tidak melihat apa pun di expenses | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-inventories | user tanpa org tidak melihat apa pun di inventories | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-organizations | user tanpa org tidak melihat apa pun di organizations | harap=rows:0 | aktual=rows:0
+PASS | D-SEE-organization_members | user tanpa org tidak melihat apa pun di organization_members | harap=rows:0 | aktual=rows:0
+PASS | D-INS-01 | user tanpa org tidak bisa insert (current_org_id menolak) | harap=denied | aktual=denied
+PASS | D-INS-02 | user tanpa org tidak bisa insert dengan org_id org1 | harap=denied | aktual=denied
+PASS | D-M-01 | user tanpa org tidak bisa join sendiri ke org1 | harap=denied | aktual=denied
+PASS | D-S-01 | user tanpa org tidak melihat file apa pun | harap=rows:0 | aktual=rows:0
+PASS | D-S-02 | user tanpa org tidak bisa upload ke folder org1 | harap=denied | aktual=denied
+PASS | CFG-01 | Bucket ktp_images & receipt_images private, 5 MB, hanya jpeg/png/webp | harap=rows:2 | aktual=rows:2
+PASS | CFG-02 | RLS aktif di 9 tabel (7 aplikasi + 2 organisasi) | harap=rows:9 | aktual=rows:9
+PASS | CFG-03 | org_id NOT NULL + default current_org_id() di 7 tabel | harap=rows:7 | aktual=rows:7
+PASS | CFG-04 | anon tidak punya hak apa pun di 9 tabel | harap=rows:0 | aktual=rows:0
+PASS | CFG-05 | Policy lama "Hanya user login ..." & "Izinkan ... KTP" sudah tidak ada | harap=rows:0 | aktual=rows:0
+PASS | CFG-06 | Helper SECURITY DEFINER dengan search_path kosong | harap=rows:3 | aktual=rows:3
+PASS | CFG-07 | Tidak ada referensi file di luar folder org | harap=rows:0 | aktual=rows:0
+PASS | CFG-08 | unique(user_id): user tidak bisa jadi anggota 2 org (dicek sebagai superuser) | harap=error:23505 duplicate key value violates unique constraint "organization_members_user_id_key" | aktual=error:23505 duplicate key value violates unique constraint "organization_members_user_id_key"
+PASS | CFG-09 | Guard RESTRICTIVE terpasang | harap=rows:1 | aktual=rows:1
+PASS | OTH-01 | anon tetap bisa baca bucket publik lain (avatars) | harap=rows:1 | aktual=rows:1
+PASS | OTH-02 | owner org2 tetap bisa baca bucket publik lain (avatars) | harap=rows:1 | aktual=rows:1
+--- S5 Policy permisif 'x or true' + 'owner not null' + guard RESTRICTIVE (dengan user org lain): 206/206 lulus
+
+=== S6 Kontrol: tanpa guard, policy 'x or true' membocorkan ===
+PASS | S6-01 | tanpa guard, owner org2 melihat KTP org1 (bukti guard diperlukan)
+
+=== S7 Rollback ===
+PASS | S7-01 | rollback_200_organizations.sql menolak apply: ERROR:  Policy storage migration 300 masih ada. Jalankan rollback_300_storage.sql dulu.
+PASS | S7-02 | policy storage live lama kembali persis, tanpa policy simkos
+PASS | S7-03 | bucket tetap private
+PASS | S7-04 | 7 policy tabel live lama kembali (auth.role() = 'authenticated')
+PASS | S7-05 | file yang sudah dipindah tetap terbaca u2 lewat policy lama
+PASS | S7-06 | rollback 200: kolom org_id & tabel organisasi hilang
+
+=== S8 Migration 400 inventories ===
+PASS | S8-01 | 4 kolom baru ada, nullable, tipe benar
+PASS | S8-02 | trigger inventories_receipt_path_org terpasang
+PASS | S8-03 | policy inventories tidak berubah (tetap 1: inventories_org_access)
+PASS | S8-04 | migration 400 idempotent (apply kedua lolos)
+
+=== S8 Inventaris setelah migration 400 ===
+PASS | INV-01 | u1 insert barang lengkap (kolom baru) dgn nota di folder org1 | harap=rows:1 | aktual=rows:1
+PASS | INV-02 | u1 insert tanpa nota & tanpa harga (semua kolom baru nullable) | harap=rows:1 | aktual=rows:1
+PASS | INV-03 | nota di root bucket ditolak trigger | harap=denied | aktual=denied
+PASS | INV-04 | nota di folder org2 ditolak trigger | harap=denied | aktual=denied
+PASS | INV-05 | path traversal ditolak | harap=denied | aktual=denied
+PASS | INV-06 | harga negatif ditolak constraint | harap=error:23514 new row for relation "inventories" violates check constraint "inventories_harga_nonnegative" | aktual=error:23514 new row for relation "inventories" violates check constraint "inventories_harga_nonnegative"
+PASS | INV-07 | tipe_fasilitas di luar kamar/umum ditolak | harap=error:23514 new row for relation "inventories" violates check constraint "inventories_tipe_fasilitas_check" | aktual=error:23514 new row for relation "inventories" violates check constraint "inventories_tipe_fasilitas_check"
+PASS | INV-08 | update kolom lain tanpa mengirim receipt_url lolos | harap=rows:1 | aktual=rows:1
+PASS | INV-09 | CAS ganti nota: receipt_url IS NULL cocok -> 1 baris | harap=rows:1 | aktual=rows:1
+PASS | INV-10 | CAS dgn "= NULL" tidak pernah cocok (alasan cabang .is()) | harap=rows:0 | aktual=rows:0
+PASS | INV-11 | u1 hapus barang org1 | harap=rows:1 | aktual=rows:1
+PASS | INV-12 | owner org2 tidak melihat barang org1 (kolom baru tidak membuka akses) | harap=rows:0 | aktual=rows:0
+PASS | INV-13 | owner org2 tidak bisa update receipt_url barang org1 | harap=rows:0 | aktual=rows:0
+PASS | INV-14 | owner org2 insert barang di lokasi org2 dgn nota org2 | harap=rows:1 | aktual=rows:1
+PASS | INV-15 | anon tidak bisa insert inventories | harap=denied | aktual=denied
+--- S8 Inventaris setelah migration 400: 15/15 lulus
+PASS | S8-05 | rollback_400_inventories_columns.sql menolak apply: ERROR:  Rollback dibatalkan: 1 baris inventories sudah berisi data di kolom baru. Backup dulu, lalu hapus guard ini secara sadar bila tetap ingin roll
+PASS | S8-06 | rollback 400: kolom & trigger hilang, data lama utuh
+PASS | S8-07 | migration 400 bisa diterapkan ulang setelah rollback
+PASS | S8-08 | 20261010000400_inventories_missing_columns.sql menolak apply: ERROR:  inventories.org_id tidak ada. Terapkan migration 200 dulu.
+PASS | S9-01 | u1 jadi admin, u2 tetap owner, org2 tidak berubah
+
+=== S9 Migration 500 peran admin ===
+PASS | ADM-01 | admin menurunkan owner (u2) jadi staff | harap=rows:1 | aktual=rows:1
+PASS | ADM-02 | admin TIDAK bisa menaikkan anggota jadi admin | harap=denied | aktual=denied
+PASS | ADM-03 | admin tidak bisa mengubah perannya sendiri | harap=rows:0 | aktual=rows:0
+PASS | ADM-04 | admin tidak bisa memindah org_id anggota (hanya kolom role yang boleh) | harap=denied | aktual=denied
+PASS | ADM-05 | admin tidak bisa mengganti user_id anggota | harap=denied | aktual=denied
+PASS | ADM-06 | admin mengeluarkan owner (u2) | harap=rows:1 | aktual=rows:1
+PASS | ADM-07 | admin tidak bisa keluar sendiri | harap=rows:0 | aktual=rows:0
+PASS | ADM-08 | admin menambah user baru sebagai owner | harap=rows:1 | aktual=rows:1
+PASS | ADM-09 | admin menambah user baru sebagai staff | harap=rows:1 | aktual=rows:1
+PASS | ADM-10 | admin TIDAK bisa menambah user sebagai admin | harap=denied | aktual=denied
+PASS | ADM-11 | insert tanpa role -> default staff (least-privilege) | harap=rows:1 | aktual=rows:1
+PASS | ADM-11b | admin tidak bisa mengisi created_at saat insert (grant kolom) | harap=denied | aktual=denied
+PASS | ADM-12 | admin org1 tidak bisa menambah anggota ke org2 | harap=denied | aktual=denied
+PASS | ADM-13 | admin org1 tidak bisa mengubah/menghapus anggota org2 | harap=rows:0 | aktual=rows:0
+PASS | ADM-14 | admin tetap bisa membaca data kos (penghuni org1) | harap=rows:1 | aktual=rows:1
+PASS | ADM-15 | admin boleh ganti nama org | harap=rows:1 | aktual=rows:1
+PASS | ADM-16 | admin membaca daftar anggota org1 | harap=rows:2 | aktual=rows:2
+PASS | OWN-01 | owner TIDAK bisa menurunkan admin | harap=rows:0 | aktual=rows:0
+PASS | OWN-02 | owner TIDAK bisa mengeluarkan admin | harap=rows:0 | aktual=rows:0
+PASS | OWN-03 | owner TIDAK bisa menaikkan dirinya jadi admin | harap=rows:0 | aktual=rows:0
+PASS | OWN-04 | owner TIDAK bisa menambah anggota | harap=denied | aktual=denied
+PASS | OWN-05 | owner TIDAK bisa keluar sendiri | harap=rows:0 | aktual=rows:0
+PASS | OWN-06 | owner tetap bisa membaca & mengubah data kos | harap=rows:1 | aktual=rows:1
+PASS | OWN-07 | owner tetap boleh ganti nama org | harap=rows:1 | aktual=rows:1
+PASS | ORG2-01 | owner org2 (tanpa admin) tidak bisa menambah anggota | harap=denied | aktual=denied
+PASS | ORG2-02 | owner org2 tidak bisa menurunkan staff/ menaikkan diri | harap=rows:0 | aktual=rows:0
+PASS | ORG2-03 | staff tidak bisa menaikkan dirinya jadi owner/admin | harap=rows:0 | aktual=rows:0
+PASS | ANON-01 | anon tidak bisa membaca anggota | harap=denied | aktual=denied
+PASS | DEF-01 | default role kolom = staff | harap=rows:1 | aktual=rows:1
+PASS | GRD-01 | service role tidak bisa menghapus admin terakhir org1 | harap=denied | aktual=denied
+PASS | GRD-02 | service role tidak bisa menurunkan admin terakhir | harap=denied | aktual=denied
+PASS | GRD-03 | service role tidak bisa memindah admin terakhir ke org lain | harap=denied | aktual=denied
+PASS | GRD-04 | hapus auth user admin terakhir (cascade) juga ditahan | harap=denied | aktual=denied
+PASS | GRD-05 | ganti admin lewat SQL: naikkan u2 dulu, lalu turunkan u1 -> boleh | harap=rows:0 | aktual=rows:0
+PASS | GRD-06 | hapus org yang hanya berisi admin (cascade) tidak ditahan guard | harap=rows:1 | aktual=rows:1
+PASS | GRD-07 | role di luar admin/owner/staff ditolak constraint | harap=error:23514 new row for relation "organization_members" violates check constraint "organization_members_role_check" | aktual=error:23514 new row for relation "organization_members" violates check constraint "organization_members_role_check"
+--- S9 Migration 500 peran admin: 36/36 lulus
+PASS | S9-02 | 500 dijalankan ulang (idempotent): org1 tetap 1 admin, policy tidak dobel
+
+=== S9 Rollback 500 ===
+PASS | S9-R1 | rollback: semua admin kembali owner, constraint & policy lama kembali
+PASS | S9-R2 | rollback: owner kembali bisa menurunkan owner lain (perilaku lama)
+PASS | S9-R3 | 500 bisa diterapkan ulang setelah rollback
+
+=== S9r Race guard admin terakhir (2 sesi) ===
+PASS | S9r-01 | dua admin diturunkan bersamaan -> minimal 1 admin tersisa
+PASS | S9r-02 | hapus akun auth admin A sambil admin B diturunkan -> minimal 1 admin tersisa
+
+=== S9b Migration 500: calon admin tidak ada ===
+PASS | S9b-01 | 20261010000500_org_admin_role.sql menolak apply: ERROR:  simkos.admin_user_id belum di-set.
+PASS | S9b-03 | .m500bad.sql menolak apply: ERROR:  Calon admin dddddddd-0000-0000-0000-00000000000d bukan anggota organisasi mana pun.
+PASS | S9b-02 | setelah ditolak tidak ada sisa
+
+=== S10 Migration 600 pindah kamar ===
+PASS | S10-01 | kolom tanggal_keluar (date) & catatan (text) nullable, 2 unique index parsial
+PASS | S10-02 | migration 600 idempotent (apply kedua lolos)
+PASS | S10-01b | constraint rooms_status_kamar_check persis ('Kosong','Terisi'), 1 buah
+PASS | S10-03 | policy rentals tidak berubah (tetap 1: rentals_org_access)
+
+=== S10 RPC pindah_kamar, daftar_penghuni, checkout_sewa, hapus_sewa + constraint status_kamar ===
+PASS | PK-ORG-SU | service/superuser: pindah sewa org1 ke kamar org2 ditolak guard org | harap=SIMKOS_BEDA_ORG | aktual=SIMKOS_BEDA_ORG
+PASS | PK-01 | pindah lintas lokasi (Kos Satu kamar 1 -> Kos Dua kamar 4): sewa lama ditutup, sewa baru dibuat | harap=ok | aktual=ok
+PASS | PK-02 | pemasukan lama tetap di rental_id lama, tidak ada yang pindah ke sewa baru | harap=ok | aktual=ok
+PASS | PK-03 | data & KTP penghuni tidak berubah; catatan tanpa alasan = "Pindah ke kamar 3" | harap=ok | aktual=ok
+PASS | PK-04 | pindah dua kali berturut-turut (1 -> 3 -> 4): kamar 3 kosong lagi, 1 sewa aktif | harap=ok | aktual=ok
+PASS | PK-05 | kamar tujuan sudah terisi (ada sewa aktif) ditolak | harap=SIMKOS_KAMAR_TERISI | aktual=SIMKOS_KAMAR_TERISI
+PASS | PK-06 | kamar tujuan berstatus Terisi (tanpa sewa) ditolak | harap=SIMKOS_KAMAR_TERISI | aktual=SIMKOS_KAMAR_TERISI
+PASS | PK-07 | kamar tujuan milik org lain tidak terlihat (RLS) -> ditolak | harap=SIMKOS_KAMAR_TIDAK_ADA | aktual=SIMKOS_KAMAR_TIDAK_ADA
+PASS | PK-08 | sewa milik org lain tidak bisa dipindah (RLS) | harap=SIMKOS_SEWA_TIDAK_ADA | aktual=SIMKOS_SEWA_TIDAK_ADA
+PASS | PK-09 | pindah ke kamar yang sama ditolak | harap=SIMKOS_KAMAR_SAMA | aktual=SIMKOS_KAMAR_SAMA
+PASS | PK-10 | sewa yang sudah checkout tidak bisa dipindah | harap=SIMKOS_SEWA_TIDAK_AKTIF | aktual=SIMKOS_SEWA_TIDAK_AKTIF
+PASS | PK-11 | tanggal pindah sebelum tanggal masuk ditolak | harap=SIMKOS_TANGGAL_SEBELUM_MASUK | aktual=SIMKOS_TANGGAL_SEBELUM_MASUK
+PASS | PK-12 | input kosong ditolak | harap=SIMKOS_INPUT_KOSONG | aktual=SIMKOS_INPUT_KOSONG
+PASS | PK-13 | pengaman terakhir: unique index menolak sewa aktif kedua di kamar yang sama (insert langsung) | harap=23505 | aktual=23505
+PASS | PK-14 | unique index menolak sewa aktif kedua untuk penghuni yang sama | harap=23505 | aktual=23505
+PASS | DP-01 | daftar penghuni ke kamar kosong: tenant + sewa aktif + kamar Terisi, org_id org1 | harap=ok | aktual=ok
+PASS | DP-02 | daftar ke kamar yang sudah terisi ditolak | harap=SIMKOS_KAMAR_TERISI | aktual=SIMKOS_KAMAR_TERISI
+PASS | DP-03 | atomik: gagal setelah tenant ter-insert -> tenant TIDAK tersisa, kamar tetap Kosong | harap=ok | aktual=ok
+PASS | DP-04 | path KTP di folder org lain ditolak trigger migration 300 | harap=42501 | aktual=42501
+PASS | DP-05 | kamar org lain tidak terlihat (RLS) -> ditolak | harap=SIMKOS_KAMAR_TIDAK_ADA | aktual=SIMKOS_KAMAR_TIDAK_ADA
+PASS | DP-06 | jatuh tempo sebelum tanggal masuk ditolak | harap=SIMKOS_TANGGAL_TEMPO | aktual=SIMKOS_TANGGAL_TEMPO
+PASS | DP-07 | nama kosong ditolak | harap=SIMKOS_INPUT_KOSONG | aktual=SIMKOS_INPUT_KOSONG
+PASS | DP-09 | tipe sewa harian diterima | harap=ok | aktual=ok
+PASS | DP-10 | tipe sewa di luar whitelist (mingguan) ditolak | harap=SIMKOS_TIPE_SEWA | aktual=SIMKOS_TIPE_SEWA
+PASS | DP-11 | tipe sewa beda huruf (Bulanan) ditolak: whitelist persis nilai form | harap=SIMKOS_TIPE_SEWA | aktual=SIMKOS_TIPE_SEWA
+PASS | CO-01 | checkout: sewa nonaktif + tanggal_keluar, kamar Kosong, reputasi & catatan penghuni, pemasukan utuh | harap=ok | aktual=ok
+PASS | CO-02 | setelah checkout, kamar bisa langsung didaftarkan lagi; catatan kosong -> NULL | harap=ok | aktual=ok
+PASS | CO-03 | reputasi di luar whitelist (blacklist huruf kecil) ditolak | harap=SIMKOS_REPUTASI | aktual=SIMKOS_REPUTASI
+PASS | CO-04 | reputasi NULL ditolak | harap=SIMKOS_INPUT_KOSONG | aktual=SIMKOS_INPUT_KOSONG
+PASS | CO-05 | checkout dua kali ditolak (sewa sudah tidak aktif) | harap=SIMKOS_SEWA_TIDAK_AKTIF | aktual=SIMKOS_SEWA_TIDAK_AKTIF
+PASS | CO-06 | tanggal checkout sebelum tanggal masuk ditolak | harap=SIMKOS_TANGGAL_KELUAR | aktual=SIMKOS_TANGGAL_KELUAR
+PASS | CO-07 | sewa milik org lain tidak bisa di-checkout (RLS) | harap=SIMKOS_SEWA_TIDAK_ADA | aktual=SIMKOS_SEWA_TIDAK_ADA
+PASS | CO-08 | atomik: gagal saat update reputasi -> sewa tetap aktif & kamar tetap Terisi | harap=ok | aktual=ok
+PASS | HS-01 | repro QA: pindah kamar 2 -> 3 (tanpa pemasukan sama sekali), lalu Hapus sewa baru -> ditolak (ada sewa lama) | harap=SIMKOS_ADA_RIWAYAT | aktual=SIMKOS_ADA_RIWAYAT
+PASS | HS-02 | setelah Hapus ditolak tidak ada yang berubah: sewa baru aktif, kamar 3 Terisi, penghuni & sewa lama utuh | harap=ok | aktual=ok
+PASS | HS-03 | pindah lalu Hapus, penghuni punya pemasukan di sewa lama -> ditolak | harap=SIMKOS_ADA_RIWAYAT | aktual=SIMKOS_ADA_RIWAYAT
+PASS | HS-04 | sewa yang punya pemasukan sendiri -> ditolak | harap=SIMKOS_ADA_RIWAYAT | aktual=SIMKOS_ADA_RIWAYAT
+PASS | HS-05 | pendaftaran baru lalu dicatat 1 pemasukan -> Hapus ditolak | harap=SIMKOS_ADA_RIWAYAT | aktual=SIMKOS_ADA_RIWAYAT
+PASS | HS-06 | pendaftaran baru tanpa pemasukan -> Hapus boleh: sewa & penghuni terhapus, kamar Kosong, path KTP dikembalikan | harap=ok | aktual=ok
+PASS | HS-07 | pendaftaran baru tanpa KTP -> Hapus boleh, path KTP NULL; kamar bisa didaftarkan lagi | harap=ok | aktual=ok
+PASS | HS-08 | sewa yang sudah checkout tidak bisa dihapus paksa | harap=SIMKOS_SEWA_TIDAK_AKTIF | aktual=SIMKOS_SEWA_TIDAK_AKTIF
+PASS | HS-09 | sewa milik org lain tidak bisa dihapus (RLS) | harap=SIMKOS_SEWA_TIDAK_ADA | aktual=SIMKOS_SEWA_TIDAK_ADA
+PASS | HS-10 | input kosong ditolak | harap=SIMKOS_INPUT_KOSONG | aktual=SIMKOS_INPUT_KOSONG
+PASS | ST-01 | insert kamar dengan status 'kosong' (huruf kecil) ditolak constraint | harap=23514 | aktual=23514
+PASS | ST-02 | update status kamar ke 'kosong' / ' Kosong' ditolak constraint | harap=23514 | aktual=23514
+PASS | ST-03 | status lama form Tambah Kamar ('lunas') ditolak constraint | harap=23514 | aktual=23514
+PASS | ST-04 | insert kamar 'Kosong' (nilai yang ditulis Tambah Kamar) diterima & bisa langsung didaftarkan | harap=ok | aktual=ok
+PASS | DP-08 | kamar berstatus Terisi tanpa sewa ditolak | harap=SIMKOS_KAMAR_TERISI | aktual=SIMKOS_KAMAR_TERISI
+PASS | PK-15 | admin org1 juga bisa memindah penghuni | harap=ok | aktual=ok
+PASS | PK-16 | staff org2 memindah penghuni org2 di org-nya sendiri | harap=ok | aktual=ok
+PASS | PK-17 | staff org2 tidak bisa memindah ke kamar org1 | harap=SIMKOS_KAMAR_TIDAK_ADA | aktual=SIMKOS_KAMAR_TIDAK_ADA
+PASS | PK-18 | user tanpa organisasi: sewa org1 tidak terlihat | harap=SIMKOS_SEWA_TIDAK_ADA | aktual=SIMKOS_SEWA_TIDAK_ADA
+PASS | ANON-PK | anon tidak bisa memanggil pindah_kamar | harap=42501 | aktual=42501
+PASS | ANON-CO | anon tidak bisa memanggil checkout_sewa | harap=42501 | aktual=42501
+PASS | ANON-HS | anon tidak bisa memanggil hapus_sewa | harap=42501 | aktual=42501
+PASS | ANON-DP | anon tidak bisa memanggil daftar_penghuni | harap=42501 | aktual=42501
+PASS | META-01 | keempat fungsi SECURITY INVOKER, search_path kosong, public tidak punya EXECUTE | harap=ok | aktual=ok
+--- S10 RPC pindah_kamar, daftar_penghuni, checkout_sewa, hapus_sewa + constraint status_kamar: 57/57 lulus
+
+=== S10r Race kamar tujuan yang sama (2 sesi) ===
+PASS | S10r-01 | admin & owner memindah 2 penghuni berbeda ke kamar 3 bersamaan -> 1 berhasil [ditolak: 1 sesi]
+PASS | S10r-02 | pindah kamar & daftar penghuni baru ke kamar 3 bersamaan -> 1 berhasil [ditolak: 1 sesi]
+
+=== S10b Rollback 600 & guard ===
+PASS | S10b-01 | rollback_600_pindah_kamar.sql menolak apply: ERROR:  Rollback dibatalkan: 2 baris rentals sudah berisi data di kolom tanggal_keluar/catatan. Backup dulu, lalu hapus guard ini secara sadar bila te
+PASS | S10b-02 | rollback: fungsi, index, kolom hilang; sewa & pemasukan tetap
+PASS | S10b-03 | migration 600 bisa diterapkan ulang setelah rollback
+PASS | S10b-04 | 20261018000600_pindah_kamar.sql menolak apply: ERROR:  Migration dibatalkan: 1 kamar punya lebih dari satu sewa aktif (contoh room_id c1000000-0000-0000-0000-000000000002).
+PASS | S10b-05 | setelah ditolak tidak ada sisa (kolom & fungsi tidak dibuat)
+
+=== S10d Guard status_kamar di luar 'Kosong'/'Terisi' ===
+PASS | S10d-01 | 20261018000600_pindah_kamar.sql menolak apply: ERROR:  Migration dibatalkan: 2 kamar punya status_kamar di luar 'Kosong'/'Terisi' (nilai: 'kosong', 'lunas').
+PASS | S10d-02 | setelah ditolak tidak ada sisa (constraint, kolom, fungsi tidak dibuat; data tidak diubah)
+PASS | S10d-03 | setelah data diperbaiki (hint migration), migration 600 lolos
+PASS | S10c-01 | 20261018000600_pindah_kamar.sql menolak apply: ERROR:  rentals.org_id tidak ada. Terapkan migration 200 & 210 dulu.
+
+TOTAL GAGAL: 0

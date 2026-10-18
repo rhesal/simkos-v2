@@ -360,6 +360,7 @@ import { localDateStamp } from '../lib/date.js'
 import { useRouter, useRoute } from 'vue-router'
 import { supabase } from '../supabase.js'
 import { KTP_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile, removeStorageFile } from '../lib/storage.js'
+import { isRoomEmpty, rpcErrorMessage } from '../lib/sewa.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -381,9 +382,7 @@ const fileInputRef = ref(null)
 // --- Submit Steps Progress ---
 const submitSteps = ref([
   { label: 'Mengunggah foto KTP...', active: false, done: false },
-  { label: 'Menyimpan data penghuni...', active: false, done: false },
-  { label: 'Membuat data sewa...', active: false, done: false },
-  { label: 'Memperbarui status kamar...', active: false, done: false },
+  { label: 'Menyimpan penghuni, sewa & status kamar...', active: false, done: false },
 ])
 
 // --- Form ---
@@ -399,12 +398,9 @@ const form = reactive({
 })
 
 // --- Computed ---
-const availableRooms = computed(() => {
-  return roomList.value.filter(r => {
-    const s = (r.status || '').toLowerCase()
-    return s !== 'terisi'
-  })
-})
+// Hanya kamar berstatus Kosong (kolom live: status_kamar). Sama dengan
+// pengecekan RPC daftar_penghuni, jadi kamar terisi tidak bisa dipilih.
+const availableRooms = computed(() => roomList.value.filter(isRoomEmpty))
 
 const isFormValid = computed(() => {
   return (
@@ -522,9 +518,12 @@ function removeFile() {
   if (fileInputRef.value) fileInputRef.value.value = ''
 }
 
-// --- Submit: Sequential Database Operations ---
+// --- Submit: upload KTP, lalu SATU RPC atomik (migration 600) ---
+// daftar_penghuni menyimpan penghuni, sewa, dan status kamar Terisi dalam satu
+// transaksi: gagal di tengah = tidak ada yang tersimpan. Upload KTP tetap di
+// luar transaksi; bila RPC gagal, file yang baru diunggah dihapus lagi.
 async function handleSubmit() {
-  if (!isFormValid.value) return
+  if (!isFormValid.value || isSubmitting.value) return
 
   isSubmitting.value = true
   errorMsg.value = ''
@@ -534,7 +533,6 @@ async function handleSubmit() {
   submitSteps.value.forEach(s => { s.active = false; s.done = false })
 
   let ktpPath = ''
-  let tenantId = null
 
   try {
     // === STEP 1: Upload KTP ===
@@ -549,62 +547,34 @@ async function handleSubmit() {
     submitSteps.value[0].active = false
     submitSteps.value[0].done = true
 
-    // === STEP 2: Insert Tenant ===
+    // === STEP 2: Penghuni + sewa + status kamar (atomik) ===
     submitSteps.value[1].active = true
 
-    const { data: tenantData, error: tenantError } = await supabase
-      .from('tenants')
-      .insert({
-        nama_lengkap: form.nama_lengkap.trim(),
-        nomor_hp: form.nomor_hp.trim(),
-        kontak_darurat: form.kontak_darurat.trim() || null,
-        foto_ktp_url: ktpPath,
-      })
-      .select()
-      .single()
+    const { error: rpcError } = await supabase.rpc('daftar_penghuni', {
+      p_room_id: form.room_id,
+      p_nama_lengkap: form.nama_lengkap.trim(),
+      p_nomor_hp: form.nomor_hp.trim(),
+      p_kontak_darurat: form.kontak_darurat.trim() || null,
+      p_foto_ktp_url: ktpPath,
+      p_tipe_sewa: form.tipe_sewa,
+      p_tanggal_masuk: form.tanggal_masuk,
+      p_tanggal_jatuh_tempo: form.tanggal_jatuh_tempo,
+    })
 
-    if (tenantError) throw new Error(`Gagal simpan penghuni: ${tenantError.message}`)
+    if (rpcError) {
+      const err = new Error(`Gagal menyimpan pendaftaran: ${rpcErrorMessage(rpcError, 'Silakan coba lagi.')}`)
+      // Tanpa kode = tidak ada jawaban server (koneksi putus). Pendaftaran
+      // mungkin saja sudah tersimpan, jadi file KTP JANGAN dihapus.
+      err.keepKtp = !rpcError.code
+      throw err
+    }
 
-    tenantId = tenantData.id
     submitSteps.value[1].active = false
     submitSteps.value[1].done = true
 
-    // === STEP 3: Insert Rental ===
-    submitSteps.value[2].active = true
-
-    const { error: rentalError } = await supabase
-      .from('rentals')
-      .insert({
-        tenant_id: tenantId,
-        room_id: form.room_id,
-        tipe_sewa: form.tipe_sewa,
-        tanggal_masuk: form.tanggal_masuk,
-        tanggal_jatuh_tempo: form.tanggal_jatuh_tempo,
-        status_aktif: true,
-      })
-
-    if (rentalError) throw new Error(`Gagal simpan data sewa: ${rentalError.message}`)
-
-    submitSteps.value[2].active = false
-    submitSteps.value[2].done = true
-
-    // === STEP 4: Update Room Status ===
-    submitSteps.value[3].active = true
-
-    const { error: roomError } = await supabase
-      .from('rooms')
-      .update({ status_kamar: 'Terisi' })
-      .eq('id', form.room_id)
-
-    if (roomError) throw new Error(`Gagal update status kamar: ${roomError.message}`)
-
-    submitSteps.value[3].active = false
-    submitSteps.value[3].done = true
-
     // === SUCCESS ===
     isSubmitting.value = false
-    successMsg.value = `${form.nama_lengkap} berhasil didaftarkan!`
-    console.log('[SimKos] Pendaftaran penghuni sukses. Tenant ID:', tenantId)
+    successMsg.value = `${form.nama_lengkap.trim()} berhasil didaftarkan!`
 
     setTimeout(() => {
       router.push('/')
@@ -613,18 +583,14 @@ async function handleSubmit() {
   } catch (err) {
     isSubmitting.value = false
     errorMsg.value = err.message
-    console.error('[SimKos] Pendaftaran gagal:', err)
+    console.error('[SimKos] Pendaftaran gagal:', err.message)
 
-    // Cleanup: jika KTP sudah terunggah tapi proses selanjutnya gagal
-    if (ktpPath) {
-      console.log('[SimKos] Rollback: menghapus KTP yang sudah terunggah...')
+    // RPC atomik gagal -> tidak ada baris yang tersimpan; hapus file KTP yang
+    // sudah terunggah supaya tidak jadi file yatim.
+    if (ktpPath && !err.keepKtp) {
       await removeStorageFile(KTP_BUCKET, ktpPath)
-    }
-
-    // Cleanup: jika tenant sudah ter-insert tapi rental/room gagal
-    if (tenantId) {
-      console.log('[SimKos] Rollback: menghapus tenant yang sudah ter-insert...')
-      await supabase.from('tenants').delete().eq('id', tenantId)
+    } else if (ktpPath) {
+      errorMsg.value += ' Cek Denah Kos dulu sebelum mendaftar ulang, karena pendaftaran mungkin sudah tersimpan.'
     }
   }
 }
