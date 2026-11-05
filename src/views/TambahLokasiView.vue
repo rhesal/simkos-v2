@@ -13,8 +13,8 @@
           </svg>
         </button>
         <div>
-          <h1 class="text-2xl font-extrabold tracking-tight">Tambah Lokasi</h1>
-          <p class="text-sm text-blue-200 mt-0.5 font-medium">Tambahkan properti kos baru</p>
+          <h1 class="text-2xl font-extrabold tracking-tight">{{ isEditMode ? 'Ubah Nama Kos' : 'Tambah Lokasi' }}</h1>
+          <p class="text-sm text-blue-200 mt-0.5 font-medium">{{ isEditMode ? 'Perbarui nama atau alamat properti kos' : 'Tambahkan properti kos baru' }}</p>
         </div>
       </div>
     </header>
@@ -98,7 +98,7 @@
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          <span>{{ isSubmitting ? 'Menyimpan...' : 'Simpan Lokasi' }}</span>
+          <span>{{ isSubmitting ? 'Menyimpan...' : (isEditMode ? 'Simpan Perubahan' : 'Simpan Lokasi') }}</span>
         </button>
       </div>
 
@@ -108,11 +108,24 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { supabase } from '../supabase.js'
 
+const props = defineProps({
+  id: {
+    type: String,
+    default: null,
+  },
+})
+
 const router = useRouter()
+const route = useRoute()
+
+const locationId = computed(() => props.id || route.query.id || null)
+const isEditMode = computed(() => !!locationId.value)
+
+const isLoading = ref(false)
 const isSubmitting = ref(false)
 const successMsg = ref('')
 const errorMsg = ref('')
@@ -122,6 +135,27 @@ const form = reactive({
   alamat: '',
 })
 
+onMounted(async () => {
+  if (isEditMode.value) {
+    isLoading.value = true
+    const { data, error } = await supabase
+      .from('locations')
+      .select('*')
+      .eq('id', locationId.value)
+      .single()
+
+    isLoading.value = false
+
+    if (error) {
+      errorMsg.value = `Gagal memuat data lokasi: ${error.message}`
+      console.error('[Supabase] Fetch location error:', error)
+    } else if (data) {
+      form.nama_lokasi = data.nama_lokasi || ''
+      form.alamat = data.alamat || ''
+    }
+  }
+})
+
 async function handleSubmit() {
   if (!form.nama_lokasi.trim()) return
 
@@ -129,24 +163,46 @@ async function handleSubmit() {
   errorMsg.value = ''
   successMsg.value = ''
 
-  const { data, error } = await supabase
-    .from('locations')
-    .insert({
-      nama_lokasi: form.nama_lokasi.trim(),
-      alamat: form.alamat.trim(),
-    })
-    .select()
+  if (isEditMode.value) {
+    const { error } = await supabase
+      .from('locations')
+      .update({
+        nama_lokasi: form.nama_lokasi.trim(),
+        alamat: form.alamat.trim() || null,
+      })
+      .eq('id', locationId.value)
 
-  isSubmitting.value = false
+    isSubmitting.value = false
 
-  if (error) {
-    errorMsg.value = `Gagal menyimpan: ${error.message}`
-    console.error('[Supabase] Insert location error:', error)
+    if (error) {
+      errorMsg.value = `Gagal memperbarui: ${error.message}`
+      console.error('[Supabase] Update location error:', error)
+    } else {
+      successMsg.value = 'Nama kos berhasil diperbarui!'
+      setTimeout(() => {
+        router.push('/')
+      }, 1000)
+    }
   } else {
-    successMsg.value = 'Lokasi berhasil disimpan!'
-    setTimeout(() => {
-      router.push('/')
-    }, 1000)
+    const { error } = await supabase
+      .from('locations')
+      .insert({
+        nama_lokasi: form.nama_lokasi.trim(),
+        alamat: form.alamat.trim() || null,
+      })
+      .select()
+
+    isSubmitting.value = false
+
+    if (error) {
+      errorMsg.value = `Gagal menyimpan: ${error.message}`
+      console.error('[Supabase] Insert location error:', error)
+    } else {
+      successMsg.value = 'Lokasi berhasil disimpan!'
+      setTimeout(() => {
+        router.push('/')
+      }, 1000)
+    }
   }
 }
 </script>

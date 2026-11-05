@@ -24,6 +24,12 @@ const routes = [
     component: () => import('../views/TambahLokasiView.vue'),
   },
   {
+    path: '/lokasi/:id/edit',
+    name: 'EditLokasi',
+    component: () => import('../views/TambahLokasiView.vue'),
+    props: true,
+  },
+  {
     path: '/tambah-kamar',
     name: 'TambahKamar',
     component: () => import('../views/TambahKamarView.vue'),

@@ -24,6 +24,18 @@
             v-if="isSettingsOpen"
             class="absolute right-0 mt-3 w-64 bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl overflow-hidden z-50"
           >
+            <button
+              v-if="currentLocationObject"
+              @click="openEditLocationModal(currentLocationObject)"
+              class="w-full px-5 py-4 text-left text-lg font-bold text-text-primary hover:bg-gray-50 active:bg-gray-100 flex items-center gap-3 border-b border-border"
+            >
+              <span class="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center flex-shrink-0">
+                <svg class="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                </svg>
+              </span>
+              Ubah Nama Kos
+            </button>
             <router-link
               to="/tambah-lokasi"
               @click="isSettingsOpen = false"
@@ -106,46 +118,76 @@
 
         <!-- Dropdown pemilih lokasi -->
         <template v-else>
-          <button
-            @click="isDropdownOpen = !isDropdownOpen"
-            class="w-full bg-white/10 hover:bg-white/15 active:bg-white/20 border-2 border-white/20 rounded-[var(--radius-btn)]
-                   px-5 py-4 flex items-center justify-between text-lg font-bold text-white
-                   transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-white/25"
-          >
-            <div class="flex items-center gap-3">
-              <span class="text-2xl">🏠</span>
-              <span>{{ selectedLocationName }}</span>
-            </div>
-            <svg
-              class="w-6 h-6 text-white/80 transition-transform duration-200"
-              :class="{ 'rotate-180': isDropdownOpen }"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="3"
+          <div class="flex items-center gap-2">
+            <button
+              @click="isDropdownOpen = !isDropdownOpen"
+              class="flex-1 bg-white/10 hover:bg-white/15 active:bg-white/20 border-2 border-white/20 rounded-[var(--radius-btn)]
+                     px-5 py-4 flex items-center justify-between text-lg font-bold text-white
+                     transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-white/25 min-w-0"
             >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-            </svg>
-          </button>
+              <div class="flex items-center gap-3 min-w-0">
+                <span class="text-2xl flex-shrink-0">🏠</span>
+                <span class="truncate">{{ selectedLocationName }}</span>
+              </div>
+              <svg
+                class="w-6 h-6 text-white/80 transition-transform duration-200 flex-shrink-0 ml-2"
+                :class="{ 'rotate-180': isDropdownOpen }"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="3"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+              </svg>
+            </button>
+
+            <!-- Tombol Cepat Ubah Nama Kos -->
+            <button
+              v-if="currentLocationObject"
+              @click="openEditLocationModal(currentLocationObject)"
+              class="w-14 h-14 bg-white/10 hover:bg-white/20 active:scale-95 border-2 border-white/20 rounded-[var(--radius-btn)]
+                     flex items-center justify-center text-white transition-all flex-shrink-0"
+              title="Ubah Nama Kos"
+              aria-label="Ubah Nama Kos"
+            >
+              <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+              </svg>
+            </button>
+          </div>
 
           <!-- Dropdown Menu Items -->
           <div
             v-if="isDropdownOpen"
             class="absolute z-50 left-0 right-0 mt-2 bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl overflow-hidden"
           >
-            <button
+            <div
               v-for="loc in locations"
               :key="loc.id"
-              @click="selectLocation(loc.id)"
-              class="w-full px-5 py-4 text-left text-lg font-bold text-text-primary hover:bg-gray-50 active:bg-gray-100 flex items-center gap-3 border-b border-border last:border-0"
+              class="flex items-center justify-between border-b border-border last:border-0 hover:bg-gray-50 transition-colors"
               :class="{ 'bg-navy/5': loc.id === selectedLocation }"
             >
-              <span class="text-2xl">🏠</span>
-              <span>{{ loc.nama_lokasi }}</span>
-              <svg v-if="loc.id === selectedLocation" class="w-5 h-5 text-navy ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-              </svg>
-            </button>
+              <button
+                @click="selectLocation(loc.id)"
+                class="flex-1 px-5 py-4 text-left text-lg font-bold text-text-primary flex items-center gap-3 min-w-0"
+              >
+                <span class="text-2xl flex-shrink-0">🏠</span>
+                <span class="truncate">{{ loc.nama_lokasi }}</span>
+                <svg v-if="loc.id === selectedLocation" class="w-5 h-5 text-navy ml-auto flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+              </button>
+              <button
+                @click.stop="openEditLocationModal(loc)"
+                class="p-4 text-text-muted hover:text-navy active:scale-95 transition-transform flex-shrink-0"
+                title="Ubah nama kos ini"
+                aria-label="Ubah nama kos ini"
+              >
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                </svg>
+              </button>
+            </div>
           </div>
         </template>
       </div>
@@ -329,18 +371,113 @@
       <div class="h-8"></div>
     </div>
 
+    <!-- Modal Ubah Nama Kos -->
+    <BaseModal v-if="showEditLocationModal" class="bg-navy/60 backdrop-blur-sm animate-fade-in">
+      <div
+        class="bg-white rounded-[var(--radius-card)] w-full max-w-md p-6 shadow-2xl border border-border animate-fade-in-up"
+        @click.stop
+      >
+        <div class="flex items-center justify-between mb-4 pb-3 border-b border-border">
+          <div class="flex items-center gap-3">
+            <span class="w-10 h-10 rounded-xl bg-navy/10 flex items-center justify-center text-xl flex-shrink-0">
+              🏠
+            </span>
+            <div>
+              <h3 class="text-xl font-extrabold text-text-primary">Ubah Nama Kos</h3>
+              <p class="text-xs text-text-secondary mt-0.5 font-medium">Perbarui identitas properti kos Anda</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            @click="showEditLocationModal = false"
+            class="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 text-text-muted hover:text-text-primary flex items-center justify-center font-bold text-lg transition-colors"
+            aria-label="Tutup"
+          >
+            ✕
+          </button>
+        </div>
+
+        <!-- Error Feedback -->
+        <div
+          v-if="editLocationError"
+          class="bg-expense-light border border-expense/30 text-expense rounded-xl p-3 mb-4 text-xs font-bold flex items-center gap-2"
+        >
+          <span>⚠️</span>
+          <span>{{ editLocationError }}</span>
+        </div>
+
+        <form @submit.prevent="handleUpdateLocation" class="space-y-4">
+          <!-- Nama Kos -->
+          <div class="space-y-1.5">
+            <label for="modal-edit-nama-kos" class="block text-sm font-bold text-text-primary">
+              Nama Kos / Lokasi <span class="text-expense">*</span>
+            </label>
+            <input
+              id="modal-edit-nama-kos"
+              v-model="editLocationForm.nama_lokasi"
+              type="text"
+              placeholder="Contoh: Kos Melati"
+              required
+              class="w-full bg-card border-2 border-border rounded-[var(--radius-btn)]
+                     px-4 py-3 text-base font-semibold text-text-primary placeholder-text-muted
+                     focus:border-navy focus:ring-4 focus:ring-navy/10 focus:outline-none transition-all"
+            />
+          </div>
+
+          <!-- Alamat Kos -->
+          <div class="space-y-1.5">
+            <label for="modal-edit-alamat-kos" class="block text-sm font-bold text-text-primary">
+              Alamat
+            </label>
+            <textarea
+              id="modal-edit-alamat-kos"
+              v-model="editLocationForm.alamat"
+              rows="3"
+              placeholder="Contoh: Jl. Mawar No. 10, Bandung"
+              class="w-full bg-card border-2 border-border rounded-[var(--radius-btn)]
+                     px-4 py-3 text-base font-semibold text-text-primary placeholder-text-muted
+                     focus:border-navy focus:ring-4 focus:ring-navy/10 focus:outline-none transition-all resize-none"
+            />
+          </div>
+
+          <!-- Tombol Aksi -->
+          <div class="flex gap-3 pt-2">
+            <button
+              type="button"
+              @click="showEditLocationModal = false"
+              class="flex-1 py-3 px-4 border-2 border-border text-text-secondary hover:bg-gray-50 active:bg-gray-100 font-bold rounded-[var(--radius-btn)] text-base transition-colors"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              :disabled="isUpdatingLocation || !editLocationForm.nama_lokasi.trim()"
+              class="flex-1 py-3 px-4 bg-navy hover:brightness-110 active:scale-95 text-white font-extrabold rounded-[var(--radius-btn)] text-base shadow-md shadow-navy/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+            >
+              <svg v-if="isUpdatingLocation" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              <span>{{ isUpdatingLocation ? 'Menyimpan...' : 'Simpan' }}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </BaseModal>
+
     <!-- Bottom Navigation Bar -->
     <BottomNav />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '../supabase.js'
 import { signOutWithLocalFallback } from '../lib/auth.js'
 import { clearSignedUrlCache, clearOrgIdCache } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
+import BaseModal from '../components/BaseModal.vue'
 
 const router = useRouter()
 
@@ -349,6 +486,16 @@ const isDropdownOpen = ref(false)
 const isSettingsOpen = ref(false)
 const isLoadingLocations = ref(true)
 const isLoadingData = ref(false)
+
+// --- Edit Location Modal States ---
+const showEditLocationModal = ref(false)
+const editLocationForm = reactive({
+  id: '',
+  nama_lokasi: '',
+  alamat: '',
+})
+const isUpdatingLocation = ref(false)
+const editLocationError = ref('')
 
 // --- Data States ---
 const locations = ref([])
@@ -359,8 +506,12 @@ const incomesList = ref([])
 const expensesList = ref([])
 
 // --- Computed ---
+const currentLocationObject = computed(() => {
+  return locations.value.find(l => l.id === selectedLocation.value) || null
+})
+
 const selectedLocationName = computed(() => {
-  const loc = locations.value.find(l => l.id === selectedLocation.value)
+  const loc = currentLocationObject.value
   return loc ? loc.nama_lokasi : 'Pilih Lokasi'
 })
 
@@ -535,6 +686,54 @@ watch(selectedLocation, (newId) => {
 const selectLocation = (id) => {
   selectedLocation.value = id
   isDropdownOpen.value = false
+}
+
+function openEditLocationModal(loc) {
+  const target = loc || currentLocationObject.value
+  if (!target) return
+  isDropdownOpen.value = false
+  isSettingsOpen.value = false
+  editLocationForm.id = target.id
+  editLocationForm.nama_lokasi = target.nama_lokasi || ''
+  editLocationForm.alamat = target.alamat || ''
+  editLocationError.value = ''
+  showEditLocationModal.value = true
+}
+
+async function handleUpdateLocation() {
+  if (!editLocationForm.nama_lokasi.trim()) {
+    editLocationError.value = 'Nama kos tidak boleh kosong.'
+    return
+  }
+
+  isUpdatingLocation.value = true
+  editLocationError.value = ''
+
+  try {
+    const { error } = await supabase
+      .from('locations')
+      .update({
+        nama_lokasi: editLocationForm.nama_lokasi.trim(),
+        alamat: editLocationForm.alamat.trim() || null,
+      })
+      .eq('id', editLocationForm.id)
+
+    if (error) throw error
+
+    // Perbarui data lokasi lokal di array locations
+    const loc = locations.value.find(l => l.id === editLocationForm.id)
+    if (loc) {
+      loc.nama_lokasi = editLocationForm.nama_lokasi.trim()
+      loc.alamat = editLocationForm.alamat.trim() || null
+    }
+
+    showEditLocationModal.value = false
+  } catch (err) {
+    console.error('[SimKos] Gagal memperbarui nama kos:', err)
+    editLocationError.value = `Gagal menyimpan: ${err.message || 'Terjadi kesalahan.'}`
+  } finally {
+    isUpdatingLocation.value = false
+  }
 }
 
 // Helpers
