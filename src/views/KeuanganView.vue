@@ -577,21 +577,25 @@ async function handleConfirmPayment() {
 
   try {
     const rental = selectedRental.value
+    const userKet = paymentForm.keterangan ? paymentForm.keterangan.trim() : ''
+    const finalKeterangan = userKet
+      ? `${userKet} (${paymentForm.metode_bayar})`
+      : `Sewa Kamar (${paymentForm.metode_bayar})`
 
-    // 1. Simpan ke incomes
-    const { data: newIncome, error: incomeError } = await supabase
+    const payload = {
+      rental_id: rental.id,
+      tanggal_bayar: paymentForm.tanggal_bayar,
+      nominal: Number(paymentForm.nominal),
+      keterangan: finalKeterangan,
+    }
+    if (rental.org_id) {
+      payload.org_id = rental.org_id
+    }
+
+    // 1. Simpan ke incomes (hanya kolom yang ada di database)
+    const { error: incomeError } = await supabase
       .from('incomes')
-      .insert({
-        rental_id: rental.id,
-        tanggal_bayar: paymentForm.tanggal_bayar,
-        nominal: Number(paymentForm.nominal),
-        metode_bayar: paymentForm.metode_bayar,
-        status_bayar: 'Lunas',
-        kategori: 'Sewa Kamar',
-        keterangan: paymentForm.keterangan.trim() || null,
-      })
-      .select()
-      .single()
+      .insert(payload)
 
     if (incomeError) throw incomeError
 
@@ -608,25 +612,13 @@ async function handleConfirmPayment() {
       rental.tanggal_jatuh_tempo = tanggalJatuhTempoBaru
     }
 
-    // 3. Update state lokal segera agar reaktif seketika
-    if (newIncome) {
-      incomesList.value.push({
-        ...newIncome,
-        rentals: {
-          rooms: {
-            location_id: rental.rooms?.location_id
-          }
-        }
-      })
-    }
-
     showPaymentModal.value = false
     paymentSuccessMsg.value = `Pembayaran Kamar ${rental.rooms?.nomor_kamar || ''} (${rental.tenants?.nama_lengkap || ''}) berhasil diverifikasi!`
     setTimeout(() => {
       paymentSuccessMsg.value = ''
     }, 4000)
 
-    // 4. Reload data keuangan agar daftar piutang & total pemasukan langsung ter-update
+    // 3. Reload data keuangan agar daftar piutang & total pemasukan langsung ter-update
     await loadFinanceData()
   } catch (err) {
     console.error('[SimKos] Gagal memverifikasi pembayaran:', err)

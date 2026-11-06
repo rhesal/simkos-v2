@@ -950,32 +950,43 @@ async function handleConfirmPayment() {
 
   try {
     const rental = selectedRental.value
-    const currentDueDate = rental.tanggal_jatuh_tempo
-    const nextDueDate = advanceOneMonth(currentDueDate)
+    const userKet = paymentForm.keterangan ? paymentForm.keterangan.trim() : ''
+    const finalKeterangan = userKet
+      ? `${userKet} (${paymentForm.metode_bayar})`
+      : `Sewa Kamar (${paymentForm.metode_bayar})`
 
-    // 1. Insert ke tabel incomes
+    const payload = {
+      rental_id: rental.id,
+      nominal: Number(paymentForm.nominal),
+      tanggal_bayar: paymentForm.tanggal_bayar,
+      keterangan: finalKeterangan,
+    }
+    if (rental.org_id) {
+      payload.org_id = rental.org_id
+    }
+
+    // 1. Insert ke tabel incomes (hanya kolom yang ada di database)
     const { error: incomeError } = await supabase
       .from('incomes')
-      .insert({
-        rental_id: rental.id,
-        nominal: Number(paymentForm.nominal),
-        tanggal_bayar: paymentForm.tanggal_bayar,
-        metode_bayar: paymentForm.metode_bayar,
-        keterangan: paymentForm.keterangan || null,
-      })
+      .insert(payload)
 
     if (incomeError) throw incomeError
 
     // 2. Update tanggal_jatuh_tempo di tabel rentals (+1 bulan)
-    const { error: rentalError } = await supabase
-      .from('rentals')
-      .update({
-        tanggal_jatuh_tempo: nextDueDate,
-      })
-      .eq('id', rental.id)
+    if (rental.tanggal_jatuh_tempo) {
+      const nextDueDate = advanceOneMonth(rental.tanggal_jatuh_tempo)
+      const { error: rentalError } = await supabase
+        .from('rentals')
+        .update({
+          tanggal_jatuh_tempo: nextDueDate,
+        })
+        .eq('id', rental.id)
 
-    if (rentalError) {
-      console.warn('[SimKos] Gagal mengupdate tanggal jatuh tempo rental:', rentalError)
+      if (rentalError) {
+        console.warn('[SimKos] Gagal mengupdate tanggal jatuh tempo rental:', rentalError)
+      } else {
+        rental.tanggal_jatuh_tempo = nextDueDate
+      }
     }
 
     // 3. Tutup modal dan refresh data dashboard secara menyeluruh
