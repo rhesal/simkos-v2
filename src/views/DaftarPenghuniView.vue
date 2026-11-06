@@ -150,10 +150,15 @@
           >
             <!-- Left Side: Square Room Number Box -->
             <div
-              class="w-14 h-14 rounded-2xl flex items-center justify-center text-white text-lg font-black flex-shrink-0 shadow-sm"
+              class="w-14 h-14 rounded-2xl flex items-center justify-center text-white px-1 text-center flex-shrink-0 shadow-sm overflow-hidden"
               :class="room.activeRental ? 'bg-green-500' : 'bg-slate-400'"
             >
-              {{ room.nomor_kamar }}
+              <span
+                class="leading-tight break-words select-none"
+                :class="getRoomBadgeFontSize(room.nomor_kamar)"
+              >
+                {{ room.nomor_kamar }}
+              </span>
             </div>
 
             <!-- Middle Side: Main Info -->
@@ -878,7 +883,7 @@ import { KTP_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile, removeS
 import BottomNav from '../components/BottomNav.vue'
 import KtpViewerModal from '../components/KtpViewerModal.vue'
 import { localDateStamp } from '../lib/date.js'
-import { pindahTargetRooms, roomOptionLabel, rpcErrorMessage, RIWAYAT_SEWA_MSG } from '../lib/sewa.js'
+import { pindahTargetRooms, roomOptionLabel, rpcErrorMessage, RIWAYAT_SEWA_MSG, getRoomBadgeFontSize } from '../lib/sewa.js'
 
 const isLoading = ref(true)
 const roomsList = ref([])

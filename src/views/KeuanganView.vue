@@ -145,8 +145,13 @@
               <!-- Info Tenant (Clickable to verify payment) -->
               <div class="flex items-center gap-4 flex-1">
                 <!-- Square Box Room Number -->
-                <div class="w-14 h-14 rounded-2xl bg-green-500 flex items-center justify-center text-white text-lg font-black flex-shrink-0 shadow-sm">
-                  {{ rental.rooms?.nomor_kamar }}
+                <div class="w-14 h-14 rounded-2xl bg-green-500 flex items-center justify-center text-white px-1 text-center flex-shrink-0 shadow-sm overflow-hidden">
+                  <span
+                    class="leading-tight break-words select-none"
+                    :class="getRoomBadgeFontSize(rental.rooms?.nomor_kamar)"
+                  >
+                    {{ rental.rooms?.nomor_kamar }}
+                  </span>
                 </div>
 
                 <!-- Info Tenant & Amount -->
@@ -377,6 +382,7 @@ import { supabase } from '../supabase.js'
 import BottomNav from '../components/BottomNav.vue'
 import BaseModal from '../components/BaseModal.vue'
 import { localDateStamp, advanceOneMonth } from '../lib/date.js'
+import { getRoomBadgeFontSize } from '../lib/sewa.js'
 
 const isLoading = ref(true)
 const selectedLocationFilter = ref('ALL')

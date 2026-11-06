@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { isRoomEmpty, pindahTargetRooms, roomOptionLabel, rpcErrorMessage, ROOM_STATUS, TIPE_SEWA, STATUS_REPUTASI, RIWAYAT_SEWA_MSG } from '../../src/lib/sewa.js'
+import { isRoomEmpty, pindahTargetRooms, roomOptionLabel, rpcErrorMessage, ROOM_STATUS, TIPE_SEWA, STATUS_REPUTASI, RIWAYAT_SEWA_MSG, getRoomBadgeFontSize } from '../../src/lib/sewa.js'
 
 const read = rel => readFileSync(new URL(rel, import.meta.url), 'utf8')
 const MIG600 = read('../../supabase/migrations/20261018000600_pindah_kamar.sql')
@@ -152,4 +152,13 @@ test('QA: ada tes SQL bahwa kamar baru bernilai TambahKamarView (Kosong) langsun
   const st04 = sql.slice(sql.indexOf("qa.after('ST-04'"), sql.indexOf("qa.expect_err('DP-08'"))
   assert.match(st04, new RegExp(`status_kamar\\) values \\([^)]*'${ROOM_STATUS.KOSONG}'\\)`))
   assert.match(st04, /public\.daftar_penghuni\('c1000000-0000-0000-0000-000000000009'/)
+})
+
+test('getRoomBadgeFontSize: ukuran font badge kamar proporsional terhadap panjang teks', () => {
+  assert.equal(getRoomBadgeFontSize('1'), 'text-base font-black')
+  assert.equal(getRoomBadgeFontSize('02'), 'text-base font-black')
+  assert.equal(getRoomBadgeFontSize('101'), 'text-xs font-black')
+  assert.equal(getRoomBadgeFontSize('K-02'), 'text-xs font-black')
+  assert.equal(getRoomBadgeFontSize('KD06-T'), 'text-[11px] font-extrabold tracking-tight')
+  assert.equal(getRoomBadgeFontSize('LANTAI-2'), 'text-[9px] font-extrabold tracking-tighter')
 })

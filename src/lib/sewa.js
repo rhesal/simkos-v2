@@ -101,3 +101,17 @@ export function rpcErrorMessage(error, fallback = 'Terjadi kesalahan. Silakan co
   }
   return fallback
 }
+
+/**
+ * Kelas ukuran font untuk box nomor kamar (w-14 h-14 / 56px)
+ * agar kode/nomor kamar pendek maupun panjang (mis. "KD06-T")
+ * selalu muat proporsional, rapi, dan tidak meluber keluar box.
+ */
+export function getRoomBadgeFontSize(roomNo) {
+  const len = String(roomNo ?? '').trim().length
+  if (len <= 2) return 'text-base font-black'
+  if (len <= 4) return 'text-xs font-black'
+  if (len <= 6) return 'text-[11px] font-extrabold tracking-tight'
+  return 'text-[9px] font-extrabold tracking-tighter'
+}
+
