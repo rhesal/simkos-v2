@@ -276,8 +276,9 @@
               id="nominal-bayar"
               v-model.number="paymentForm.nominal"
               type="number"
+              inputmode="numeric"
               min="1"
-              step="1000"
+              step="any"
               required
               class="w-full bg-card border-2 border-border rounded-[var(--radius-btn)]
                      px-4 py-3 text-lg font-black text-income focus:border-income focus:ring-4 focus:ring-income/10 focus:outline-none transition-all"
