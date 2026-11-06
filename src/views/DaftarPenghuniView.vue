@@ -1210,9 +1210,9 @@ function handleRoomClick(room) {
   }
 }
 
-// Watcher untuk membersihkan memori blob KTP saat modal detail ditutup
+// Watcher untuk membersihkan memori blob KTP saat modal detail ditutup sepenuhnya
 watch(showDetailModal, (isOpen) => {
-  if (!isOpen) {
+  if (!isOpen && returnModalOnKtpClose.value !== 'detail') {
     releaseKtpInlineBlob()
   }
 })
@@ -1795,6 +1795,7 @@ async function updateRentalDates() {
 const showKtpViewer = ref(false)
 const ktpViewerValue = ref('')
 const ktpViewerName = ref('')
+const returnModalOnKtpClose = ref(null) // null | 'detail' | 'edit'
 
 function lihatFotoKtp() {
   const tenant = selectedRoom.value?.activeRental?.tenants
@@ -1802,6 +1803,18 @@ function lihatFotoKtp() {
   if (!stored) return
   ktpViewerValue.value = stored
   ktpViewerName.value = tenant?.nama_lengkap || ''
+
+  // Sembunyikan modal di bawahnya sementara agar foto KTP tampil bersih di depan tanpa tertumpuk
+  if (showDetailModal.value) {
+    returnModalOnKtpClose.value = 'detail'
+    showDetailModal.value = false
+  } else if (showEditModal.value) {
+    returnModalOnKtpClose.value = 'edit'
+    showEditModal.value = false
+  } else {
+    returnModalOnKtpClose.value = null
+  }
+
   showKtpViewer.value = true
 }
 
@@ -1809,6 +1822,14 @@ function closeKtpViewer() {
   showKtpViewer.value = false
   ktpViewerValue.value = ''
   ktpViewerName.value = ''
+
+  // Kembalikan ke modal sebelumnya secara otomatis
+  if (returnModalOnKtpClose.value === 'detail') {
+    showDetailModal.value = true
+  } else if (returnModalOnKtpClose.value === 'edit') {
+    showEditModal.value = true
+  }
+  returnModalOnKtpClose.value = null
 }
 
 // --- KTP: aturan BARIS dulu, FILE belakangan (sama dengan nota pengeluaran,

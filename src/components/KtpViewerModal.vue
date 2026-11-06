@@ -2,7 +2,8 @@
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fade-in"
+      class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in"
+      style="z-index: 100;"
       @click.self="close"
     >
       <div
@@ -11,16 +12,21 @@
         aria-modal="true"
         aria-labelledby="ktp-viewer-title"
         tabindex="-1"
-        class="w-full max-w-md rounded-2xl bg-white shadow-xl outline-none"
+        class="w-full max-w-md rounded-2xl bg-white shadow-2xl outline-none overflow-hidden animate-fade-in-up"
         @keydown.esc.prevent="close"
       >
-        <div class="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-          <h2 id="ktp-viewer-title" class="text-sm font-bold text-slate-800">
-            KTP{{ tenantName ? ` — ${tenantName}` : '' }}
-          </h2>
+        <div class="flex items-center justify-between border-b border-slate-100 px-4 py-3 bg-slate-50/50">
+          <div class="min-w-0 pr-2">
+            <h2 id="ktp-viewer-title" class="text-base font-extrabold text-slate-900 truncate">
+              Foto KTP Penghuni
+            </h2>
+            <p v-if="cleanTenantName" class="text-xs font-semibold text-slate-500 truncate mt-0.5">
+              {{ cleanTenantName }}
+            </p>
+          </div>
           <button
             type="button"
-            class="rounded-lg p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+            class="rounded-xl p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 active:scale-95 transition-all flex-shrink-0 font-bold"
             aria-label="Tutup"
             @click="close"
           >
@@ -82,7 +88,7 @@
 // - Tidak memakai signed URL / tab baru, jadi tidak ada URL yang masuk
 //   riwayat browser atau bisa dibagikan.
 // - Saat logout / user berganti, modal langsung tertutup dan blob dibuang.
-import { ref, watch, nextTick, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import { KTP_BUCKET, downloadPrivateFile, onStorageSignedOut } from '../lib/storage.js'
 
 const props = defineProps({
@@ -92,6 +98,11 @@ const props = defineProps({
   tenantName: { type: String, default: '' },
 })
 const emit = defineEmits(['close'])
+
+const cleanTenantName = computed(() => {
+  const n = String(props.tenantName || '').trim()
+  return (n && n !== '-') ? n : ''
+})
 
 const status = ref('idle') // idle | loading | ready | error
 const blobUrl = ref(null)
