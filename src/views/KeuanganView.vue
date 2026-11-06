@@ -48,6 +48,15 @@
       </div>
 
       <template v-else>
+        <!-- Success Feedback -->
+        <div
+          v-if="paymentSuccessMsg"
+          class="bg-income-light border-2 border-income/30 text-income rounded-[var(--radius-card)] p-4 flex items-center gap-3 animate-fade-in-up"
+        >
+          <span class="text-2xl flex-shrink-0">✓</span>
+          <span class="text-sm font-bold">{{ paymentSuccessMsg }}</span>
+        </div>
+
         <!-- ========== WIDGET ARUS KAS MINI ========== -->
         <div class="grid grid-cols-2 gap-4">
           <!-- Pemasukan -->
@@ -130,9 +139,11 @@
             <div
               v-for="rental in daftarBelumBayar"
               :key="rental.id"
-              class="bg-white rounded-[var(--radius-card)] border-2 border-border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm hover:shadow active:scale-[0.99] transition-all duration-150 relative overflow-hidden"
+              @click="openPaymentModal(rental)"
+              class="bg-white rounded-[var(--radius-card)] border-2 border-border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm hover:shadow hover:border-income/40 active:scale-[0.99] transition-all duration-150 relative overflow-hidden cursor-pointer"
             >
-              <div class="flex items-center gap-4">
+              <!-- Info Tenant (Clickable to verify payment) -->
+              <div class="flex items-center gap-4 flex-1">
                 <!-- Square Box Room Number -->
                 <div class="w-14 h-14 rounded-2xl bg-green-500 flex items-center justify-center text-white text-lg font-black flex-shrink-0 shadow-sm">
                   {{ rental.rooms?.nomor_kamar }}
@@ -140,25 +151,44 @@
 
                 <!-- Info Tenant & Amount -->
                 <div class="min-w-0">
-                  <p class="text-base font-extrabold text-text-primary truncate">
-                    {{ rental.tenants?.nama_lengkap }}
-                  </p>
+                  <div class="flex items-center gap-2">
+                    <p class="text-base font-extrabold text-text-primary truncate">
+                      {{ rental.tenants?.nama_lengkap }}
+                    </p>
+                    <span class="text-[10px] bg-income/10 text-income font-bold px-2 py-0.5 rounded-full border border-income/20 flex-shrink-0">
+                      ⚡ Klik untuk Bayar
+                    </span>
+                  </div>
                   <p class="text-xs font-bold text-text-secondary mt-0.5">
                     Tagihan: <span class="text-green-700">{{ formatCurrency(rental.rooms?.harga_bulanan || 0) }}</span>
+                    <span v-if="rental.tanggal_jatuh_tempo" class="text-text-muted font-normal ml-2">
+                      · Jatuh Tempo: {{ formatDateDisplay(rental.tanggal_jatuh_tempo) }}
+                    </span>
                   </p>
                 </div>
               </div>
 
-              <!-- Action: Send WA -->
-              <div class="flex-shrink-0 text-right sm:text-left">
+              <!-- Actions: Sudah Bayar & Send WA -->
+              <div class="flex items-center gap-2 flex-shrink-0 text-right sm:text-left">
                 <button
-                  @click="kirimTagihan(rental)"
-                  class="w-full sm:w-auto px-4 py-2.5 bg-green-600 hover:bg-green-700 active:scale-95 text-white font-extrabold rounded-xl text-xs shadow-sm transition-transform flex items-center justify-center gap-1.5"
+                  type="button"
+                  @click.stop="openPaymentModal(rental)"
+                  class="px-3.5 py-2.5 bg-income hover:brightness-110 active:scale-95 text-white font-extrabold rounded-xl text-xs shadow-sm transition-transform flex items-center justify-center gap-1.5"
+                  title="Verifikasi Pembayaran"
                 >
-                  <svg class="w-4 h-4 mr-1.5 fill-current inline-block text-white" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <span class="text-sm leading-none">✓</span>
+                  <span>Sudah Bayar</span>
+                </button>
+                <button
+                  type="button"
+                  @click.stop="kirimTagihan(rental)"
+                  class="px-3 py-2.5 bg-green-600 hover:bg-green-700 active:scale-95 text-white font-extrabold rounded-xl text-xs shadow-sm transition-transform flex items-center justify-center gap-1.5"
+                  title="Tagih via WhatsApp"
+                >
+                  <svg class="w-4 h-4 mr-0.5 fill-current inline-block text-white" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                     <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.452 5.714 1.456h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
                   </svg>
-                  <span>Tagih via WA</span>
+                  <span>WA</span>
                 </button>
               </div>
 
@@ -172,18 +202,198 @@
       </template>
     </div>
 
+    <!-- ========== MODAL VERIFIKASI PEMBAYARAN SEWA ========== -->
+    <BaseModal v-if="showPaymentModal" class="bg-navy/60 backdrop-blur-sm animate-fade-in" @click="showPaymentModal = false">
+      <div
+        class="bg-white rounded-[var(--radius-card)] w-full max-w-md p-6 shadow-2xl border border-border animate-fade-in-up"
+        @click.stop
+      >
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between mb-4 pb-3 border-b border-border">
+          <div class="flex items-center gap-3">
+            <span class="w-10 h-10 rounded-xl bg-income/10 text-income flex items-center justify-center text-xl flex-shrink-0">
+              💰
+            </span>
+            <div>
+              <h3 class="text-xl font-extrabold text-text-primary">Verifikasi Pembayaran</h3>
+              <p class="text-xs text-text-secondary mt-0.5 font-medium">Catat pelunasan sewa secara langsung</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            @click="showPaymentModal = false"
+            class="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 text-text-muted hover:text-text-primary flex items-center justify-center font-bold text-lg transition-colors"
+            aria-label="Tutup"
+          >
+            ✕
+          </button>
+        </div>
+
+        <!-- Detail Penghuni Card -->
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-text-muted">Kamar & Lokasi</span>
+            <span class="text-xs font-black text-navy bg-navy/10 px-2 py-0.5 rounded-md">
+              Kamar {{ selectedRental?.rooms?.nomor_kamar }} · {{ selectedRental?.rooms?.locations?.nama_lokasi }}
+            </span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-text-muted">Nama Penghuni</span>
+            <span class="text-sm font-extrabold text-text-primary">
+              {{ selectedRental?.tenants?.nama_lengkap }}
+            </span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-text-muted">Jatuh Tempo Saat Ini</span>
+            <span class="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60">
+              {{ formatDateDisplay(selectedRental?.tanggal_jatuh_tempo) }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Error Feedback -->
+        <div
+          v-if="paymentError"
+          class="bg-expense-light border border-expense/30 text-expense rounded-xl p-3 mb-4 text-xs font-bold flex items-center gap-2"
+        >
+          <span>⚠️</span>
+          <span>{{ paymentError }}</span>
+        </div>
+
+        <!-- Form Body -->
+        <form @submit.prevent="handleConfirmPayment" class="space-y-4">
+          <!-- Nominal Bayar -->
+          <div class="space-y-1.5">
+            <label for="nominal-bayar" class="block text-sm font-bold text-text-primary">
+              Nominal Diterima (Rp) <span class="text-expense">*</span>
+            </label>
+            <input
+              id="nominal-bayar"
+              v-model.number="paymentForm.nominal"
+              type="number"
+              min="1"
+              step="1000"
+              required
+              class="w-full bg-card border-2 border-border rounded-[var(--radius-btn)]
+                     px-4 py-3 text-lg font-black text-income focus:border-income focus:ring-4 focus:ring-income/10 focus:outline-none transition-all"
+            />
+          </div>
+
+          <!-- Tanggal Bayar -->
+          <div class="space-y-1.5">
+            <label for="tanggal-bayar" class="block text-sm font-bold text-text-primary">
+              Tanggal Bayar <span class="text-expense">*</span>
+            </label>
+            <input
+              id="tanggal-bayar"
+              v-model="paymentForm.tanggal_bayar"
+              type="date"
+              required
+              class="w-full bg-card border-2 border-border rounded-[var(--radius-btn)]
+                     px-4 py-3 text-base font-semibold text-text-primary focus:border-navy focus:ring-4 focus:ring-navy/10 focus:outline-none transition-all"
+            />
+          </div>
+
+          <!-- Metode Bayar -->
+          <div class="space-y-1.5">
+            <label class="block text-sm font-bold text-text-primary">
+              Metode Pembayaran
+            </label>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                @click="paymentForm.metode_bayar = 'Transfer'"
+                class="py-2.5 px-3 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-2 transition-all"
+                :class="paymentForm.metode_bayar === 'Transfer' ? 'border-navy bg-navy text-white shadow-sm' : 'border-border bg-white text-text-secondary hover:bg-gray-50'"
+              >
+                <span>💳</span>
+                <span>Transfer Bank</span>
+              </button>
+              <button
+                type="button"
+                @click="paymentForm.metode_bayar = 'Tunai'"
+                class="py-2.5 px-3 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-2 transition-all"
+                :class="paymentForm.metode_bayar === 'Tunai' ? 'border-navy bg-navy text-white shadow-sm' : 'border-border bg-white text-text-secondary hover:bg-gray-50'"
+              >
+                <span>💵</span>
+                <span>Tunai (Cash)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Keterangan Tambahan -->
+          <div class="space-y-1.5">
+            <label for="keterangan-bayar" class="block text-sm font-bold text-text-primary">
+              Keterangan
+            </label>
+            <input
+              id="keterangan-bayar"
+              v-model="paymentForm.keterangan"
+              type="text"
+              placeholder="Contoh: Sewa Kamar (Lunas via Transfer)"
+              class="w-full bg-card border-2 border-border rounded-[var(--radius-btn)]
+                     px-4 py-2.5 text-xs font-semibold text-text-primary placeholder-text-muted focus:border-navy focus:ring-4 focus:ring-navy/10 focus:outline-none transition-all"
+            />
+          </div>
+
+          <!-- Info Rollover Otomatis -->
+          <p class="text-[11px] text-slate-500 bg-slate-50 border border-slate-200/80 rounded-xl p-3 leading-relaxed">
+            💡 <strong>Otomatis:</strong> Setelah disimpan, arus kas masuk langsung tercatat dan tanggal jatuh tempo penyewa otomatis maju <strong>+1 bulan</strong>.
+          </p>
+
+          <!-- Action Buttons -->
+          <div class="flex gap-3 pt-2">
+            <button
+              type="button"
+              @click="showPaymentModal = false"
+              class="flex-1 py-3 px-4 border-2 border-border text-text-secondary hover:bg-gray-50 active:bg-gray-100 font-bold rounded-[var(--radius-btn)] text-base transition-colors"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              :disabled="isSubmittingPayment || !paymentForm.nominal || paymentForm.nominal <= 0"
+              class="flex-1 py-3 px-4 bg-income hover:brightness-110 active:scale-95 text-white font-extrabold rounded-[var(--radius-btn)] text-base shadow-md shadow-income/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+            >
+              <svg v-if="isSubmittingPayment" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              <span>{{ isSubmittingPayment ? 'Memproses...' : '✓ Konfirmasi Lunas' }}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </BaseModal>
+
     <!-- Bottom Navigation Bar -->
     <BottomNav />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { supabase } from '../supabase.js'
 import BottomNav from '../components/BottomNav.vue'
+import BaseModal from '../components/BaseModal.vue'
+import { localDateStamp, advanceOneMonth } from '../lib/date.js'
 
 const isLoading = ref(true)
 const selectedLocationFilter = ref('ALL')
+
+// Payment Modal States
+const showPaymentModal = ref(false)
+const selectedRental = ref(null)
+const isSubmittingPayment = ref(false)
+const paymentError = ref('')
+const paymentSuccessMsg = ref('')
+
+const paymentForm = reactive({
+  nominal: 0,
+  tanggal_bayar: '',
+  metode_bayar: 'Transfer',
+  keterangan: '',
+})
 
 const locationsList = ref([])
 const rentalsList = ref([])
@@ -332,7 +542,100 @@ function kirimTagihan(rental) {
   window.open(waUrl, '_blank')
 }
 
+// Payment Verification Modal Handlers
+function openPaymentModal(rental) {
+  if (!rental) return
+  selectedRental.value = rental
+  paymentForm.nominal = rental.rooms?.harga_bulanan || 0
+  paymentForm.tanggal_bayar = localDateStamp()
+  paymentForm.metode_bayar = 'Transfer'
+  paymentForm.keterangan = `Sewa Kamar ${rental.rooms?.nomor_kamar || ''} (${rental.tenants?.nama_lengkap || ''})`
+  paymentError.value = ''
+  showPaymentModal.value = true
+}
+
+async function handleConfirmPayment() {
+  if (!selectedRental.value) return
+  if (!paymentForm.nominal || paymentForm.nominal <= 0) {
+    paymentError.value = 'Nominal pembayaran harus lebih besar dari Rp 0.'
+    return
+  }
+  if (!paymentForm.tanggal_bayar) {
+    paymentError.value = 'Tanggal bayar harus diisi.'
+    return
+  }
+
+  isSubmittingPayment.value = true
+  paymentError.value = ''
+
+  try {
+    const rental = selectedRental.value
+
+    // 1. Simpan ke incomes
+    const { data: newIncome, error: incomeError } = await supabase
+      .from('incomes')
+      .insert({
+        rental_id: rental.id,
+        tanggal_bayar: paymentForm.tanggal_bayar,
+        nominal: Number(paymentForm.nominal),
+        metode_bayar: paymentForm.metode_bayar,
+        status_bayar: 'Lunas',
+        kategori: 'Sewa Kamar',
+        keterangan: paymentForm.keterangan.trim() || null,
+      })
+      .select()
+      .single()
+
+    if (incomeError) throw incomeError
+
+    // 2. Majukan jatuh tempo sewa +1 bulan di rentals
+    if (rental.tanggal_jatuh_tempo) {
+      const tanggalJatuhTempoBaru = advanceOneMonth(rental.tanggal_jatuh_tempo)
+
+      const { error: updateRentalError } = await supabase
+        .from('rentals')
+        .update({ tanggal_jatuh_tempo: tanggalJatuhTempoBaru })
+        .eq('id', rental.id)
+
+      if (updateRentalError) throw updateRentalError
+      rental.tanggal_jatuh_tempo = tanggalJatuhTempoBaru
+    }
+
+    // 3. Update state lokal segera agar reaktif seketika
+    if (newIncome) {
+      incomesList.value.push({
+        ...newIncome,
+        rentals: {
+          rooms: {
+            location_id: rental.rooms?.location_id
+          }
+        }
+      })
+    }
+
+    showPaymentModal.value = false
+    paymentSuccessMsg.value = `Pembayaran Kamar ${rental.rooms?.nomor_kamar || ''} (${rental.tenants?.nama_lengkap || ''}) berhasil diverifikasi!`
+    setTimeout(() => {
+      paymentSuccessMsg.value = ''
+    }, 4000)
+
+    // 4. Reload data keuangan agar daftar piutang & total pemasukan langsung ter-update
+    await loadFinanceData()
+  } catch (err) {
+    console.error('[SimKos] Gagal memverifikasi pembayaran:', err)
+    paymentError.value = `Gagal menyimpan: ${err.message || 'Terjadi kesalahan'}`
+  } finally {
+    isSubmittingPayment.value = false
+  }
+}
+
 // Helpers
+function formatDateDisplay(dateStr) {
+  if (!dateStr) return '-'
+  const parts = dateStr.split('-')
+  if (parts.length !== 3) return dateStr
+  return `${parts[2]}/${parts[1]}/${parts[0]}`
+}
 function formatCurrency(value) {
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
