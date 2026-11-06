@@ -264,8 +264,140 @@
           <button @click="showDetailModal = false" class="text-text-muted hover:text-text-primary text-xl font-bold">✕</button>
         </div>
 
-        <!-- Detail Data -->
-        <div class="space-y-3.5 pb-6">
+        <!-- Switcher Format Tampilan -->
+        <div class="flex items-center gap-2 border-b-2 border-border pb-3">
+          <button
+            type="button"
+            @click="detailViewMode = 'buku-kas'"
+            class="flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5"
+            :class="detailViewMode === 'buku-kas' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-gray-100 text-text-secondary hover:bg-gray-200'"
+          >
+            <span>📖</span>
+            <span>Format Catatan Kas</span>
+          </button>
+          <button
+            type="button"
+            @click="detailViewMode = 'ringkas'"
+            class="flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5"
+            :class="detailViewMode === 'ringkas' ? 'bg-navy text-white shadow-sm' : 'bg-gray-100 text-text-secondary hover:bg-gray-200'"
+          >
+            <span>📋</span>
+            <span>Detail Standar</span>
+          </button>
+        </div>
+
+        <!-- Detail Data: Tampilan 1 (Format Buku Catatan Kas) -->
+        <div v-if="detailViewMode === 'buku-kas'" class="space-y-4 pb-2 animate-fade-in">
+          <div class="bg-[#f2f9f4] border-2 border-emerald-300/80 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4 text-slate-800">
+            <!-- Header Memo Catatan -->
+            <div class="flex items-center justify-between text-xs pb-2 border-b border-emerald-200">
+              <div class="flex items-center gap-1.5 text-emerald-800 font-extrabold">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>{{ selectedRoom?.locations?.nama_lokasi || 'Kos' }}</span>
+              </div>
+              <button
+                type="button"
+                @click="copyCatatanKas"
+                class="flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-lg font-bold text-[11px] shadow-xs active:scale-95 transition-all"
+                title="Salin seluruh catatan kas ke clipboard"
+              >
+                <span>{{ copySuccess ? '✓ Tersalin!' : '📋 Salin Teks' }}</span>
+              </button>
+            </div>
+
+            <!-- Judul Memo -->
+            <div class="flex items-center justify-between">
+              <h4 class="text-xl font-black text-slate-900 tracking-tight">
+                Data Kamar Kost {{ selectedRoom?.nomor_kamar }}
+              </h4>
+              <span class="text-xl">📅</span>
+            </div>
+
+            <!-- Isi Teks Memo (Font Monospace Bergaya Buku Kas) -->
+            <div class="space-y-1.5 text-xs sm:text-sm font-semibold text-slate-800 leading-relaxed font-mono">
+              <div class="grid grid-cols-[100px_12px_1fr] items-start">
+                <span class="text-slate-600 font-bold">Nama</span>
+                <span>:</span>
+                <span class="font-extrabold text-slate-900 break-words">{{ selectedRoom?.activeRental?.tenants?.nama_lengkap }}</span>
+              </div>
+              <div class="grid grid-cols-[100px_12px_1fr] items-start">
+                <span class="text-slate-600 font-bold">Alamat</span>
+                <span>:</span>
+                <span class="text-slate-800 break-words">{{ selectedRoom?.activeRental?.tenants?.alamat || '--' }}</span>
+              </div>
+              <div class="grid grid-cols-[100px_12px_1fr] items-start">
+                <span class="text-slate-600 font-bold">No. HP</span>
+                <span>:</span>
+                <a :href="'tel:' + selectedRoom?.activeRental?.tenants?.nomor_hp" class="text-blue-700 font-bold hover:underline">
+                  {{ selectedRoom?.activeRental?.tenants?.nomor_hp || '--' }}
+                </a>
+              </div>
+              <div class="grid grid-cols-[100px_12px_1fr] items-start">
+                <span class="text-slate-600 font-bold">Tgl. Masuk</span>
+                <span>:</span>
+                <span class="text-slate-800">{{ formatDateDisplay(selectedRoom?.activeRental?.tanggal_masuk) }}</span>
+              </div>
+              <div class="grid grid-cols-[100px_12px_1fr] items-start">
+                <span class="text-slate-600 font-bold">HP Family</span>
+                <span>:</span>
+                <span class="text-slate-800">{{ selectedRoom?.activeRental?.tenants?.kontak_darurat || '--' }}</span>
+              </div>
+              <div class="grid grid-cols-[100px_12px_1fr] items-start">
+                <span class="text-slate-600 font-bold">Catatan</span>
+                <span>:</span>
+                <span class="text-slate-800">{{ selectedRoom?.activeRental?.catatan || '--' }}</span>
+              </div>
+
+              <!-- Daftar Pembayaran / DP -->
+              <div class="pt-2">
+                <p class="font-bold text-slate-900 mb-1">Pembayaran/DP :</p>
+                <div v-if="isLoadingTenantIncomes" class="text-xs text-slate-500 py-1 italic animate-pulse">
+                  Memuat riwayat pembayaran...
+                </div>
+                <div v-else-if="tenantIncomes.length === 0" class="text-xs text-slate-500 italic pl-1">
+                  (Belum ada riwayat pembayaran tercatat)
+                </div>
+                <div v-else class="space-y-1 pl-1">
+                  <p v-for="(inc, idx) in tenantIncomes" :key="inc.id" class="text-xs text-slate-800">
+                    {{ formatBarisPembayaran(inc, idx) }}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Kliping Foto KTP di Bagian Bawah Catatan -->
+            <div class="mt-4 pt-3 border-t border-emerald-200">
+              <div v-if="isLoadingKtpInline" class="flex items-center justify-center py-6 bg-white/70 rounded-xl border border-emerald-100 text-xs text-slate-400 animate-pulse">
+                Memuat dokumen KTP...
+              </div>
+              <div v-else-if="ktpInlineBlobUrl" class="space-y-1.5">
+                <img
+                  :src="ktpInlineBlobUrl"
+                  alt="Foto KTP Penghuni"
+                  class="w-full max-h-56 rounded-xl object-contain bg-slate-900/5 border border-slate-300 shadow-sm cursor-pointer hover:opacity-95 transition-all"
+                  @click="lihatFotoKtp"
+                  title="Klik untuk melihat ukuran penuh KTP"
+                />
+                <div class="flex items-center justify-between text-[11px] text-slate-500 px-1 pt-0.5">
+                  <span class="font-medium">🪪 Foto Dokumen KTP</span>
+                  <button
+                    type="button"
+                    @click="lihatFotoKtp"
+                    class="text-blue-700 font-bold hover:underline flex items-center gap-1"
+                  >
+                    <span>🔍 Perbesar Foto</span>
+                  </button>
+                </div>
+              </div>
+              <div v-else class="bg-white/70 rounded-xl border border-dashed border-emerald-200 p-3 text-center text-xs text-slate-400">
+                Belum ada foto KTP yang diunggah
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Detail Data: Tampilan 2 (Format Ringkas / Standar) -->
+        <div v-else-if="detailViewMode === 'ringkas'" class="space-y-3.5 pb-6 animate-fade-in">
           <div class="bg-gray-50 border border-border rounded-xl p-4 space-y-2.5 text-sm font-semibold text-text-primary">
             <div class="flex items-center justify-between">
               <span class="text-text-secondary">Nama Penghuni</span>
@@ -879,7 +1011,7 @@
 import BaseModal from '../components/BaseModal.vue'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { supabase } from '../supabase.js'
-import { KTP_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile, removeStorageFile, deleteStorageFile } from '../lib/storage.js'
+import { KTP_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile, removeStorageFile, deleteStorageFile, downloadPrivateFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
 import KtpViewerModal from '../components/KtpViewerModal.vue'
 import { localDateStamp } from '../lib/date.js'
@@ -902,6 +1034,14 @@ const showBlacklistModal = ref(false)
 const showHapusEdukasiModal = ref(false)
 const hasPayments = ref(false)
 const selectedRoom = ref(null)
+
+// Buku Catatan Kas View States
+const detailViewMode = ref('buku-kas') // 'buku-kas' | 'ringkas'
+const tenantIncomes = ref([])
+const isLoadingTenantIncomes = ref(false)
+const ktpInlineBlobUrl = ref(null)
+const isLoadingKtpInline = ref(false)
+const copySuccess = ref(false)
 
 // Reputation Rating states
 const reputationStatus = ref('Bersih')
@@ -1061,11 +1201,118 @@ function handleRoomClick(room) {
   editDueDate.value = ''
   selectedRoom.value = room
   if (room.activeRental) {
+    detailViewMode.value = 'buku-kas'
     showDetailModal.value = true
+    loadBukuKasData(room.activeRental)
   } else {
     showEmptyModal.value = true
     loadPastTenants(room.id)
   }
+}
+
+// Watcher untuk membersihkan memori blob KTP saat modal detail ditutup
+watch(showDetailModal, (isOpen) => {
+  if (!isOpen) {
+    releaseKtpInlineBlob()
+  }
+})
+
+function releaseKtpInlineBlob() {
+  if (ktpInlineBlobUrl.value) {
+    URL.revokeObjectURL(ktpInlineBlobUrl.value)
+    ktpInlineBlobUrl.value = null
+  }
+}
+
+async function loadBukuKasData(rental) {
+  if (!rental) return
+
+  // 1. Fetch riwayat pembayaran sewa
+  isLoadingTenantIncomes.value = true
+  tenantIncomes.value = []
+  try {
+    const { data, error } = await supabase
+      .from('incomes')
+      .select('*')
+      .eq('rental_id', rental.id)
+      .order('tanggal_bayar', { ascending: true })
+
+    if (error) throw error
+    tenantIncomes.value = data || []
+  } catch (err) {
+    console.error('[SimKos] Gagal fetch riwayat pembayaran sewa:', err)
+    tenantIncomes.value = []
+  } finally {
+    isLoadingTenantIncomes.value = false
+  }
+
+  // 2. Fetch pratinjau dokumen KTP
+  releaseKtpInlineBlob()
+  const ktpPath = rental.tenants?.foto_ktp_url
+  if (ktpPath) {
+    isLoadingKtpInline.value = true
+    try {
+      const blob = await downloadPrivateFile(KTP_BUCKET, ktpPath)
+      ktpInlineBlobUrl.value = URL.createObjectURL(blob)
+    } catch (err) {
+      console.warn('[SimKos] Gagal memuat pratinjau foto KTP:', err?.message || err)
+    } finally {
+      isLoadingKtpInline.value = false
+    }
+  }
+}
+
+function formatBarisPembayaran(inc, index) {
+  let tglStr = '--'
+  if (inc.tanggal_bayar) {
+    const parts = String(inc.tanggal_bayar).split('-')
+    if (parts.length === 3) {
+      const yy = parts[0].slice(-2)
+      tglStr = `${parts[2]}-${parts[1]}-${yy}`
+    }
+  }
+  const nomStr = new Intl.NumberFormat('id-ID').format(inc.nominal || 0)
+  const metode = String(inc.metode_bayar || 'Transfer').toLowerCase()
+  const metodeSingkat = metode.includes('trans') ? 'trnfer' : 'tunai'
+  return `${index + 1}. Tgl.${tglStr} = ${nomStr} / ${metodeSingkat} lunas`
+}
+
+function copyCatatanKas() {
+  const room = selectedRoom.value
+  const rental = room?.activeRental
+  const tenant = rental?.tenants
+
+  if (!room || !rental) return
+
+  const lines = [
+    `Data Kamar Kost ${room.nomor_kamar}`,
+    '',
+    `Nama        : ${tenant?.nama_lengkap || '--'}`,
+    `Alamat      : ${tenant?.alamat || '--'}`,
+    `No. HP      : ${tenant?.nomor_hp || '--'}`,
+    `Tgl. Masuk  : ${formatDateDisplay(rental.tanggal_masuk) || '--'}`,
+    `HP Family   : ${tenant?.kontak_darurat || '--'}`,
+    `Catatan     : ${rental.catatan || '--'}`,
+    'Pembayaran/DP :'
+  ]
+
+  if (tenantIncomes.value.length === 0) {
+    lines.push('(Belum ada riwayat pembayaran tercatat)')
+  } else {
+    tenantIncomes.value.forEach((inc, idx) => {
+      lines.push(formatBarisPembayaran(inc, idx))
+    })
+  }
+
+  const fullText = lines.join('\n')
+  navigator.clipboard.writeText(fullText).then(() => {
+    copySuccess.value = true
+    setTimeout(() => {
+      copySuccess.value = false
+    }, 2500)
+  }).catch(err => {
+    console.error('Gagal menyalin catatan:', err)
+  })
 }
 
 // Open Edit Modal from Detail Modal
