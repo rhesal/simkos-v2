@@ -370,19 +370,45 @@
                   (Belum ada riwayat pembayaran tercatat)
                 </div>
                 <div v-else class="space-y-1">
+                  <!-- Indikator riwayat sebelumnya jika sedang diciutkan -->
                   <div
-                    v-for="(inc, idx) in tenantIncomes"
+                    v-if="!showAllPayments && tenantIncomes.length > 3"
+                    class="text-[11px] text-slate-500 font-medium pl-1.5 py-0.5 flex items-center gap-1.5 italic"
+                  >
+                    <span>...</span>
+                    <span>{{ tenantIncomes.length - 3 }} riwayat pembayaran sebelumnya disembunyikan</span>
+                  </div>
+
+                  <!-- Baris pembayaran (3 terakhir atau semua) -->
+                  <div
+                    v-for="{ inc, originalIndex } in displayedIncomes"
                     :key="inc.id"
                     @click="openEditPaymentModal(inc)"
                     class="flex items-center justify-between p-1.5 rounded-lg hover:bg-emerald-100/70 active:bg-emerald-200 cursor-pointer transition group border border-transparent hover:border-emerald-200"
                     title="Klik untuk ubah metode pembayaran / nominal"
                   >
                     <p class="text-xs text-slate-800 font-medium">
-                      {{ formatBarisPembayaran(inc, idx) }}
+                      {{ formatBarisPembayaran(inc, originalIndex) }}
                     </p>
                     <span class="text-[11px] text-emerald-700 opacity-60 group-hover:opacity-100 font-bold flex items-center gap-0.5 shrink-0 ml-2">
                       ✏️ Edit
                     </span>
+                  </div>
+
+                  <!-- Tombol Selengkapnya / Sembunyikan -->
+                  <div v-if="tenantIncomes.length > 3" class="pt-1.5">
+                    <button
+                      type="button"
+                      @click="showAllPayments = !showAllPayments"
+                      class="w-full py-1.5 px-3 rounded-lg bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-center gap-1.5 transition border border-emerald-200 cursor-pointer shadow-xs"
+                    >
+                      <span v-if="!showAllPayments">
+                        ▾ Selengkapnya (Lihat semua {{ tenantIncomes.length }} riwayat)
+                      </span>
+                      <span v-else>
+                        ▴ Sembunyikan (Tampilkan 3 terakhir)
+                      </span>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1214,6 +1240,18 @@ const isLoadingTenantIncomes = ref(false)
 const ktpInlineBlobUrl = ref(null)
 const isLoadingKtpInline = ref(false)
 const copySuccess = ref(false)
+const showAllPayments = ref(false)
+
+const displayedIncomes = computed(() => {
+  if (showAllPayments.value || tenantIncomes.value.length <= 3) {
+    return tenantIncomes.value.map((inc, index) => ({ inc, originalIndex: index }))
+  }
+  const startIdx = tenantIncomes.value.length - 3
+  return tenantIncomes.value.slice(startIdx).map((inc, i) => ({
+    inc,
+    originalIndex: startIdx + i
+  }))
+})
 
 // Reputation Rating states
 const reputationStatus = ref('Bersih')
@@ -1375,6 +1413,7 @@ const filteredRooms = computed(() => {
 
 // Room Click Handler
 function handleRoomClick(room) {
+  showAllPayments.value = false
   isEditingRoomNumber.value = false
   editedRoomNumber.value = ''
   isEditingDates.value = false
