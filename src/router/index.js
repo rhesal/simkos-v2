@@ -19,6 +19,26 @@ const routes = [
     component: () => import('../views/InventarisView.vue'),
   },
   {
+    path: '/aset',
+    name: 'Aset',
+    component: () => import('../views/AsetView.vue'),
+  },
+  {
+    path: '/aset/tambah',
+    name: 'TambahAset',
+    component: () => import('../views/TambahAsetView.vue'),
+  },
+  {
+    path: '/aset/:id',
+    name: 'DetailAset',
+    component: () => import('../views/DetailAsetView.vue'),
+  },
+  {
+    path: '/aset/:id/edit',
+    name: 'EditAset',
+    component: () => import('../views/TambahAsetView.vue'),
+  },
+  {
     path: '/tambah-lokasi',
     name: 'TambahLokasi',
     component: () => import('../views/TambahLokasiView.vue'),

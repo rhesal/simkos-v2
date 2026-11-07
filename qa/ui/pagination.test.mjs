@@ -23,6 +23,7 @@ test('Semua 5 menu utama yang menampilkan list data mengintegrasikan BasePaginat
   const views = [
     { file: 'src/views/RiwayatTransaksiView.vue', label: 'transaksi' },
     { file: 'src/views/InventarisView.vue', label: 'barang' },
+    { file: 'src/views/AsetView.vue', label: 'aset' },
     { file: 'src/views/DaftarPenghuniView.vue', label: 'kamar' },
     { file: 'src/views/KeuanganView.vue', label: 'KeuanganView list' },
     { file: 'src/views/BerandaView.vue', label: 'peringatan' }

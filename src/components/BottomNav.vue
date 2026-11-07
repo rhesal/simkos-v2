@@ -44,6 +44,9 @@ import { h } from 'vue'
 const route = useRoute()
 
 const isActive = (path) => {
+  if (path === '/aset') {
+    return route.path.startsWith('/aset') || route.path.startsWith('/inventaris')
+  }
   return route.path === path
 }
 
@@ -141,7 +144,7 @@ const IconPenghuni = {
 const navItems = [
   { to: '/', label: 'Beranda', icon: IconBeranda },
   { to: '/keuangan', label: 'Keuangan', icon: IconKeuangan },
-  { to: '/inventaris', label: 'Inventaris', icon: IconInventaris },
+  { to: '/aset', label: 'Aset', icon: IconInventaris },
   { to: '/riwayat-transaksi', label: 'Riwayat', icon: IconRiwayat },
   { to: '/penghuni', label: 'Penghuni', icon: IconPenghuni },
 ]
