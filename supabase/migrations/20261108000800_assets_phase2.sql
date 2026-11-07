@@ -240,15 +240,64 @@ create trigger trg_validate_expense_asset_allocations
 before update or delete on public.expenses
 for each row execute function public.validate_expense_asset_allocations();
 
--- 7. Strategi Transisi: Sinkronisasi Otomatis Pembaruan Menu Lama (inventories) ke Aset
+-- 7. Strategi Transisi: Sinkronisasi Terkendali dari Menu Lama (inventories) ke Aset
 create or replace function public.sync_inventory_to_asset()
 returns trigger
 language plpgsql
 security definer
 set search_path = ''
 as $$
+declare
+  v_asset_status text;
+  v_is_privileged boolean;
 begin
-  -- Bila baris inventories yang sudah tertaut ke assets diedit di menu lama, sinkronkan ke assets
+  -- Cari status pencatatan aset yang tertaut (jika ada)
+  select status_pencatatan into v_asset_status
+  from public.assets
+  where legacy_inventory_id = new.id;
+
+  -- Jika inventaris ini belum dibackfill ke assets, tidak ada yang perlu disinkronkan
+  if v_asset_status is null then
+    return new;
+  end if;
+
+  -- Evaluasi peran pengguna: apakah owner atau admin?
+  v_is_privileged := (public.is_org_owner(new.org_id) or public.is_org_admin(new.org_id));
+
+  -- ATURAN 1: Single Source of Truth (SSOT)
+  -- Jika aset sudah diverifikasi / dibukukan di modul Aset, modul Aset adalah SSOT mutlak.
+  -- Modifikasi struktural (nama, lokasi, kamar, harga) dari menu lama ditolak.
+  if v_asset_status <> 'draft' then
+    if (new.nama_barang <> old.nama_barang or new.location_id is distinct from old.location_id 
+        or new.room_id is distinct from old.room_id or new.harga is distinct from old.harga 
+        or new.tanggal_pembelian is distinct from old.tanggal_pembelian) then
+      raise exception 'SIMKOS_ASSET_ALREADY_VERIFIED: Aset ini telah diverifikasi/dibukukan di modul Aset (SSOT). Perubahan data wajib dilakukan melalui menu Aset.';
+    end if;
+
+    -- Hanya perbarui kondisi fisik barang untuk operasional harian
+    update public.assets
+    set
+      kondisi_fisik = case
+        when lower(coalesce(new.kondisi, '')) like '%rusak%' then 'rusak_ringan'
+        else 'baik'
+      end,
+      catatan = new.catatan,
+      updated_at = now()
+    where legacy_inventory_id = new.id;
+
+    return new;
+  end if;
+
+  -- ATURAN 2: Proteksi Wewenang Staf pada Draf Aset
+  -- Staf TIDAK diizinkan memodifikasi atribut finansial (harga/tanggal perolehan) melalui inventaris lama
+  -- untuk mencegah eskalasi wewenang melewati RLS assets.
+  if not v_is_privileged then
+    if (new.harga is distinct from old.harga or new.tanggal_pembelian is distinct from old.tanggal_pembelian) then
+      raise exception 'SIMKOS_STAFF_CANNOT_MUTATE_ASSET_FINANCIALS: Staf tidak memiliki hak untuk mengubah nilai biaya atau tanggal aset melalui menu inventaris.';
+    end if;
+  end if;
+
+  -- Bila berstatus draft dan diizinkan, sinkronkan data ke assets
   update public.assets
   set
     nama_aset = new.nama_barang,
@@ -260,19 +309,23 @@ begin
     end,
     catatan = new.catatan,
     updated_at = now()
-  where legacy_inventory_id = new.id;
+  where legacy_inventory_id = new.id
+    and status_pencatatan = 'draft';
 
-  -- Sinkronkan biaya & nota ke komponen utama yang tertaut
-  update public.asset_components ac
-  set
-    biaya_perolehan = new.harga,
-    tanggal_perolehan = new.tanggal_pembelian,
-    bukti_dokumen_url = new.receipt_url,
-    updated_at = now()
-  from public.assets a
-  where a.legacy_inventory_id = new.id
-    and ac.asset_id = a.id
-    and ac.jenis_pekerjaan = 'perolehan_baru';
+  -- Sinkronkan biaya & nota ke komponen jika diubah oleh owner/admin
+  if v_is_privileged then
+    update public.asset_components ac
+    set
+      biaya_perolehan = new.harga,
+      tanggal_perolehan = new.tanggal_pembelian,
+      bukti_dokumen_url = new.receipt_url,
+      updated_at = now()
+    from public.assets a
+    where a.legacy_inventory_id = new.id
+      and ac.asset_id = a.id
+      and ac.jenis_pekerjaan = 'perolehan_baru'
+      and a.status_pencatatan = 'draft';
+  end if;
 
   return new;
 end;

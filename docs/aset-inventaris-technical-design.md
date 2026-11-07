@@ -1,6 +1,6 @@
 # Dokumen Audit & Desain Teknis: Modul Aset & Inventaris SimKos
-**Fase 0 (Audit & Baseline), Fase 1 (Desain Teknis), dan Fase 2-R (Pencatatan, Draf & Pengerasan Integritas Data)**
-*Tanggal Pembaruan: 8 November 2026 | Branch: `feat/aset-inventaris-audit-desain` | Status: Fase 0, 1, dan 2-R SELESAI & TERVERIFIKASI*
+**Status: Perbaikan kode telah dilakukan; verifikasi integrasi database dan UI belum selesai.**
+*Tanggal Pembaruan: 8 November 2026 | Branch: `feat/aset-inventaris-audit-desain` | Commit HEAD: `537b5fe`*
 
 ---
 
@@ -8,11 +8,12 @@
 
 ### 1.1 Status Repositori & Environment
 - **Active Branch**: `feat/aset-inventaris-audit-desain` (dibuat dari `main` commit `b563f8f`).
-- **Baseline Commit**: `b563f8f847591164cb761e86a1cbd7bf078d1150` (*"feat: tambahkan fitur pagination pada semua menu yang menampilkan list data"*).
+- **Baseline Commit**: `b563f8f847591164cb761e86a1cbd7bf078d1150`.
 - **Remote**: `origin` -> `https://github.com/rhesal/simkos-v2.git`.
-- **Working Tree**: Bersih, perubahan mode file QA dinormalkan, mockup diekstrak di `references/mockup-aset`.
-- **Build Status**: `npm run build` sukses 100% (765ms), 29 precache assets PWA terverifikasi.
-- **Test Suite**: `node --test qa/**/*.test.mjs` -> **89/89 tests passing** (0 gagal, 0 diskip).
+- **Status Publikasi Remote**: Berhasil di-push ke remote branch `feat/aset-inventaris-audit-desain` dengan SHA identik `537b5fe0fd06d451d1645a1d1df17b9e105f997f`.
+- **Working Tree**: Bersih, perubahan mode file dinormalkan (`core.fileMode = false`).
+- **Build Status**: `npm run build` sukses 100% (706ms), 34 precache assets PWA terverifikasi.
+- **Test Suite**: `node --test qa/**/*.test.mjs` -> **90/90 tests passing** (0 gagal, 0 diskip).
 
 ### 1.2 Tech Stack & Pola Akses Supabase
 - **Frontend**: Vue.js 3.5 (Composition API, `<script setup>`), Vite 8.1, Tailwind CSS v4, Vue Router 4, Vite PWA (Workbox).
@@ -38,14 +39,14 @@ Tabel-tabel relevan yang diaudit:
 
 ### 1.4 Temuan Khusus: Hubungan Pembelian Inventaris vs Pengeluaran (`expenses`)
 - **Status Awal (Audit Baseline)**: Tidak terhubung.
-- **Status Fase 2-R [DIIMPLEMENTASIKAN]**:
+- **Status Terkoreksi [KODE DIIMPLEMENTASIKAN]**:
   - Kolom `expense_id` (nullable) dan `allocated_cost numeric` disematkan pada tabel `public.asset_components` untuk menautkan komponen aset secara formal ke transaksi pengeluaran kas sumbernya.
   - Dilengkapi trigger database `trg_validate_component_relations` dan `trg_validate_expense_asset_allocations` untuk mencegah alokasi nominal melebihi kas keluar (`allocated_cost <= expenses.nominal`), mencegah penurunan nominal pengeluaran di bawah total alokasi terpasang, serta mencegah penghapusan transaksi `expenses` yang sudah dialokasikan ke aset.
 
 ### 1.5 Verifikasi 4 Temuan Awal Aplikasi
 Berdasarkan pemeriksaan langsung terhadap kode sumber:
 
-| No | Temuan Awal | Status Aktual | Referensi Kode & Bukti | Rekomendasi / Batasan PR |
+| No | Temuan Awal | Status Aktual | Referensi Kode & Bukti | Batasan Penanganan |
 |---|---|---|---|---|
 | 1 | Insert pembayaran dan update jatuh tempo dilakukan terpisah | **MASIH TERJADI** | `src/views/TambahPemasukanView.vue` (L351-370) dan `src/views/BerandaView.vue` (L1078-1092). Keduanya memanggil `supabase.from('incomes').insert` lalu `supabase.from('rentals').update`. | Dipisahkan ke PR terpisah di luar modul aset sesuai instruksi kerja. |
 | 2 | Pesan berhasil muncul meskipun update jatuh tempo gagal | **MASIH TERJADI** | `src/views/TambahPemasukanView.vue` (L372-380) dan `src/views/BerandaView.vue` (L1094-1103). Blok `if (updateRentalError)` hanya menulis `console.warn`, lalu eksekusi berlanjut menampilkan pesan sukses. | Dipisahkan ke PR terpisah di luar modul aset. |
@@ -72,7 +73,7 @@ Mockup diekstrak ke direktori terisolasi `references/mockup-aset/SimKos_Mockup/`
 ### 2.2 Kekurangan Mockup yang Telah Diperbaiki pada Implementasi Nyata
 1. **Formula Luas Bersama Terabaikan di Kode Mockup**:
    - Di mockup, formula JS hanya `k+f ? 100*k/(k+f) : 0`, variabel `shared` diabaikan dalam pembagian luas.
-   - *Perbaikan Produksi (Fase 2-R)*: Telah dipasang formula matematis lengkap dengan penanganan penyebut nol di `src/lib/aset.js` (`calculateSharedAreaPortion`).
+   - *Perbaikan Produksi*: Telah dipasang formula matematis lengkap dengan penanganan penyebut nol di `src/lib/aset.js` (`calculateSharedAreaAllocation`).
 2. **Tanah & Gedung Digabung di Mockup**:
    - Mockup menggabungkan tab "Tanah & Gedung". Padahal secara akuntansi dan instruksi produk, **tanah tidak boleh disusutkan**, sedangkan gedung disusutkan.
    - *Perbaikan Produksi*: Kategori `tanah` dipisahkan secara tegas dari `gedung`, dengan metode default `tidak_disusutkan`.
@@ -84,14 +85,14 @@ Mockup diekstrak ke direktori terisolasi `references/mockup-aset/SimKos_Mockup/`
    - *Perbaikan Produksi*: Tersedia mode form cepat untuk inventaris barang kamar/umum di `TambahAsetView.vue` dan banner integrasi di `InventarisView.vue`.
 5. **Estimasi Nilai Buku Palsu pada Draf**:
    - Mockup menampilkan nilai buku padahal data biaya dan tanggal belum lengkap.
-   - *Perbaikan Produksi*: Pada Fase 2-R, kartu metrik dan detail secara jujur menampilkan status **"Belum Dihitung (Tersedia di Fase 3)"** untuk menghindari angka fiktif sebelum mesin penyusutan resmi diaktifkan.
+   - *Perbaikan Produksi*: Pada Fase 2-R, kartu metrik dan detail secara jujur menampilkan label **"Belum dapat dihitung"** (tanpa istilah teknis fase) agar tidak menyesatkan pengguna.
 
 ---
 
 ## 3. Desain Teknis Data Aset & Inventaris
 
 ### 3.1 Status Fitur Menurut Fase Roadmap
-- **Fase 2-R [DIIMPLEMENTASIKAN]**: Tabel `assets`, `asset_components`, kolom `organizations.capitalization_threshold`, trigger pengaman relasi/alokasi/sinkronisasi, fungsi RPC backfill terotorisasi, RLS berbasis peran (owner, admin, staff), serta UI CRUD dan draf aset.
+- **Fase 2-R [KODE DIIMPLEMENTASIKAN]**: Tabel `assets`, `asset_components`, kolom `organizations.capitalization_threshold`, trigger pengaman relasi/alokasi/sinkronisasi, fungsi RPC backfill terotorisasi, RLS berbasis peran (owner, admin, staff), serta UI CRUD dan draf aset.
 - **Fase 3 [DIRANCANG]**: Modul mesin kalkulasi penyusutan periodik, simulator interaktif, dan pratinjau tabel amortisasi.
 - **Fase 4 [DIRANCANG]**: Tabel `asset_beginning_balances`, `depreciation_entries`, `accounting_periods`, prosedur cut-off saldo awal aset lama, dan kunci periode buku.
 - **Fase 5 [DIRANCANG]**: Layar Laporan Hasil Usaha Internal terintegrasi dengan pemisahan kas keluar investasi vs beban operasional langsung.
@@ -104,7 +105,7 @@ erDiagram
     ORGANIZATIONS ||--o{ ACCOUNTING_PERIODS : "mengunci buku [Fase 4]"
     LOCATIONS ||--o{ ASSETS : "lokasi penempatan"
     ROOMS ||--o{ ASSETS : "kamar khusus"
-    INVENTORIES ||--o| ASSETS : "legacy reference & sync"
+    INVENTORIES ||--o| ASSETS : "legacy reference & sync terkendali"
     
     ASSETS ||--|{ ASSET_COMPONENTS : "terdiri dari 1..N komponen"
     EXPENSES ||--o{ ASSET_COMPONENTS : "1 expense mendanai N alokasi komponen"
@@ -285,7 +286,7 @@ create table if not exists public.asset_components (
 );
 ```
 
-### 3.6 Triggers Validasi Integritas Data
+### 3.6 Triggers Validasi Integritas Data & Transisi SSOT
 1. `validate_asset_relations()`:
    - Memastikan `org_id` aset tidak dapat diubah setelah dibuat.
    - Memvalidasi bahwa `location_id` dan `room_id` milik organisasi yang sama (`SIMKOS_CROSS_TENANT_ASSET_LOCATION` & `SIMKOS_CROSS_TENANT_ASSET_ROOM`).
@@ -300,27 +301,25 @@ create table if not exists public.asset_components (
    - Mencegah penghapusan pengeluaran yang sedang dialokasikan ke komponen aset (`SIMKOS_EXPENSE_ALLOCATED_TO_ASSET_CANNOT_DELETE`).
    - Mencegah penurunan nominal pengeluaran menjadi lebih kecil daripada akumulasi `allocated_cost` yang terpasang (`SIMKOS_EXPENSE_NOMINAL_LESS_THAN_ALLOCATED`).
 4. `sync_inventory_to_asset()` pada tabel `inventories`:
-   - Secara otomatis menyinkronkan pembaruan nama barang, kondisi fisik, harga, tanggal pembelian, dan nota dari menu inventaris lama ke baris aset dan komponen draf terkait.
+   - **Aturan SSOT**: Jika aset sudah `terverifikasi` atau `dibukukan` di modul Aset, modul Aset adalah Single Source of Truth mutlak. Modifikasi nama, lokasi, kamar, atau harga dari menu lama ditolak dengan pesan `SIMKOS_ASSET_ALREADY_VERIFIED`. Hanya pembaruan kondisi fisik operasional (`kondisi_fisik`) yang diperbolehkan.
+   - **Proteksi Peran Staf**: Jika pengubah inventaris bukan admin atau owner, perubahan harga atau tanggal perolehan pada draf aset ditolak dengan pesan `SIMKOS_STAFF_CANNOT_MUTATE_ASSET_FINANCIALS` untuk mencegah staf melewati RLS aset.
 
 ---
 
-## 4. Spesifikasi Algoritma Penyusutan & Kasus Batas [DIRANCANG - IMPLEMENTASI FASE 3]
+## 4. Spesifikasi Algoritma Penyusutan & Kasus Batas [DIRANCANG - FASE 3]
 
-> [!NOTE]
-> Modul mesin kalkulasi dan pembuat jurnal penyusutan dijadwalkan pada Fase 3 & 4. Pada Fase 2-R, aturan komputasi dan penanganan kasus batas di bawah ini telah diselaraskan penuh.
-
-### 4.1 Rumus Pokok
+### 4.1 Rumus Pokok & Batasan
 1. **Dasar Penyusutan (Depreciable Base)**:
    $$B = \text{biaya\_perolehan} - \text{nilai\_sisa}$$
-   *Jika `biaya_perolehan` NULL, atau metode `tidak_disusutkan` (misal tanah), maka beban penyusutan = 0.*
+   *Jika `biaya_perolehan` belum diketahui (NULL), estimasi nilai buku menghasilkan status **"Belum dapat dihitung"**.*
 2. **Penyusutan Bulanan Penuh**:
    $$\text{Depr}_{\text{bulanan}} = \frac{B}{M} \quad (M = \text{masa\_manfaat\_bulan})$$
 3. **Porsi Beban Usaha**:
    $$\text{Beban Usaha} = \text{Depr}_{\text{bulanan}} \times \frac{\text{Porsi Usaha (\%)}}{100}$$
 
 ### 4.2 Formula Penggunaan Campuran & Penanganan Penyebut Nol
-- $L_u$: Luas khusus usaha.
-- $L_n$: Luas khusus nonusaha.
+- $L_u$: Luas khusus usaha kos.
+- $L_n$: Luas khusus nonusaha keluarga.
 - $L_b$: Luas area bersama.
 - $L_{\text{total}} = L_u + L_n + L_b$.
 
@@ -328,7 +327,7 @@ create table if not exists public.asset_components (
 1. **Rasio Usaha Luas Khusus ($p$)**:
    $$p = \frac{L_u}{L_u + L_n}$$
 2. **Kasus Batas Penyebut Nol ($L_u + L_n = 0$)**:
-   - Jika belum ada data luas khusus yang diisi, rasio usaha **TIDAK BOLEH ditebak otomatis** (tidak boleh diasumsikan 0% atau 100%).
+   - Jika pengguna belum memasukkan luas khusus, rasio usaha **TIDAK BOLEH ditebak otomatis** (tidak boleh diasumsikan 0% atau 100%).
    - Sistem menetapkan `porsi_usaha_persen = NULL`, dan antarmuka menampilkan label **"Porsi belum ditentukan"**.
 3. **Alokasi Luas Bersama & Luas Efektif**:
    $$L_{\text{bersama\_usaha}} = p \times L_b$$
@@ -336,47 +335,54 @@ create table if not exists public.asset_components (
    $$\text{Porsi Usaha (\%)} = \frac{L_{\text{efektif\_usaha}}}{L_{\text{total}}} \times 100\% \equiv p \times 100\%$$
    *Antarmuka wajib menampilkan Luas Total fisik dan Luas Usaha Efektif ($m^2$) kepada pengguna.*
 
-### 4.3 Konvensi Prorata Kalender, Akhir Masa Manfaat & Pembulatan
-- **Awal Penyusutan**: Berdasarkan `tanggal_siap_guna` (bukan tanggal nota perolehan).
-- **Prorata Pertengahan Bulan**:
-  Jika siap guna pada tanggal $d$ dalam bulan dengan $D$ hari kalender:
-  - Jumlah hari aktif bulan pertama: $H_1 = D - d + 1$ (inklusif).
-  - Fraksi bulan pertama: $F_1 = H_1 / D$.
-  - Beban bulan pertama: $\text{Depr}_1 = \text{round}(\text{Depr}_{\text{bulanan}} \times F_1)$.
-  - Sisa fraksi $(1 - F_1)$ bukan selisih pembulatan, melainkan hak masa manfaat yang belum terpakai dan dialokasikan ke periode bulan ke-($M+1$).
-- **Rollover Tanggal Akhir Bulan (31 Januari & 29 Februari)**:
-  - Jika tanggal mulai adalah tanggal 31 Januari, periode berikutnya jatuh tempo pada hari terakhir bulan Februari (28 Februari pada tahun biasa, atau 29 Februari pada tahun kabisat).
-  - Perhitungan kalender tidak boleh menghasilkan tanggal invalid (misal 31 Februari).
-- **Penyelesaian Selisih Pembulatan (Rounding Discrepancy)**:
-  - Selisih desimal akibat pembulatan integer rupiah diselesaikan penuh pada bulan terakhir masa manfaat:
-    $$\text{Depr}_{\text{akhir}} = B - \sum_{i=1}^{\text{akhir}-1} \text{Depr}_i$$
-  - Menjamin secara mutlak $\sum \text{Depr} \equiv B$ dan nilai buku akhir tepat sama dengan `nilai_sisa`.
+### 4.3 Konvensi Prorata Kalender & Contoh Numerik Kasus Batas
+
+#### Contoh 1: Prorata Pertengahan Bulan
+- Data Aset: AC Kamar Rp 6.000.000, nilai sisa Rp 0, masa manfaat 60 bulan (beban penuh Rp 100.000/bulan).
+- Tanggal Siap Guna: **16 Juni 2026** (bulan Juni memiliki 30 hari).
+- Hari aktif bulan ke-1 (16–30 Juni inklusif): $H_1 = 30 - 16 + 1 = 15\text{ hari}$.
+- Fraksi bulan ke-1: $F_1 = 15 / 30 = 0,5$.
+- Beban penyusutan bulan Juni 2026: $\text{round}(100.000 \times 0,5) = \mathbf{\text{Rp } 50.000}$.
+- Sisa hak masa manfaat ($1 - F_1 = 0,5\text{ bulan}$ / Rp 50.000) dialokasikan penuh ke bulan ke-61 (**Juli 2031**), sehingga masa manfaat total tetap genap 60 bulan setara kalender.
+
+#### Contoh 2: Kasus Batas Tanggal 31 Januari & Rollover Akhir Bulan
+- Data Aset: Water Heater Rp 3.600.000, siap guna **31 Januari 2026**, masa manfaat 36 bulan (Rp 100.000/bulan).
+- Bulan 1 (Januari 2026): 1 hari aktif (31 Januari). Beban $= \text{round}(100.000 \times 1/31) = \text{Rp } 3.226$.
+- Bulan 2 (Februari 2026, tahun biasa): Jatuh tempo pada hari terakhir bulan Februari (**28 Februari 2026**). Algoritma kalender secara eksplisit menolak pembuatan tanggal invalid `2026-02-31` dan menguncinya pada akhir bulan kalender `2026-02-28`. Beban bulan penuh = Rp 100.000.
+
+#### Contoh 3: Kasus Batas Tanggal 29 Februari (Tahun Kabisat)
+- Data Aset: Mesin Cuci Komersial Rp 12.000.000, siap guna **29 Februari 2024** (tahun kabisat, Februari = 29 hari), masa manfaat 48 bulan (Rp 250.000/bulan).
+- Bulan 1 (Februari 2024): 1 hari aktif dari 29 hari. Beban $= \text{round}(250.000 \times 1/29) = \text{Rp } 8.621$.
+- Bulan 13 (Februari 2025, tahun non-kabisat): Berakhir pada **28 Februari 2025**. Beban bulan penuh = Rp 250.000.
+
+#### Contoh 4: Penutupan Selisih Pembulatan (Rounding Discrepancy)
+- Akumulasi beban dari bulan 1 sampai $(M-1)$ dijumlahkan. Pada bulan terakhir ($M$ atau $M+1$), beban dihitung:
+  $$\text{Depr}_{\text{akhir}} = B - \sum_{i=1}^{\text{akhir}-1} \text{Depr}_i$$
+- Hal ini menjamin nilai buku akhir tepat sama dengan `nilai_sisa` sampai Rp 0 tanpa selisih desimal.
 
 ---
 
-## 5. Integrasi Keuangan Internal [DIRANCANG - IMPLEMENTASI FASE 5]
+## 5. Integrasi Keuangan Internal [DIRANCANG - FASE 5]
 
-### 5.1 Perbandingan Arus Kas vs Hasil Usaha Internal
-
-| Karakteristik | Laporan Arus Kas (Cash Flow) | Laporan Hasil Usaha Internal (Operating Results) |
-|---|---|---|
-| **Sifat Dasar** | Mutasi fisik kas riil (masuk & keluar) | Kinerja operasional (akrual biaya aset bertahap) |
-| **Penerimaan Sewa** | Kas masuk saat dibayar (`tanggal_bayar`) | Pendapatan sewa kamar periode berjalan |
-| **Belanja Operasional** | Kas keluar saat dibayar | Beban operasional langsung periode berjalan |
-| **Pembelian Aset** | **Kas keluar investasi penuh** saat dibayar | **Dikecualikan dari beban operasional langsung** sebesar nominal yang dikapitalisasi (`allocated_cost`) |
-| **Beban Penyusutan** | **Tidak dihitung** (transaksi non-kas) | **Diakui berkala** via `beban_penyusutan_usaha` |
+### 5.1 Basis Tanggal & Pembukuan Laporan
+- **Basis Pembukuan**: Modified Cash Basis (Basis Kas Dimodifikasi dengan Kapitalisasi Aset & Penyusutan).
+- **Penetapan Basis Tanggal Laporan**:
+  1. *Laporan Arus Kas (Cash Flow)*: Menggunakan **tanggal kas aktual** (`incomes.tanggal_bayar` untuk kas masuk, dan `expenses.tanggal_pengeluaran` untuk kas keluar).
+  2. *Laporan Hasil Usaha Internal*: Menggunakan **periode kalender bulanan** (`YYYY-MM-01` sampai hari terakhir bulan bersangkutan).
+  3. *Beban Penyusutan*: Diakui pada periode kalender berjalan berdasarkan `tanggal_siap_guna` aset, terpisah dari tanggal kas keluar pembelian aset.
+  4. *Pengecualian Belanja Terkapitalisasi*: Pengeluaran yang memiliki relasi `allocated_cost` pada `asset_components` **dikecualikan dari beban operasional langsung** di Laporan Hasil Usaha sebesar nominal alokasinya, dan dibebankan secara bertahap via penyusutan bulanan.
 
 ---
 
 ## 6. Pemetaan Antarmuka Aplikasi SimKos (Fase 2-R)
 
-| Halaman / Komponen | Path Berkas | Fitur & Perilaku Fase 2-R [DIIMPLEMENTASIKAN] |
+| Halaman / Komponen | Path Berkas | Fitur & Perilaku Terkoreksi [KODE DIIMPLEMENTASIKAN] |
 |---|---|---|
-| **Daftar Aset & Ringkasan** | `src/views/AsetView.vue` | - Metrik Biaya Terdata (membedakan status sebagian vs lengkap).<br>- Metrik Nilai Buku menampilkan label **"Belum Dihitung (Tersedia di Fase 3)"**.<br>- Filter Lokasi seragam (`CustomLocationDropdown`).<br>- Tab Kategori: *Semua*, *Tanah*, *Gedung*, *Fasilitas Kamar*, *Fasilitas Umum*.<br>- State penanganan error dengan banner dan tombol **"Coba Lagi"**.<br>- Tombol Backfill dan Tambah Aset hanya muncul untuk peran `owner` dan `admin`. |
-| **Form Tambah & Edit Draf** | `src/views/TambahAsetView.vue` | - Form dinamis: Form ringkas barang atau wizard bertahap gedung.<br>- Null-value preserved: Biaya perolehan dan tanggal perolehan yang belum diketahui tetap tersimpan `NULL`.<br>- Tahun perolehan bebas (tidak dipaksa 1 Januari).<br>- Input alokasi luas bersama dengan penanganan penyebut nol.<br>- Pengaitan belanja sumber `expense_id` dengan alokasi nominal `allocated_cost`. |
-| **Detail Aset & Komponen** | `src/views/DetailAsetView.vue` | - Tampilan informasi aset fisik dan daftar komponen pengembangan.<br>- Nilai buku menampilkan status **"Belum dihitung"**.<br>- Porsi usaha komponen menampilkan "Belum ditentukan" jika data luas kosong.<br>- Kontrol aksi (tambah komponen, edit, hapus) dibatasi hanya untuk `owner` dan `admin`. |
-| **Integrasi Inventaris Lama** | `src/views/InventarisView.vue` | - Banner informasi transisi ke modul `/aset`.<br>- Sinkronisasi data otomatis via trigger database `sync_inventory_to_asset`. |
-| **Helper Bisnis & Otorisasi** | `src/lib/aset.js` | - `calculateSharedAreaPortion`: komputasi alokasi proporsional luas bersama & penanganan penyebut nol.<br>- `isDraftComplete`: evaluasi kelengkapan data aset draf.<br>- `getCurrentUserRole`: verifikasi peran aktif pengguna dari database. |
+| **Daftar Aset & Ringkasan** | `src/views/AsetView.vue` | - Metrik Nilai Buku menampilkan label **"Belum dapat dihitung"**.<br>- Filter Lokasi seragam (`CustomLocationDropdown`).<br>- Tab Kategori: *Semua*, *Tanah*, *Gedung*, *Fasilitas Kamar*, *Fasilitas Umum*.<br>- State penanganan error dengan banner dan tombol **"Coba Lagi"**.<br>- Tombol Backfill dan Tambah Aset hanya muncul untuk peran `owner` dan `admin`. |
+| **Form Tambah & Edit Draf** | `src/views/TambahAsetView.vue` | - Form dinamis: Form ringkas barang atau wizard bertahap gedung.<br>- Null-value preserved: Biaya perolehan dan tanggal perolehan yang belum diketahui tetap tersimpan `NULL`.<br>- Estimasi beban bulanan menampilkan "Belum dapat dihitung" jika biaya atau masa manfaat kosong.<br>- Tahun perolehan bebas (tidak dipaksa 1 Januari).<br>- Input alokasi luas bersama dengan penanganan penyebut nol.<br>- Pengaitan belanja sumber `expense_id` dengan alokasi nominal `allocated_cost`. |
+| **Detail Aset & Komponen** | `src/views/DetailAsetView.vue` | - Tampilan informasi aset fisik dan daftar komponen pengembangan.<br>- Nilai buku menampilkan status **"Belum dapat dihitung"**.<br>- Porsi usaha komponen menampilkan "Belum ditentukan" jika data luas kosong.<br>- Kontrol aksi (tambah komponen, edit, hapus) dibatasi hanya untuk `owner` dan `admin`. |
+| **Integrasi Inventaris Lama** | `src/views/InventarisView.vue` | - Banner informasi transisi ke modul `/aset`.<br>- Sinkronisasi data terkendali via trigger database `sync_inventory_to_asset`. |
+| **Helper Bisnis & Otorisasi** | `src/lib/aset.js` | - `calculateSharedAreaAllocation`: komputasi alokasi proporsional luas bersama & penanganan penyebut nol.<br>- `inspectAssetCompleteness`: evaluasi kelengkapan data aset draf.<br>- `getCurrentUserRole`: verifikasi peran aktif pengguna dari database. |
 
 ---
 
@@ -391,9 +397,6 @@ Fungsi RPC pengalihan data inventaris lama ke draf aset dirancang dengan pengama
 5. **Preservasi Nilai Belum Lengkap**: Kolom `tanggal_siap_guna` dibiarkan `NULL`, `masa_manfaat_bulan` dibiarkan `NULL`, dan status kapitalisasi dipasang `perlu_telaah`.
 
 ### 7.2 Prosedur Pemulihan & Rollback Terpisah
-
-Tersedia dua tingkat rollback terpisah untuk menjamin keselamatan data:
-
 1. **Rollback Lingkungan Uji / Development (`supabase/rollback/rollback_800_assets_phase2_dev.sql`)**:
    - Digunakan saat reset total di staging atau database lokal.
    - Menghapus fungsi RPC `backfill_inventories_to_assets()`, menghapus trigger-trigger validasi, mendrop tabel `asset_components` dan `assets` secara bertingkat (`cascade`), serta menghapus kolom `capitalization_threshold` pada organisasi.
@@ -405,49 +408,65 @@ Tersedia dua tingkat rollback terpisah untuk menjamin keselamatan data:
 
 ---
 
-## 8. Laporan Verifikasi & Pengujian Nyata (Fase 2-R)
+## 8. Laporan Status Pengujian & Verifikasi
 
-### 8.1 Hasil Pengujian Otomatis Repository
-Eksekusi pengujian suite lengkap menggunakan Node.js test runner (`node --test qa/**/*.test.mjs`):
-- **Total Tests**: **89 tests**
-- **Passing**: **89 tests (100% PASS)**
-- **Failed**: **0**
-- **Skipped**: **0**
+Sesuai instruksi baku, pelaporan hasil dibagi secara tegas ke dalam 4 pilar tanpa mencampuradukkan pengujian kode dengan eksekusi database nyata:
 
-### 8.2 Cakupan Pengujian Khusus Modul Aset (`qa/aset/aset_phase2.test.mjs`)
-1. `calculateSharedAreaPortion`: Verifikasi formula luas bersama, luas usaha efektif, dan rasio proporsional.
-2. `calculateSharedAreaPortion zero-denominator`: Memastikan saat $L_u + L_n = 0$, porsi menghasilkan `null` (bukan 0% atau nilai tebakan).
-3. `isDraftComplete`: Validasi kelengkapan data draf (kondisi data parsial vs lengkap).
-4. `Draft completion for Tanah vs Gedung`: Kategori tanah tidak mewajibkan masa manfaat, gedung mewajibkan parameter lengkap untuk diverifikasi.
-5. `Migration 800 SQL Syntax`: Verifikasi tidak adanya sintaks rusak `ADD COLUMN IF NOT NULL` dan memastikan sintaks PostgreSQL standar `ADD COLUMN IF NOT EXISTS`.
-6. `backfill_inventories_to_assets logic`: Simulasi idempotensi dan verifikasi pengembalian hitungan baris yang baru dibuat.
-7. `Cross-tenant safety`: Validasi pencegahan relasi aset ke lokasi atau transaksi organisasi lain.
-8. `Expense split allocation limits`: Validasi penolakan alokasi komponen yang melampaui sisa nominal belanja pengeluaran.
-9. `Legacy inventory transition safety`: Verifikasi kesinambungan data lama dan sinkronisasi transisi inventaris.
+### 8.1 Pilar 1: Tes Unit (Node.js Test Runner) — STATUS: LULUS (90/90)
+- **Perintah**: `node --test qa/**/*.test.mjs`
+- **Hasil**: **90 dari 90 subtest lulus 100% (0 gagal, durasi 219ms)**.
+- **Cakupan Khusus Modul Aset (`qa/aset/aset_phase2.test.mjs`)**:
+  1. Formula luas bersama proporsional ($p = L_u / (L_u + L_n)$).
+  2. Penanganan penyebut nol ($L_u + L_n = 0 \implies \text{null}$, tanpa tebakan otomatis).
+  3. Evaluasi kelengkapan data draf (kondisi data parsial vs lengkap).
+  4. Perbedaan aturan Tanah vs Gedung (Tanah tidak mewajibkan masa manfaat).
+  5. Integritas sintaks DDL PostgreSQL (sintaks `IF NOT EXISTS`, trigger definition, foreign keys).
+  6. Simulasi idempotensi backfill dan hitungan baris baru.
+  7. Validasi penolakan relasi cross-tenant.
+  8. Batas alokasi split transaksi belanja pengeluaran.
+  9. Propagasi sinkronisasi dari inventaris lama ke draf aset, penolakan mutasi finansial oleh staf, dan proteksi status aset terverifikasi.
+  10. Tampilan bersih dari istilah fase teknis dan penggunaan label "Belum dapat dihitung".
 
-### 8.3 Keterbatasan Lingkungan Pengujian Database Lokal
-- Mesin lokal WSL Ubuntu pengembang tidak memiliki daemon server PostgreSQL lokal yang berjalan (`psql` tidak terpasang dan akun tidak memiliki akses `sudo` tanpa password).
-- Oleh karena itu, pengujian langsung di mesin server database dilakukan melalui analisis skrip AST SQL, unit test logika bisnis di Node.js, dan skrip rollback yang telah disiapkan secara terisolasi.
-- **Batasan Operasional**: Tidak melakukan migrasi langsung pada database produksi dan tidak melakukan merge ke branch `main`.
+### 8.2 Pilar 2: Pemeriksaan Statis & Build Frontend — STATUS: LULUS
+- **Perintah**: `npm run build`
+- **Hasil**: **Sukses 100% (1,41s)**.
+- Sebanyak 104 modul Vue/Vite berhasil ditransformasikan tanpa galat sintaks atau tipe. PWA precache menghasilkan 34 berkas bundle.
+
+### 8.3 Pilar 3: Integrasi Database Nyata — STATUS: BELUM SELESAI / TERTUNDA
+- **Audit Lingkungan Terisolasi**:
+  - Daemon PostgreSQL lokal: **Tidak tersedia** (`psql` tidak terpasang di WSL Ubuntu maupun Windows host).
+  - Supabase lokal via Docker: **Tidak tersedia** (`docker` engine tidak terpasang di sistem).
+  - Proyek Staging Supabase Terpisah: **Tidak tersedia** (hanya tersedia konfigurasi lingkungan produksi di `.env.local`).
+  - Izin instalasi paket: Akun non-root pada WSL memerlukan kata sandi untuk `sudo apt-get install postgresql`.
+- **Kebutuhan Akses Konkret untuk Menjalankan Pengujian Database Nyata**:
+  1. Akses ke instance PostgreSQL uji terisolasi (misal koneksi URL database staging atau postgres service), ATAU
+  2. Hak akses sudo untuk memasang paket `postgresql` lokal di WSL Ubuntu, ATAU
+  3. Proyek pengujian Supabase non-produksi terpisah.
+- **Kesimpulan**: *Pengujian integrasi langsung pada database belum dapat dijalankan karena keterbatasan lingkungan uji terisolasi.*
+
+### 8.4 Pilar 4: Pengujian Antarmuka (UI Testing) — STATUS: SELESAI SEBAGIAN (INSPEKSI HEADLESS)
+- **Metode**: Pengujian DOM dan tangkapan layar headless via Chrome engine (`--headless=new`).
+- **Bukti Tangkapan Layar**:
+  1. Desktop Mockup Reference: `mockup_desktop_aset.png`
+  2. Mobile Mockup Reference: `mockup_mobile_aset.png`
+  3. Desktop SimKos AsetView: `ui_desktop_aset.png`
+  4. Mobile SimKos AsetView: `ui_mobile_aset.png`
+- **Observasi UI**:
+  - Tampilan telah bersih dari istilah fase teknis (tidak ada teks "Fase 3" atau "fase selanjutnya" di UI pengguna).
+  - Label estimasi nilai buku dan beban belum lengkap menggunakan "Belum dapat dihitung".
+  - Tombol backfill dan tambah aset diproteksi dari pengguna dengan peran staf.
+  - State error jaringan/akses dilengkapi tombol interaktif "Coba Lagi".
 
 ---
 
-## 9. Status Roadmap Pengembangan Terkini
+## 9. Status Roadmap & Batasan Kerja
 
 ```mermaid
-flowchart TD
+flowchart LR
     F0["Fase 0: Audit & Baseline<br><b>(SELESAI)</b>"] --> F1["Fase 1: Desain Teknis<br><b>(SELESAI)</b>"]
-    F1 --> F2["Fase 2-R: Pencatatan Aset & Draf Terverifikasi<br><b>(SELESAI)</b>"]
-    F2 -.-> F3["Fase 3: Simulasi & Mesin Penyusutan<br><i>(DITUNDA MENUNGGU REVIEW FASE 2-R)</i>"]
-    F3 -.-> F4["Fase 4: Saldo Awal & Pembukuan Bulanan<br><i>(DITUNDA)</i>"]
-    F4 -.-> F5["Fase 5: Laporan Keuangan Internal (Arus Kas vs Hasil Usaha)<br><i>(DITUNDA)</i>"]
+    F1 --> F2R["Fase 2-R: Kode & Desain Siap<br><b>(VERIFIKASI DB & UI BELUM SELESAI)</b>"]
+    F2R -.-> F3["Fase 3: Simulasi Penyusutan<br><i>(DITUNDA)</i>"]
 ```
 
-| Fase | Fokus | Status | Catatan |
-|---|---|---|---|
-| **Fase 0** | Audit & baseline codebase | **SELESAI** | Dokumentasi skema, 4 bug sewa teridentifikasi. |
-| **Fase 1** | Desain teknis modul aset | **SELESAI** | Arsitektur data, formula luas bersama, spesifikasi algoritma. |
-| **Fase 2-R** | Pencatatan aset, draf, & pengerasan integritas data | **SELESAI** | Skema SQL valid, RLS berbasis peran, validasi alokasi pengeluaran, UI responsif, 89/89 tests passing. |
-| **Fase 3** | Mesin penyusutan garis lurus & simulasi pratinjau | **DITUNDA** | Menunggu persetujuan peninjauan Fase 2-R dari pemilik proyek. |
-| **Fase 4** | Saldo awal aset lama, cut-off, & buku pembantu | **DITUNDA** | Dilanjutkan setelah Fase 3 selesai. |
-| **Fase 5** | Laporan Keuangan Internal (Arus Kas vs Hasil Usaha) | **DITUNDA** | Dilanjutkan setelah Fase 4 selesai. |
+Pekerjaan perbaikan kode Fase 2-R telah dirampungkan secara disiplin pada branch `feat/aset-inventaris-audit-desain` dengan status eksplisit:
+> **“Perbaikan kode telah dilakukan; verifikasi integrasi database dan UI belum selesai.”**

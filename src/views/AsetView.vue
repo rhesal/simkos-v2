@@ -93,9 +93,9 @@
         <div class="bg-white rounded-2xl border-2 border-border p-3.5 shadow-sm">
           <span class="text-[11px] font-bold text-text-muted block">Nilai Buku</span>
           <strong class="text-xs sm:text-sm font-extrabold text-amber-700 block mt-1.5 py-0.5">
-            Belum Dihitung
+            Belum dapat dihitung
           </strong>
-          <small class="text-[10px] text-text-muted block mt-1">Tersedia di Fase 3</small>
+          <small class="text-[10px] text-text-muted block mt-1">Menunggu amortisasi</small>
         </div>
         <div class="bg-white rounded-2xl border-2 border-border p-3.5 shadow-sm">
           <span class="text-[11px] font-bold text-text-muted block">Perlu Dilengkapi</span>

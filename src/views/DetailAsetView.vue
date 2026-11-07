@@ -196,7 +196,7 @@
           </div>
           <div class="flex justify-between">
             <span>Nilai Buku:</span>
-            <span class="font-bold text-amber-800">Belum dihitung (Fase 3)</span>
+            <span class="font-bold text-amber-800">Belum dapat dihitung</span>
           </div>
           <div class="flex justify-between pt-1 border-t border-blue-200 font-extrabold text-navy">
             <span>Status Pencatatan:</span>

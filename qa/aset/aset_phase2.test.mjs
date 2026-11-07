@@ -198,14 +198,15 @@ test('Sinkronisasi Transisi Inventaris: perubahan pada inventaris lama terpropag
   const asset = {
     nama_aset: 'Kipas Angin Lama',
     kondisi_fisik: 'baik',
-    legacy_inventory_id: 'inv-10'
+    legacy_inventory_id: 'inv-10',
+    status_pencatatan: 'draft'
   }
   const component = {
     biaya_perolehan: 300000,
     tanggal_perolehan: '2025-01-01'
   }
 
-  // Simulasi update di menu inventaris lama
+  // Simulasi update di menu inventaris lama oleh admin/owner
   const updatedLegacy = {
     id: 'inv-10',
     nama_barang: 'Kipas Angin Berdiri Maspion',
@@ -215,19 +216,59 @@ test('Sinkronisasi Transisi Inventaris: perubahan pada inventaris lama terpropag
   }
 
   // Fungsi sinkronisasi (seperti trigger sync_inventory_to_asset)
-  function applySync(a, c, leg) {
-    if (a.legacy_inventory_id === leg.id) {
-      a.nama_aset = leg.nama_barang
+  function applySync(a, c, leg, role) {
+    const isPrivileged = role === 'admin' || role === 'owner'
+    if (a.status_pencatatan !== 'draft') {
+      if (leg.nama_barang !== a.nama_aset || leg.harga !== c.biaya_perolehan) {
+        throw new Error('SIMKOS_ASSET_ALREADY_VERIFIED')
+      }
       a.kondisi_fisik = leg.kondisi.toLowerCase().includes('rusak') ? 'rusak_ringan' : 'baik'
+      return
+    }
+
+    if (!isPrivileged && leg.harga !== c.biaya_perolehan) {
+      throw new Error('SIMKOS_STAFF_CANNOT_MUTATE_ASSET_FINANCIALS')
+    }
+
+    a.nama_aset = leg.nama_barang
+    a.kondisi_fisik = leg.kondisi.toLowerCase().includes('rusak') ? 'rusak_ringan' : 'baik'
+    if (isPrivileged) {
       c.biaya_perolehan = leg.harga
       c.tanggal_perolehan = leg.tanggal_pembelian
     }
   }
 
-  applySync(asset, component, updatedLegacy)
-
+  // 1. Sukses jika dijalankan admin/owner
+  applySync(asset, component, updatedLegacy, 'admin')
   assert.equal(asset.nama_aset, 'Kipas Angin Berdiri Maspion')
   assert.equal(asset.kondisi_fisik, 'rusak_ringan')
   assert.equal(component.biaya_perolehan, 350000)
-  assert.equal(component.tanggal_perolehan, '2025-02-15')
+
+  // 2. Ditolak jika staf mencoba mengubah harga aset melalui menu inventaris
+  const staffAttempt = { ...updatedLegacy, harga: 999999 }
+  assert.throws(() => {
+    applySync(asset, component, staffAttempt, 'staff')
+  }, /SIMKOS_STAFF_CANNOT_MUTATE_ASSET_FINANCIALS/)
+
+  // 3. Ditolak jika aset sudah diverifikasi (SSOT terkunci) dan diubah namanya dari inventaris
+  asset.status_pencatatan = 'terverifikasi'
+  const renameAttempt = { ...updatedLegacy, nama_barang: 'Kipas Berubah Nama' }
+  assert.throws(() => {
+    applySync(asset, component, renameAttempt, 'admin')
+  }, /SIMKOS_ASSET_ALREADY_VERIFIED/)
+})
+
+test('UI Verifikasi: Tampilan bersih dari istilah fase dan memakai label Belum dapat dihitung', () => {
+  const asetViewSrc = fs.readFileSync(path.join(ROOT, 'src/views/AsetView.vue'), 'utf8')
+  const detailViewSrc = fs.readFileSync(path.join(ROOT, 'src/views/DetailAsetView.vue'), 'utf8')
+  const tambahViewSrc = fs.readFileSync(path.join(ROOT, 'src/views/TambahAsetView.vue'), 'utf8')
+
+  // Label "Belum dapat dihitung" harus ada
+  assert.ok(asetViewSrc.includes('Belum dapat dihitung'), 'AsetView menampilkan Belum dapat dihitung')
+  assert.ok(detailViewSrc.includes('Belum dapat dihitung'), 'DetailAsetView menampilkan Belum dapat dihitung')
+
+  // Istilah fase pengembangan tidak boleh ada di template user-facing
+  assert.ok(!asetViewSrc.includes('Tersedia di Fase 3'), 'AsetView tidak memuat teks Fase 3')
+  assert.ok(!detailViewSrc.includes('Fase 3'), 'DetailAsetView tidak memuat teks Fase 3')
+  assert.ok(!tambahViewSrc.includes('fase selanjutnya'), 'TambahAsetView tidak memuat teks fase selanjutnya')
 })

@@ -372,7 +372,7 @@
           </div>
 
           <div class="bg-blue-50 border border-blue-200 text-blue-900 rounded-xl p-3 text-xs leading-relaxed">
-            💡 Draf ini dapat disimpan kapan saja. Tidak menghasilkan transaksi kas keluar ganda atau jurnal pembukuan sampai diverifikasi pada fase selanjutnya.
+            💡 Draf ini dapat disimpan kapan saja. Tidak menghasilkan transaksi kas keluar ganda atau jurnal pembukuan sampai diverifikasi pada pembukuan resmi.
           </div>
         </div>
 
