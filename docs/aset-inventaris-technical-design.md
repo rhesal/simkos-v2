@@ -343,7 +343,7 @@ create table if not exists public.asset_components (
 - Hari aktif bulan ke-1 (16–30 Juni inklusif): $H_1 = 30 - 16 + 1 = 15\text{ hari}$.
 - Fraksi bulan ke-1: $F_1 = 15 / 30 = 0,5$.
 - Beban penyusutan bulan Juni 2026: $\text{round}(100.000 \times 0,5) = \mathbf{\text{Rp } 50.000}$.
-- Sisa hak masa manfaat ($1 - F_1 = 0,5\text{ bulan}$ / Rp 50.000) dialokasikan penuh ke bulan ke-61 (**Juli 2031**), sehingga masa manfaat total tetap genap 60 bulan setara kalender.
+- Sisa hak masa manfaat ($1 - F_1 = 0,5\text{ bulan}$ / Rp 50.000) dialokasikan penuh ke bulan ke-61 (**Juni 2031**), sehingga masa manfaat total tetap genap 60 bulan setara kalender (59 bulan penuh Juli 2026 s/d Mei 2031 + dua setengah-bulan di Juni 2026 dan Juni 2031).
 
 #### Contoh 2: Kasus Batas Tanggal 31 Januari & Rollover Akhir Bulan
 - Data Aset: Water Heater Rp 3.600.000, siap guna **31 Januari 2026**, masa manfaat 36 bulan (Rp 100.000/bulan).
@@ -370,7 +370,10 @@ create table if not exists public.asset_components (
   1. *Laporan Arus Kas (Cash Flow)*: Menggunakan **tanggal kas aktual** (`incomes.tanggal_bayar` untuk kas masuk, dan `expenses.tanggal_pengeluaran` untuk kas keluar).
   2. *Laporan Hasil Usaha Internal*: Menggunakan **periode kalender bulanan** (`YYYY-MM-01` sampai hari terakhir bulan bersangkutan).
   3. *Beban Penyusutan*: Diakui pada periode kalender berjalan berdasarkan `tanggal_siap_guna` aset, terpisah dari tanggal kas keluar pembelian aset.
-  4. *Pengecualian Belanja Terkapitalisasi*: Pengeluaran yang memiliki relasi `allocated_cost` pada `asset_components` **dikecualikan dari beban operasional langsung** di Laporan Hasil Usaha sebesar nominal alokasinya, dan dibebankan secara bertahap via penyusutan bulanan.
+  4. *Aturan Pengurangan Beban Belanja Terkapitalisasi*:
+     - **Draf atau alokasi yang belum disahkan (status `draft` atau `status_kapitalisasi = 'perlu_telaah'`) TIDAK OTOMATIS MENGURANGI BEBAN LAPORAN**.
+     - Seluruh transaksi kas keluar di `expenses` tetap diakui penuh sebagai beban operasional berjalan sebelum alokasi kapitalisasinya diverifikasi secara resmi.
+     - Hanya pengeluaran yang telah diverifikasi dan disahkan sebagai kapitalisasi (`status_kapitalisasi = 'kapitalisasi'` dan aset induk `terverifikasi`) yang nominal alokasinya (`allocated_cost`) dikecualikan dari beban operasional langsung, lalu dialihkan menjadi beban penyusutan periodik. Hal ini menjamin prinsip kehati-hatian akuntansi (konservatisme).
 
 ---
 

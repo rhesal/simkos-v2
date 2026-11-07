@@ -1,13 +1,15 @@
--- =====================================================================
--- Migration 800: Modul Aset & Inventaris (Fase 2-R - Integritas Data & Draf)
--- Aditif dan non-destruktif terhadap tabel inventories eksisting.
--- =====================================================================
+-- ==============================================================================
+-- Migrasi: 20261108000800_assets_phase2.sql
+-- Modul: Aset & Inventaris SimKos (Fase 2-R)
+-- Deskripsi: Skema draf aset, komponen, pengamanan RLS peran, relasi expenses,
+--            dan RPC backfill idempoten terotorisasi.
+-- ==============================================================================
 
--- 1. Tambah kolom threshold kapitalisasi di tabel organizations
-alter table public.organizations
-  add column if not exists capitalization_threshold numeric check (capitalization_threshold >= 0);
+-- 1. Penambahan Kolom Ambang Kapitalisasi pada Organisasi
+alter table public.organizations 
+add column if not exists capitalization_threshold numeric check (capitalization_threshold >= 0);
 
--- 2. Buat tabel public.assets
+-- 2. Tabel Identitas Aset Fisik
 create table if not exists public.assets (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null default public.current_org_id() references public.organizations(id) on delete cascade,
@@ -36,15 +38,16 @@ create table if not exists public.assets (
   created_by uuid references auth.users(id),
   updated_by uuid references auth.users(id),
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  constraint uq_assets_legacy_inventory unique (legacy_inventory_id)
+  updated_at timestamptz not null default now()
 );
 
+-- Index performa & pencarian
 create index if not exists idx_assets_org_kategori on public.assets(org_id, kategori_aset);
 create index if not exists idx_assets_location on public.assets(location_id);
 create index if not exists idx_assets_room on public.assets(room_id);
+create unique index if not exists uq_assets_legacy_inventory on public.assets(org_id, legacy_inventory_id) where legacy_inventory_id is not null;
 
--- 3. Buat tabel public.asset_components
+-- 3. Tabel Komponen & Pengembangan Aset
 create table if not exists public.asset_components (
   id uuid primary key default gen_random_uuid(),
   asset_id uuid not null references public.assets(id) on delete cascade,
@@ -55,11 +58,11 @@ create table if not exists public.asset_components (
   )),
   tanggal_perolehan date,
   tanggal_siap_guna date,
-  tahun_perolehan int check (tahun_perolehan between 1800 and 2100),
-  biaya_perolehan numeric check (biaya_perolehan >= 0),
-  nilai_sisa numeric default 0 check (nilai_sisa >= 0 and (biaya_perolehan is null or nilai_sisa <= biaya_perolehan)),
-  masa_manfaat_bulan int check (masa_manfaat_bulan > 0),
-  metode_penyusutan text not null default 'belum_ditentukan' check (metode_penyusutan in (
+  tahun_perolehan int check (tahun_perolehan is null or (tahun_perolehan between 1900 and 2100)),
+  biaya_perolehan numeric check (biaya_perolehan is null or biaya_perolehan >= 0),
+  nilai_sisa numeric not null default 0 check (nilai_sisa >= 0 and (biaya_perolehan is null or nilai_sisa <= biaya_perolehan)),
+  masa_manfaat_bulan int check (masa_manfaat_bulan is null or masa_manfaat_bulan > 0),
+  metode_penyusutan text not null default 'garis_lurus' check (metode_penyusutan in (
     'garis_lurus', 'tidak_disusutkan', 'belum_ditentukan'
   )),
   pola_penggunaan text not null default 'seluruhnya_usaha' check (pola_penggunaan in (
@@ -76,9 +79,15 @@ create table if not exists public.asset_components (
     'kapitalisasi', 'beban_langsung', 'perlu_telaah'
   )),
   catatan_telaah text,
+  is_origin_inventory boolean not null default false,
+  financials_customized_in_asset boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Penambahan kolom baru jika tabel sudah pernah dibuat sebelumnya
+alter table public.asset_components add column if not exists is_origin_inventory boolean not null default false;
+alter table public.asset_components add column if not exists financials_customized_in_asset boolean not null default false;
 
 create index if not exists idx_asset_components_asset on public.asset_components(asset_id);
 create index if not exists idx_asset_components_org on public.asset_components(org_id);
@@ -95,15 +104,16 @@ declare
   v_loc_org uuid;
   v_room_org uuid;
   v_room_loc uuid;
+  v_inv_org uuid;
 begin
   -- Cegah perubahan org_id setelah dibuat
   if tg_op = 'UPDATE' and new.org_id <> old.org_id then
     raise exception 'SIMKOS_IMMUTABLE_ORG: Organisasi aset tidak dapat dipindahkan';
   end if;
 
-  -- Pada Fase 2, seluruh aset baru hanya boleh berstatus 'draft'
-  if tg_op = 'INSERT' and new.status_pencatatan <> 'draft' then
-    raise exception 'SIMKOS_PHASE2_DRAFT_ONLY: Pada Fase 2, aset baru hanya diizinkan berstatus draft';
+  -- Pada Fase 2, seluruh aset (baik saat INSERT maupun UPDATE) hanya boleh berstatus 'draft'
+  if new.status_pencatatan <> 'draft' then
+    raise exception 'SIMKOS_PHASE2_DRAFT_ONLY: Pada Fase 2, pencatatan dan perubahan status aset hanya diizinkan berstatus draft';
   end if;
 
   -- Validasi lokasi satu organisasi
@@ -124,6 +134,14 @@ begin
     if new.location_id is not null and v_room_loc <> new.location_id then
       raise exception 'SIMKOS_ROOM_LOCATION_MISMATCH: Kamar (%) berada di lokasi (%), tidak sesuai dengan lokasi aset (%)',
         new.room_id, v_room_loc, new.location_id;
+    end if;
+  end if;
+
+  -- Validasi organisasi legacy_inventory_id
+  if new.legacy_inventory_id is not null then
+    select org_id into v_inv_org from public.inventories where id = new.legacy_inventory_id;
+    if v_inv_org is null or v_inv_org <> new.org_id then
+      raise exception 'SIMKOS_CROSS_TENANT_INVENTORY: Inventaris lama (%) bukan milik organisasi (%)', new.legacy_inventory_id, new.org_id;
     end if;
   end if;
 
@@ -158,6 +176,15 @@ begin
   select org_id into v_asset_org from public.assets where id = new.asset_id;
   if v_asset_org is null or v_asset_org <> new.org_id then
     raise exception 'SIMKOS_CROSS_TENANT_ASSET: Aset induk (%) bukan milik organisasi (%)', new.asset_id, new.org_id;
+  end if;
+
+  -- Tandai jika ada pembaruan finansial langsung melalui modul Aset
+  if tg_op = 'UPDATE' then
+    if (new.biaya_perolehan is distinct from old.biaya_perolehan 
+        or new.tanggal_perolehan is distinct from old.tanggal_perolehan 
+        or new.bukti_dokumen_url is distinct from old.bukti_dokumen_url) then
+      new.financials_customized_in_asset := true;
+    end if;
   end if;
 
   -- Validasi relasi pengeluaran & penguncian baris untuk konkurensi aman
@@ -202,6 +229,33 @@ drop trigger if exists trg_validate_component_relations on public.asset_componen
 create trigger trg_validate_component_relations
 before insert or update on public.asset_components
 for each row execute function public.validate_component_relations();
+
+-- 5b. Validasi Penghapusan Komponen Mengikuti Status Aset Induk
+create or replace function public.validate_component_delete()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_asset_status text;
+begin
+  select status_pencatatan into v_asset_status
+  from public.assets
+  where id = old.asset_id;
+
+  if v_asset_status is not null and v_asset_status <> 'draft' then
+    raise exception 'SIMKOS_NON_DRAFT_COMPONENT_DELETE: Komponen aset tidak dapat dihapus jika aset induk tidak berstatus draft (status: %)', v_asset_status;
+  end if;
+
+  return old;
+end;
+$$;
+
+drop trigger if exists trg_validate_component_delete on public.asset_components;
+create trigger trg_validate_component_delete
+before delete on public.asset_components
+for each row execute function public.validate_component_delete();
 
 -- 6. Trigger Pengeluaran: Mencegah Hapus / Penurunan Nominal Melebihi Alokasi Aset
 create or replace function public.validate_expense_asset_allocations()
@@ -248,23 +302,26 @@ security definer
 set search_path = ''
 as $$
 declare
+  v_asset_id uuid;
   v_asset_status text;
   v_is_privileged boolean;
+  v_origin_comp_id uuid;
+  v_financials_customized boolean;
 begin
-  -- Cari status pencatatan aset yang tertaut (jika ada)
-  select status_pencatatan into v_asset_status
+  -- Cari id dan status pencatatan aset yang tertaut (jika ada)
+  select id, status_pencatatan into v_asset_id, v_asset_status
   from public.assets
   where legacy_inventory_id = new.id;
 
   -- Jika inventaris ini belum dibackfill ke assets, tidak ada yang perlu disinkronkan
-  if v_asset_status is null then
+  if v_asset_id is null then
     return new;
   end if;
 
   -- Evaluasi peran pengguna: apakah owner atau admin?
   v_is_privileged := (public.is_org_owner(new.org_id) or public.is_org_admin(new.org_id));
 
-  -- ATURAN 1: Single Source of Truth (SSOT)
+  -- ATURAN 1: Single Source of Truth (SSOT) Pasca-Verifikasi
   -- Jika aset sudah diverifikasi / dibukukan di modul Aset, modul Aset adalah SSOT mutlak.
   -- Modifikasi struktural (nama, lokasi, kamar, harga) dari menu lama ditolak.
   if v_asset_status <> 'draft' then
@@ -283,7 +340,7 @@ begin
       end,
       catatan = new.catatan,
       updated_at = now()
-    where legacy_inventory_id = new.id;
+    where id = v_asset_id;
 
     return new;
   end if;
@@ -297,7 +354,7 @@ begin
     end if;
   end if;
 
-  -- Bila berstatus draft dan diizinkan, sinkronkan data ke assets
+  -- Bila berstatus draft dan diizinkan, sinkronkan data fisik/identitas ke assets
   update public.assets
   set
     nama_aset = new.nama_barang,
@@ -309,22 +366,38 @@ begin
     end,
     catatan = new.catatan,
     updated_at = now()
-  where legacy_inventory_id = new.id
-    and status_pencatatan = 'draft';
+  where id = v_asset_id;
 
-  -- Sinkronkan biaya & nota ke komponen jika diubah oleh owner/admin
-  if v_is_privileged then
-    update public.asset_components ac
-    set
-      biaya_perolehan = new.harga,
-      tanggal_perolehan = new.tanggal_pembelian,
-      bukti_dokumen_url = new.receipt_url,
-      updated_at = now()
-    from public.assets a
-    where a.legacy_inventory_id = new.id
-      and ac.asset_id = a.id
-      and ac.jenis_pekerjaan = 'perolehan_baru'
-      and a.status_pencatatan = 'draft';
+  -- ATURAN 3: Identifikasi TEPAT SATU komponen asal hasil backfill
+  select id, financials_customized_in_asset into v_origin_comp_id, v_financials_customized
+  from public.asset_components
+  where asset_id = v_asset_id
+    and is_origin_inventory = true
+  order by created_at asc
+  limit 1;
+
+  -- Fallback jika is_origin_inventory belum terpasang (komponen terawal)
+  if v_origin_comp_id is null then
+    select id, financials_customized_in_asset into v_origin_comp_id, v_financials_customized
+    from public.asset_components
+    where asset_id = v_asset_id
+    order by created_at asc
+    limit 1;
+  end if;
+
+  -- ATURAN 4: Proteksi Atribut Finansial yang Sudah Diperbarui di Modul Aset
+  -- Jika komponen asal ini sudah disesuaikan secara finansial di modul Aset (financials_customized = true),
+  -- perubahan catatan atau kondisi fisik di inventaris TIDAK BOLEH menimpa biaya, tanggal, atau nota!
+  if v_origin_comp_id is not null and v_is_privileged and not coalesce(v_financials_customized, false) then
+    if (new.harga is distinct from old.harga or new.tanggal_pembelian is distinct from old.tanggal_pembelian or new.receipt_url is distinct from old.receipt_url) then
+      update public.asset_components
+      set
+        biaya_perolehan = new.harga,
+        tanggal_perolehan = new.tanggal_pembelian,
+        bukti_dokumen_url = new.receipt_url,
+        updated_at = now()
+      where id = v_origin_comp_id;
+    end if;
   end if;
 
   return new;
@@ -340,23 +413,37 @@ for each row execute function public.sync_inventory_to_asset();
 alter table public.assets enable row level security;
 alter table public.asset_components enable row level security;
 
--- Baca: seluruh anggota organisasi (admin, owner, staff)
+-- Bersihkan seluruh policy lama/permisif yang mungkin pernah dibuat di lingkungan uji
 drop policy if exists assets_org_read on public.assets;
+drop policy if exists assets_org_write on public.assets;
+drop policy if exists assets_org_update on public.assets;
+drop policy if exists assets_org_delete on public.assets;
+drop policy if exists assets_permissive_policy on public.assets;
+drop policy if exists "Enable all for users based on org_id" on public.assets;
+drop policy if exists assets_policy on public.assets;
+
+drop policy if exists asset_components_org_read on public.asset_components;
+drop policy if exists asset_components_org_write on public.asset_components;
+drop policy if exists asset_components_org_update on public.asset_components;
+drop policy if exists asset_components_org_delete on public.asset_components;
+drop policy if exists asset_components_permissive_policy on public.asset_components;
+drop policy if exists "Enable all for users based on org_id" on public.asset_components;
+drop policy if exists asset_components_policy on public.asset_components;
+
+-- Pasang policy baru yang ketat:
+-- Baca: seluruh anggota organisasi (admin, owner, staff)
 create policy assets_org_read on public.assets
 for select using (public.is_org_member(org_id));
 
-drop policy if exists asset_components_org_read on public.asset_components;
 create policy asset_components_org_read on public.asset_components
 for select using (public.is_org_member(org_id));
 
 -- Tulis (Insert/Update): admin atau owner
-drop policy if exists assets_org_write on public.assets;
 create policy assets_org_write on public.assets
 for insert with check (
   public.is_org_member(org_id) and (public.is_org_owner(org_id) or public.is_org_admin(org_id))
 );
 
-drop policy if exists assets_org_update on public.assets;
 create policy assets_org_update on public.assets
 for update using (
   public.is_org_member(org_id) and (public.is_org_owner(org_id) or public.is_org_admin(org_id))
@@ -364,20 +451,17 @@ for update using (
   public.is_org_member(org_id) and (public.is_org_owner(org_id) or public.is_org_admin(org_id))
 );
 
--- Hapus: hanya draf oleh admin atau owner
-drop policy if exists assets_org_delete on public.assets;
+-- Hapus Aset: hanya draf oleh admin atau owner
 create policy assets_org_delete on public.assets
 for delete using (
   public.is_org_member(org_id) and (public.is_org_owner(org_id) or public.is_org_admin(org_id)) and status_pencatatan = 'draft'
 );
 
-drop policy if exists asset_components_org_write on public.asset_components;
 create policy asset_components_org_write on public.asset_components
 for insert with check (
   public.is_org_member(org_id) and (public.is_org_owner(org_id) or public.is_org_admin(org_id))
 );
 
-drop policy if exists asset_components_org_update on public.asset_components;
 create policy asset_components_org_update on public.asset_components
 for update using (
   public.is_org_member(org_id) and (public.is_org_owner(org_id) or public.is_org_admin(org_id))
@@ -385,10 +469,16 @@ for update using (
   public.is_org_member(org_id) and (public.is_org_owner(org_id) or public.is_org_admin(org_id))
 );
 
-drop policy if exists asset_components_org_delete on public.asset_components;
+-- Hapus Komponen: hanya diizinkan jika aset induk berstatus draft oleh admin atau owner
 create policy asset_components_org_delete on public.asset_components
 for delete using (
-  public.is_org_member(org_id) and (public.is_org_owner(org_id) or public.is_org_admin(org_id))
+  public.is_org_member(org_id)
+  and (public.is_org_owner(org_id) or public.is_org_admin(org_id))
+  and exists (
+    select 1 from public.assets a
+    where a.id = asset_components.asset_id
+      and a.status_pencatatan = 'draft'
+  )
 );
 
 -- 9. Trigger Storage Path
@@ -398,7 +488,7 @@ before insert or update of bukti_dokumen_url on public.asset_components
 for each row execute function public.enforce_org_storage_path('bukti_dokumen_url');
 
 -- 10. Prosedur Backfill Idempoten & Terotorisasi
-create or replace function public.backfill_inventories_to_assets()
+create or replace function public.backfill_inventories_to_assets(p_org_id uuid default null)
 returns table(inserted_assets int, inserted_components int)
 language plpgsql
 security definer
@@ -406,7 +496,7 @@ set search_path = ''
 as $$
 declare
   v_user_id uuid := auth.uid();
-  v_org_id uuid;
+  v_target_org_id uuid;
   v_role text;
   v_assets_count int := 0;
   v_components_count int := 0;
@@ -416,25 +506,31 @@ begin
     raise exception 'SIMKOS_UNAUTHENTICATED: Pengguna belum terautentikasi';
   end if;
 
-  -- 2. Identifikasi organisasi dan peran secara independen dari database
-  select m.org_id, m.role into v_org_id, v_role
-  from public.organization_members m
-  where m.user_id = v_user_id
-  limit 1;
+  -- 2. Tentukan target org_id: dari parameter p_org_id jika diberikan, atau dari current_org_id()
+  v_target_org_id := coalesce(p_org_id, public.current_org_id());
 
-  if v_org_id is null then
-    raise exception 'SIMKOS_NO_ORG: Pengguna tidak terdaftar dalam organisasi mana pun';
+  if v_target_org_id is null then
+    raise exception 'SIMKOS_NO_ORG: Organisasi target tidak valid atau tidak ditemukan';
   end if;
 
-  -- 3. Otorisasi peran: hanya admin atau owner
+  -- 3. Validasi keanggotaan dan peran pada organisasi target secara eksplisit
+  select m.role into v_role
+  from public.organization_members m
+  where m.org_id = v_target_org_id
+    and m.user_id = v_user_id;
+
+  if v_role is null then
+    raise exception 'SIMKOS_FORBIDDEN_ORG: Pengguna bukan anggota dari organisasi target (%)', v_target_org_id;
+  end if;
+
   if v_role not in ('admin', 'owner') then
     raise exception 'SIMKOS_UNAUTHORIZED: Hanya admin atau owner yang berwenang mengeksekusi backfill inventaris';
   end if;
 
   -- 4. Kunci transaksi advisory lock agar aman terhadap pemanggilan bersamaan
-  perform pg_advisory_xact_lock(hashtext('simkos_backfill_' || v_org_id::text));
+  perform pg_advisory_xact_lock(hashtext('simkos_backfill_' || v_target_org_id::text));
 
-  -- 5. Tabel batch sementara
+  -- 5. Tabel batch sementara untuk menampung draf aset yang baru saja diinsert
   create temporary table _new_assets_batch (
     asset_id uuid,
     org_id uuid,
@@ -442,58 +538,62 @@ begin
     legacy_inventory_id uuid
   ) on commit drop;
 
-  -- 6. Insert atomik ke assets hanya untuk organisasi yang berwenang
-  insert into public.assets (
-    org_id,
-    location_id,
-    room_id,
-    nama_aset,
-    kategori_aset,
-    dasar_penggunaan,
-    kondisi_fisik,
-    status_penggunaan,
-    status_pencatatan,
-    catatan,
-    legacy_inventory_id,
-    created_by,
-    updated_by,
-    created_at,
-    updated_at
-  )
-  select
-    i.org_id,
-    i.location_id,
-    i.room_id,
-    i.nama_barang,
-    case 
-      when i.tipe_fasilitas = 'kamar' or i.room_id is not null then 'fasilitas_kamar'
-      else 'fasilitas_umum'
-    end as kategori_aset,
-    'milik_sendiri' as dasar_penggunaan,
-    case 
-      when lower(coalesce(i.kondisi, '')) like '%rusak%' then 'rusak_ringan'
-      else 'baik'
-    end as kondisi_fisik,
-    'aktif' as status_penggunaan,
-    'draft' as status_pencatatan,
-    i.catatan,
-    i.id as legacy_inventory_id,
-    v_user_id,
-    v_user_id,
-    coalesce(i.created_at, now()),
-    now()
-  from public.inventories i
-  where i.org_id = v_org_id
-    and not exists (
-      select 1 from public.assets a where a.legacy_inventory_id = i.id
+  -- 6. Insert atomik ke assets via CTE INSERT ... RETURNING yang valid di PostgreSQL
+  with ins_assets as (
+    insert into public.assets (
+      org_id,
+      location_id,
+      room_id,
+      nama_aset,
+      kategori_aset,
+      dasar_penggunaan,
+      kondisi_fisik,
+      status_penggunaan,
+      status_pencatatan,
+      catatan,
+      legacy_inventory_id,
+      created_by,
+      updated_by,
+      created_at,
+      updated_at
     )
-  returning id, org_id, nama_aset, legacy_inventory_id
-  into _new_assets_batch;
+    select
+      i.org_id,
+      i.location_id,
+      i.room_id,
+      i.nama_barang,
+      case 
+        when i.tipe_fasilitas = 'kamar' or i.room_id is not null then 'fasilitas_kamar'
+        else 'fasilitas_umum'
+      end as kategori_aset,
+      'milik_sendiri' as dasar_penggunaan,
+      case 
+        when lower(coalesce(i.kondisi, '')) like '%rusak%' then 'rusak_ringan'
+        else 'baik'
+      end as kondisi_fisik,
+      'aktif' as status_penggunaan,
+      'draft' as status_pencatatan,
+      i.catatan,
+      i.id as legacy_inventory_id,
+      v_user_id,
+      v_user_id,
+      coalesce(i.created_at, now()),
+      now()
+    from public.inventories i
+    where i.org_id = v_target_org_id
+      and not exists (
+        select 1 from public.assets a where a.legacy_inventory_id = i.id
+      )
+    returning id, org_id, nama_aset, legacy_inventory_id
+  )
+  insert into _new_assets_batch (asset_id, org_id, nama_aset, legacy_inventory_id)
+  select id, org_id, nama_aset, legacy_inventory_id
+  from ins_assets;
 
   get diagnostics v_assets_count = row_count;
 
   if v_assets_count > 0 then
-    -- 7. Insert komponen biaya (tanggal_siap_guna NULL, status_kapitalisasi = 'perlu_telaah')
+    -- 7. Insert tepat satu komponen asal untuk setiap aset baru
     insert into public.asset_components (
       asset_id,
       org_id,
@@ -507,7 +607,9 @@ begin
       pola_penggunaan,
       porsi_usaha_persen,
       bukti_dokumen_url,
-      status_kapitalisasi
+      status_kapitalisasi,
+      is_origin_inventory,
+      financials_customized_in_asset
     )
     select
       b.asset_id,
@@ -522,7 +624,9 @@ begin
       'seluruhnya_usaha',
       100,
       i.receipt_url,
-      'perlu_telaah' -- Tidak otomatis beban_langsung
+      'perlu_telaah',
+      true,  -- Menandai tepat satu komponen asal hasil backfill
+      false  -- Belum dikustomisasi di modul Aset
     from _new_assets_batch b
     join public.inventories i on i.id = b.legacy_inventory_id;
 
@@ -533,3 +637,7 @@ begin
   return query select v_assets_count, v_components_count;
 end;
 $$;
+
+-- Izin eksekusi RPC eksplisit
+revoke all on function public.backfill_inventories_to_assets(uuid) from public;
+grant execute on function public.backfill_inventories_to_assets(uuid) to authenticated;

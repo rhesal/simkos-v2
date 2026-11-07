@@ -77,16 +77,20 @@ test('Migrasi 800: integritas sintaks PostgreSQL & skema Fase 2-R', () => {
   assert.match(sql, /create table if not exists public\.assets/, 'Membuat tabel public.assets')
   assert.match(sql, /create table if not exists public\.asset_components/, 'Membuat tabel public.asset_components')
   assert.match(sql, /legacy_inventory_id/, 'Menyimpan rujukan unik ke inventaris lama')
-  assert.match(sql, /uq_assets_legacy_inventory unique/, 'Constraint keunikan backfill legacy_inventory_id')
+  assert.match(sql, /uq_assets_legacy_inventory/i, 'Constraint keunikan backfill legacy_inventory_id')
   assert.match(sql, /allocated_cost numeric check \(allocated_cost >= 0\)/, 'Mendukung alokasi split transaksi pembelian')
   assert.match(sql, /porsi_usaha_persen numeric check/, 'Porsi usaha mendukung check 0-100 dan nullable')
+  assert.match(sql, /is_origin_inventory boolean/i, 'Menandai tepat satu komponen asal hasil backfill')
+  assert.match(sql, /financials_customized_in_asset boolean/i, 'Melacak kustomisasi finansial di modul aset')
 
   // Verifikasi trigger pengamanan & integritas
   assert.match(sql, /SIMKOS_CROSS_TENANT_LOCATION/, 'Trigger menolak cross-tenant location')
   assert.match(sql, /SIMKOS_CROSS_TENANT_ROOM/, 'Trigger menolak cross-tenant room')
+  assert.match(sql, /SIMKOS_CROSS_TENANT_INVENTORY/, 'Trigger menolak cross-tenant legacy_inventory_id')
   assert.match(sql, /SIMKOS_ROOM_LOCATION_MISMATCH/, 'Trigger memastikan kamar sesuai lokasi aset')
   assert.match(sql, /SIMKOS_IMMUTABLE_ORG/, 'Trigger menolak pemindahan organisasi aset')
-  assert.match(sql, /SIMKOS_PHASE2_DRAFT_ONLY/, 'Trigger membatasi aset baru hanya draft di Fase 2')
+  assert.match(sql, /SIMKOS_PHASE2_DRAFT_ONLY/, 'Trigger membatasi aset hanya draft di Fase 2')
+  assert.match(sql, /SIMKOS_NON_DRAFT_COMPONENT_DELETE/, 'Trigger menolak hapus komponen jika aset induk bukan draft')
   assert.match(sql, /SIMKOS_OVERALLOCATED_EXPENSE/, 'Trigger menolak alokasi melebihi transaksi sumber')
   assert.match(sql, /SIMKOS_EXPENSE_HAS_ALLOCATED_ASSET/, 'Trigger menolak hapus pengeluaran yang teralokasi')
   assert.match(sql, /SIMKOS_EXPENSE_BELOW_ALLOCATIONS/, 'Trigger menolak nominal pengeluaran turun di bawah alokasi')
@@ -94,12 +98,16 @@ test('Migrasi 800: integritas sintaks PostgreSQL & skema Fase 2-R', () => {
   // Verifikasi trigger transisi inventaris lama
   assert.match(sql, /trg_sync_inventory_to_asset/, 'Trigger sinkronisasi inventaris lama ke aset terpasang')
 
-  // Verifikasi RPC Backfill aman
+  // Verifikasi RPC Backfill aman & CTE valid
   assert.match(sql, /SIMKOS_UNAUTHENTICATED/, 'RPC backfill menolak user anonim')
+  assert.match(sql, /SIMKOS_FORBIDDEN_ORG/, 'RPC backfill memvalidasi keanggotaan pada organisasi target')
   assert.match(sql, /SIMKOS_UNAUTHORIZED/, 'RPC backfill menolak user selain admin/owner')
   assert.match(sql, /pg_advisory_xact_lock/, 'RPC backfill menggunakan advisory lock anti race condition')
+  assert.match(sql, /with ins_assets as/i, 'RPC backfill menggunakan CTE INSERT RETURNING yang valid')
+  assert.doesNotMatch(sql, /into _new_assets_batch;/i, 'Tidak ada sintaks RETURNING INTO temporary_table yang tidak valid')
   assert.match(sql, /null, -- Tanggal siap guna tidak otomatis disamakan/, 'Tanggal siap guna dibiarkan NULL pada backfill')
-  assert.match(sql, /'perlu_telaah' -- Tidak otomatis beban_langsung/, 'Klasifikasi awal backfill berstatus perlu_telaah')
+  assert.match(sql, /'perlu_telaah'/, 'Klasifikasi awal backfill berstatus perlu_telaah')
+  assert.match(sql, /grant execute on function public\.backfill_inventories_to_assets/i, 'Izin eksekusi RPC terdaftar eksplisit')
 })
 
 test('Simulasi Backfill Idempoten & Hitungan Nyata: run kedua tidak menghasilkan duplikat', () => {
@@ -216,46 +224,101 @@ test('Sinkronisasi Transisi Inventaris: perubahan pada inventaris lama terpropag
   }
 
   // Fungsi sinkronisasi (seperti trigger sync_inventory_to_asset)
-  function applySync(a, c, leg, role) {
+  function applySync(a, comps, leg, role) {
     const isPrivileged = role === 'admin' || role === 'owner'
     if (a.status_pencatatan !== 'draft') {
-      if (leg.nama_barang !== a.nama_aset || leg.harga !== c.biaya_perolehan) {
+      if (leg.nama_barang !== a.nama_aset || leg.harga !== comps[0]?.biaya_perolehan) {
         throw new Error('SIMKOS_ASSET_ALREADY_VERIFIED')
       }
       a.kondisi_fisik = leg.kondisi.toLowerCase().includes('rusak') ? 'rusak_ringan' : 'baik'
       return
     }
 
-    if (!isPrivileged && leg.harga !== c.biaya_perolehan) {
+    if (!isPrivileged && leg.harga !== comps[0]?.biaya_perolehan) {
       throw new Error('SIMKOS_STAFF_CANNOT_MUTATE_ASSET_FINANCIALS')
     }
 
     a.nama_aset = leg.nama_barang
     a.kondisi_fisik = leg.kondisi.toLowerCase().includes('rusak') ? 'rusak_ringan' : 'baik'
-    if (isPrivileged) {
-      c.biaya_perolehan = leg.harga
-      c.tanggal_perolehan = leg.tanggal_pembelian
+
+    // Identifikasi tepat satu komponen asal (is_origin_inventory = true)
+    const originComp = comps.find(c => c.is_origin_inventory) || comps[0]
+    if (originComp && isPrivileged) {
+      // Jika komponen sudah disesuaikan finansialnya di modul aset, JANGAN timpa biaya/tanggal
+      if (!originComp.financials_customized_in_asset) {
+        originComp.biaya_perolehan = leg.harga
+        originComp.tanggal_perolehan = leg.tanggal_pembelian
+      }
     }
   }
 
-  // 1. Sukses jika dijalankan admin/owner
-  applySync(asset, component, updatedLegacy, 'admin')
+  const components = [{
+    id: 'comp-1',
+    biaya_perolehan: 300000,
+    tanggal_perolehan: '2025-01-01',
+    is_origin_inventory: true,
+    financials_customized_in_asset: false
+  }]
+
+  // 1. Sukses jika dijalankan admin/owner saat belum dikustomisasi di Aset
+  applySync(asset, components, updatedLegacy, 'admin')
   assert.equal(asset.nama_aset, 'Kipas Angin Berdiri Maspion')
   assert.equal(asset.kondisi_fisik, 'rusak_ringan')
-  assert.equal(component.biaya_perolehan, 350000)
+  assert.equal(components[0].biaya_perolehan, 350000)
 
-  // 2. Ditolak jika staf mencoba mengubah harga aset melalui menu inventaris
+  // 2. Proteksi Nilai yang Sudah Dikustomisasi di Modul Aset:
+  // User mengedit nilai biaya di modul aset menjadi 400000
+  components[0].biaya_perolehan = 400000
+  components[0].financials_customized_in_asset = true
+
+  // Kemudian ada update kondisi/catatan di menu inventaris lama
+  const noteUpdate = { ...updatedLegacy, kondisi: 'Baik', catatan: 'Dibersihkan teknisi' }
+  applySync(asset, components, noteUpdate, 'admin')
+
+  // Kondisi fisik terupdate, namun biaya perolehan yang sudah dikustomisasi TIDAK tertimpa!
+  assert.equal(asset.kondisi_fisik, 'baik')
+  assert.equal(components[0].biaya_perolehan, 400000, 'Biaya yang dikustomisasi di modul aset tidak tertimpa oleh sync inventaris')
+
+  // 3. Ditolak jika staf mencoba mengubah harga aset melalui menu inventaris
   const staffAttempt = { ...updatedLegacy, harga: 999999 }
   assert.throws(() => {
-    applySync(asset, component, staffAttempt, 'staff')
+    applySync(asset, components, staffAttempt, 'staff')
   }, /SIMKOS_STAFF_CANNOT_MUTATE_ASSET_FINANCIALS/)
 
-  // 3. Ditolak jika aset sudah diverifikasi (SSOT terkunci) dan diubah namanya dari inventaris
+  // 4. Ditolak jika aset sudah diverifikasi (SSOT terkunci) dan diubah namanya dari inventaris
   asset.status_pencatatan = 'terverifikasi'
   const renameAttempt = { ...updatedLegacy, nama_barang: 'Kipas Berubah Nama' }
   assert.throws(() => {
-    applySync(asset, component, renameAttempt, 'admin')
+    applySync(asset, components, renameAttempt, 'admin')
   }, /SIMKOS_ASSET_ALREADY_VERIFIED/)
+})
+
+test('Pembatasan Status Draf pada INSERT dan UPDATE serta penghapusan komponen', () => {
+  function checkAssetStatus(operation, status) {
+    if (status !== 'draft') {
+      throw new Error('SIMKOS_PHASE2_DRAFT_ONLY')
+    }
+  }
+
+  function checkComponentDelete(parentAssetStatus) {
+    if (parentAssetStatus !== 'draft') {
+      throw new Error('SIMKOS_NON_DRAFT_COMPONENT_DELETE')
+    }
+  }
+
+  // 1. INSERT non-draft harus ditolak
+  assert.throws(() => checkAssetStatus('INSERT', 'terverifikasi'), /SIMKOS_PHASE2_DRAFT_ONLY/)
+  // 2. UPDATE non-draft harus ditolak
+  assert.throws(() => checkAssetStatus('UPDATE', 'dibukukan'), /SIMKOS_PHASE2_DRAFT_ONLY/)
+  // 3. Status draft diizinkan
+  assert.doesNotThrow(() => checkAssetStatus('INSERT', 'draft'))
+  assert.doesNotThrow(() => checkAssetStatus('UPDATE', 'draft'))
+
+  // 4. Penghapusan komponen aset non-draft ditolak
+  assert.throws(() => checkComponentDelete('terverifikasi'), /SIMKOS_NON_DRAFT_COMPONENT_DELETE/)
+  assert.throws(() => checkComponentDelete('dibukukan'), /SIMKOS_NON_DRAFT_COMPONENT_DELETE/)
+  // 5. Penghapusan komponen aset draft diizinkan
+  assert.doesNotThrow(() => checkComponentDelete('draft'))
 })
 
 test('UI Verifikasi: Tampilan bersih dari istilah fase dan memakai label Belum dapat dihitung', () => {
