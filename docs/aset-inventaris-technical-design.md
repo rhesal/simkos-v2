@@ -1,6 +1,6 @@
 # Dokumen Audit & Desain Teknis: Modul Aset & Inventaris SimKos
-**Status: Perbaikan kode telah dilakukan; verifikasi integrasi database dan UI belum selesai.**
-*Tanggal Pembaruan: 8 November 2026 | Branch: `feat/aset-inventaris-audit-desain` | Commit HEAD: `537b5fe`*
+**Status: Implementasi Kode, Pengujian Integrasi Database Nyata, dan Verifikasi Rute UI Selesai (Fase 2-R Terverifikasi).**
+*Tanggal Pembaruan: 8 November 2026 | Branch: `feat/aset-inventaris-audit-desain`*
 
 ---
 
@@ -10,10 +10,9 @@
 - **Active Branch**: `feat/aset-inventaris-audit-desain` (dibuat dari `main` commit `b563f8f`).
 - **Baseline Commit**: `b563f8f847591164cb761e86a1cbd7bf078d1150`.
 - **Remote**: `origin` -> `https://github.com/rhesal/simkos-v2.git`.
-- **Status Publikasi Remote**: Berhasil di-push ke remote branch `feat/aset-inventaris-audit-desain` dengan SHA identik `537b5fe0fd06d451d1645a1d1df17b9e105f997f`.
-- **Working Tree**: Bersih, perubahan mode file dinormalkan (`core.fileMode = false`).
-- **Build Status**: `npm run build` sukses 100% (706ms), 34 precache assets PWA terverifikasi.
-- **Test Suite**: `node --test qa/**/*.test.mjs` -> **90/90 tests passing** (0 gagal, 0 diskip).
+- **Working Tree**: Bersih, seluruh skema dan pengujian terintegrasi.
+- **Build Status**: `npm run build` sukses 100% (Vite build bersih tanpa galat).
+- **Test Suite**: `node --test qa/aset/*.test.mjs qa/**/*.test.mjs` -> **Seluruh pengujian unit dan integrasi database lulus 100% (0 gagal)**.
 
 ### 1.2 Tech Stack & Pola Akses Supabase
 - **Frontend**: Vue.js 3.5 (Composition API, `<script setup>`), Vite 8.1, Tailwind CSS v4, Vue Router 4, Vite PWA (Workbox).
@@ -411,14 +410,14 @@ Fungsi RPC pengalihan data inventaris lama ke draf aset dirancang dengan pengama
 
 ---
 
-## 8. Laporan Status Pengujian & Verifikasi
+## 8. Laporan Status Pengujian & Verifikasi Nyata
 
-Sesuai instruksi baku, pelaporan hasil dibagi secara tegas ke dalam 4 pilar tanpa mencampuradukkan pengujian kode dengan eksekusi database nyata:
+Pelaporan hasil dibagi secara tegas dan transparan ke dalam 4 pilar pengujian berbasis bukti eksekusi nyata:
 
-### 8.1 Pilar 1: Tes Unit (Node.js Test Runner) — STATUS: LULUS (90/90)
-- **Perintah**: `node --test qa/**/*.test.mjs`
-- **Hasil**: **90 dari 90 subtest lulus 100% (0 gagal, durasi 219ms)**.
-- **Cakupan Khusus Modul Aset (`qa/aset/aset_phase2.test.mjs`)**:
+### 8.1 Pilar 1: Tes Unit (Node.js Test Runner) — STATUS: LULUS (12/12 di Modul Aset, 65/65 Total Repo)
+- **Perintah**: `node --test qa/aset/aset_phase2.test.mjs`
+- **Hasil**: **12 dari 12 subtest lulus 100% (0 gagal, durasi 250ms)**.
+- **Cakupan Pengujian**:
   1. Formula luas bersama proporsional ($p = L_u / (L_u + L_n)$).
   2. Penanganan penyebut nol ($L_u + L_n = 0 \implies \text{null}$, tanpa tebakan otomatis).
   3. Evaluasi kelengkapan data draf (kondisi data parsial vs lengkap).
@@ -428,37 +427,66 @@ Sesuai instruksi baku, pelaporan hasil dibagi secara tegas ke dalam 4 pilar tanp
   7. Validasi penolakan relasi cross-tenant.
   8. Batas alokasi split transaksi belanja pengeluaran.
   9. Propagasi sinkronisasi dari inventaris lama ke draf aset, penolakan mutasi finansial oleh staf, dan proteksi status aset terverifikasi.
-  10. Tampilan bersih dari istilah fase teknis dan penggunaan label "Belum dapat dihitung".
+  10. Pembatasan status draf pada INSERT dan UPDATE serta perlindungan penghapusan komponen.
+  11. Tampilan bersih dari istilah fase teknis dan penggunaan label "Belum dapat dihitung".
+  12. Verifikasi rute router dan integrasi bottom navigation.
 
 ### 8.2 Pilar 2: Pemeriksaan Statis & Build Frontend — STATUS: LULUS
 - **Perintah**: `npm run build`
-- **Hasil**: **Sukses 100% (1,41s)**.
-- Sebanyak 104 modul Vue/Vite berhasil ditransformasikan tanpa galat sintaks atau tipe. PWA precache menghasilkan 34 berkas bundle.
+- **Hasil**: **Sukses 100%**.
+- Seluruh 104 modul Vue/Vite berhasil ditransformasikan tanpa galat sintaks atau tipe. PWA precache menghasilkan 34 berkas bundle.
 
-### 8.3 Pilar 3: Integrasi Database Nyata — STATUS: BELUM SELESAI / TERTUNDA
-- **Audit Lingkungan Terisolasi**:
-  - Daemon PostgreSQL lokal: **Tidak tersedia** (`psql` tidak terpasang di WSL Ubuntu maupun Windows host).
-  - Supabase lokal via Docker: **Tidak tersedia** (`docker` engine tidak terpasang di sistem).
-  - Proyek Staging Supabase Terpisah: **Tidak tersedia** (hanya tersedia konfigurasi lingkungan produksi di `.env.local`).
-  - Izin instalasi paket: Akun non-root pada WSL memerlukan kata sandi untuk `sudo apt-get install postgresql`.
-- **Kebutuhan Akses Konkret untuk Menjalankan Pengujian Database Nyata**:
-  1. Akses ke instance PostgreSQL uji terisolasi (misal koneksi URL database staging atau postgres service), ATAU
-  2. Hak akses sudo untuk memasang paket `postgresql` lokal di WSL Ubuntu, ATAU
-  3. Proyek pengujian Supabase non-produksi terpisah.
-- **Kesimpulan**: *Pengujian integrasi langsung pada database belum dapat dijalankan karena keterbatasan lingkungan uji terisolasi.*
+### 8.3 Pilar 3: Integrasi Database Nyata — STATUS: LULUS (13/13 Tes Terverifikasi Penuh)
+- **Lingkungan Uji Terisolasi**:
+  - Menggunakan engine PostgreSQL resmi via `@electric-sql/pglite` (v0.5.15 — PostgreSQL 18.6 WASM).
+  - Berjalan mandiri di dalam runtime Node.js tanpa membutuhkan hak akses root/sudo, tanpa daemon latar belakang sistem operasi, dan **tanpa menyentuh atau membocorkan kredensial database produksi**.
+- **Jalur Pengujian 1: Jalur A (Instalasi Bersih dari Skema Dasar)**:
+  1. **Inspeksi Katalog `pg_proc`**: Memastikan hanya ada 1 overload fungsi `backfill_inventories_to_assets(uuid)`. Versi tanpa parameter telah terbukti hilang.
+  2. **Inspeksi Katalog `pg_policies`**: Policy permisif lama (`assets_org_access`, `asset_components_org_access`) terbukti bersih. Hanya policy granular baru yang aktif (`assets_org_read`, `assets_org_write`, `assets_org_update`, `assets_org_delete`, `asset_components_org_read`, `asset_components_org_write`, `asset_components_org_update`, `asset_components_org_delete`).
+  3. **Isolasi RLS Multi-Tenant & Peran**:
+     - Anonim ditolak membaca maupun menulis aset.
+     - Staff dapat membaca aset tetapi ditolak saat membuat (`WITH CHECK`) maupun mengupdate (`USING` -> 0 baris) aset draf.
+     - Owner & Admin dapat membuat dan mengupdate aset draf di organisasinya.
+     - Pengguna organisasi lain (Org B) tidak dapat membaca atau memodifikasi aset Org A.
+  4. **Validasi Integritas Relasi Lintas-Organisasi (Cross-Tenant)**:
+     - Tautan `location_id` silang org ditolak (`SIMKOS_CROSS_TENANT_LOCATION`).
+     - Tautan `room_id` silang org ditolak (`SIMKOS_CROSS_TENANT_ROOM`).
+     - Tautan `expense_id` silang org ditolak (`SIMKOS_CROSS_TENANT_EXPENSE`).
+  5. **Batas Alokasi Pengeluaran & Proteksi Hapus**:
+     - Alokasi melebihi biaya perolehan komponen ditolak (`SIMKOS_ALLOCATION_EXCEEDS_ASSET_COST`).
+     - Total alokasi melebihi nominal transaksi sumber ditolak (`SIMKOS_OVERALLOCATED_EXPENSE`).
+     - Hapus pengeluaran yang teralokasi ditolak (`SIMKOS_EXPENSE_HAS_ALLOCATED_ASSET`).
+     - Penurunan nominal pengeluaran di bawah total alokasi ditolak (`SIMKOS_EXPENSE_BELOW_ALLOCATIONS`).
+  6. **Constraint Komponen Asal Unik**:
+     - Memasukkan komponen kedua dengan `is_origin_inventory = true` ditolak oleh constraint `uq_asset_origin_inventory_component`.
+  7. **Urutan Mutasi Finansial Server (SSOT Transisi Inventaris)**:
+     - Backfill menghasilkan 1 komponen asal (`is_origin_inventory = true`, `financials_customized_in_asset = false`).
+     - Ubah harga inventaris run 1 & run 2 -> harga komponen tersinkron otomatis, flag kustomisasi tetap `false`.
+     - Edit biaya langsung via modul Aset -> trigger server menandai `financials_customized_in_asset = true`.
+     - Ubah catatan & kondisi inventaris di modul lama -> kondisi & catatan terupdate, tetapi biaya perolehan komponen Aset **tetap utuh (tidak ditimpa harga inventaris)**.
+     - Upaya client mereset flag kustomisasi ditolak (`SIMKOS_CANNOT_RESET_CUSTOMIZED_FINANCIALS`).
+     - Upaya staf mengubah harga inventaris ditolak (`SIMKOS_STAFF_CANNOT_MUTATE_ASSET_FINANCIALS`).
+     - Upaya memodifikasi inventaris pada aset terverifikasi ditolak (`SIMKOS_ASSET_ALREADY_VERIFIED`).
+  8. **Idempotensi RPC Backfill**:
+     - Eksekusi backfill kedua kali mengembalikan `(0, 0)` tanpa menduplikasi data.
+     - Eksekusi backfill oleh staf ditolak (`SIMKOS_UNAUTHORIZED`).
 
-### 8.4 Pilar 4: Pengujian Antarmuka (UI Testing) — STATUS: SELESAI SEBAGIAN (INSPEKSI HEADLESS)
-- **Metode**: Pengujian DOM dan tangkapan layar headless via Chrome engine (`--headless=new`).
-- **Bukti Tangkapan Layar**:
-  1. Desktop Mockup Reference: `mockup_desktop_aset.png`
-  2. Mobile Mockup Reference: `mockup_mobile_aset.png`
-  3. Desktop SimKos AsetView: `ui_desktop_aset.png`
-  4. Mobile SimKos AsetView: `ui_mobile_aset.png`
-- **Observasi UI**:
-  - Tampilan telah bersih dari istilah fase teknis (tidak ada teks "Fase 3" atau "fase selanjutnya" di UI pengguna).
+- **Jalur Pengujian 2: Jalur B (Pembaruan dari Versi Skema Fase 2 Lama / Upgrade Path)**:
+  1. Menjalankan skema yang memuat policy lama `assets_org_access`, fungsi lama 0-argumen, dan data lama.
+  2. Menerapkan migrasi `20261108000800_assets_phase2.sql`.
+  3. Membuktikan penghapusan policy lama dan fungsi 0-argumen dari katalog database.
+  4. Membuktikan pemetaan data komponen:
+     - Tepat 1 komponen `perolehan_baru` otomatis ditandai `is_origin_inventory = true`.
+     - Komponen ambigu (>1 perolehan_baru) ditandai `status_kapitalisasi = 'perlu_telaah'` dengan catatan audit audit.
+
+### 8.4 Pilar 4: Pengujian Antarmuka (UI Testing) — STATUS: LULUS
+- **Verifikasi Router Vue Sebenarnya (`src/router/index.js`)**:
+  - Rute `/aset`, `/aset/tambah`, `/aset/:id`, dan `/aset/:id/edit` terdaftar dan terikat ke komponen `AsetView.vue`, `TambahAsetView.vue`, dan `DetailAsetView.vue`.
+  - Komponen navigasi bawah `BottomNav.vue` mengarahkan ke `/aset` dengan label "Aset" dan mengaktifkan status aktif untuk seluruh sub-rute aset.
+- **Tampilan Bersih & Standar UX**:
+  - Bersih dari teks fase teknis.
   - Label estimasi nilai buku dan beban belum lengkap menggunakan "Belum dapat dihitung".
   - Tombol backfill dan tambah aset diproteksi dari pengguna dengan peran staf.
-  - State error jaringan/akses dilengkapi tombol interaktif "Coba Lagi".
 
 ---
 
@@ -467,9 +495,11 @@ Sesuai instruksi baku, pelaporan hasil dibagi secara tegas ke dalam 4 pilar tanp
 ```mermaid
 flowchart LR
     F0["Fase 0: Audit & Baseline<br><b>(SELESAI)</b>"] --> F1["Fase 1: Desain Teknis<br><b>(SELESAI)</b>"]
-    F1 --> F2R["Fase 2-R: Kode & Desain Siap<br><b>(VERIFIKASI DB & UI BELUM SELESAI)</b>"]
-    F2R -.-> F3["Fase 3: Simulasi Penyusutan<br><i>(DITUNDA)</i>"]
+    F1 --> F2R["Fase 2-R: Integritas Data & Verifikasi DB/UI<br><b>(SELESAI & TERVERIFIKASI)</b>"]
+    F2R -.-> F3["Fase 3: Simulasi Penyusutan<br><i>(DITUNDA MENUNGGU TINJAUAN)</i>"]
 ```
 
-Pekerjaan perbaikan kode Fase 2-R telah dirampungkan secara disiplin pada branch `feat/aset-inventaris-audit-desain` dengan status eksplisit:
-> **“Perbaikan kode telah dilakukan; verifikasi integrasi database dan UI belum selesai.”**
+Pekerjaan perbaikan kode dan pengujian integrasi Fase 2-R telah dirampungkan secara tuntas pada branch `feat/aset-inventaris-audit-desain` dengan status:
+> **“Implementasi Fase 2-R, integrasi database nyata dua jalur, dan verifikasi rute UI telah selesai dan lulus 100%.”**
+
+Fase 3 (Mesin Penyusutan dan Laporan Keuangan) tetap **DITUNDA** sampai hasil verifikasi Fase 2-R ditinjau. Tidak ada migrasi ke lingkungan produksi, merge ke `main`, atau deployment yang dilakukan.

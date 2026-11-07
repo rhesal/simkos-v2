@@ -2,7 +2,8 @@
 -- Migrasi: 20261108000800_assets_phase2.sql
 -- Modul: Aset & Inventaris SimKos (Fase 2-R)
 -- Deskripsi: Skema draf aset, komponen, pengamanan RLS peran, relasi expenses,
---            dan RPC backfill idempoten terotorisasi.
+--            identitas unik komponen asal, pelacakan kustomisasi finansial server,
+--            pembersihan objek database versi lama, dan RPC backfill idempoten.
 -- ==============================================================================
 
 -- 1. Penambahan Kolom Ambang Kapitalisasi pada Organisasi
@@ -40,6 +41,24 @@ create table if not exists public.assets (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Penambahan kolom jika tabel sudah ada dari iterasi sebelumnya (Jalur Upgrade)
+alter table public.assets add column if not exists location_id uuid references public.locations(id) on delete set null;
+alter table public.assets add column if not exists room_id uuid references public.rooms(id) on delete set null;
+alter table public.assets add column if not exists kode_aset text;
+alter table public.assets add column if not exists nama_aset text;
+alter table public.assets add column if not exists kategori_aset text;
+alter table public.assets add column if not exists dasar_penggunaan text not null default 'milik_sendiri';
+alter table public.assets add column if not exists nama_pemilik text;
+alter table public.assets add column if not exists kondisi_fisik text not null default 'baik';
+alter table public.assets add column if not exists status_penggunaan text not null default 'aktif';
+alter table public.assets add column if not exists status_pencatatan text not null default 'draft';
+alter table public.assets add column if not exists catatan text;
+alter table public.assets add column if not exists legacy_inventory_id uuid references public.inventories(id) on delete set null;
+alter table public.assets add column if not exists created_by uuid references auth.users(id);
+alter table public.assets add column if not exists updated_by uuid references auth.users(id);
+alter table public.assets add column if not exists created_at timestamptz not null default now();
+alter table public.assets add column if not exists updated_at timestamptz not null default now();
 
 -- Index performa & pencarian
 create index if not exists idx_assets_org_kategori on public.assets(org_id, kategori_aset);
@@ -85,9 +104,68 @@ create table if not exists public.asset_components (
   updated_at timestamptz not null default now()
 );
 
--- Penambahan kolom baru jika tabel sudah pernah dibuat sebelumnya
+-- Penambahan kolom baru jika tabel sudah pernah dibuat sebelumnya (Jalur Upgrade)
+alter table public.asset_components add column if not exists nama_komponen text;
+alter table public.asset_components add column if not exists jenis_pekerjaan text not null default 'perolehan_baru';
+alter table public.asset_components add column if not exists tanggal_perolehan date;
+alter table public.asset_components add column if not exists tanggal_siap_guna date;
+alter table public.asset_components add column if not exists tahun_perolehan int;
+alter table public.asset_components add column if not exists biaya_perolehan numeric;
+alter table public.asset_components add column if not exists nilai_sisa numeric not null default 0;
+alter table public.asset_components add column if not exists masa_manfaat_bulan int;
+alter table public.asset_components add column if not exists metode_penyusutan text not null default 'garis_lurus';
+alter table public.asset_components add column if not exists pola_penggunaan text not null default 'seluruhnya_usaha';
+alter table public.asset_components add column if not exists luas_khusus_usaha numeric default 0;
+alter table public.asset_components add column if not exists luas_nonusaha numeric default 0;
+alter table public.asset_components add column if not exists luas_bersama numeric default 0;
+alter table public.asset_components add column if not exists porsi_usaha_persen numeric;
+alter table public.asset_components add column if not exists expense_id uuid references public.expenses(id) on delete set null;
+alter table public.asset_components add column if not exists allocated_cost numeric;
+alter table public.asset_components add column if not exists bukti_dokumen_url text;
+alter table public.asset_components add column if not exists status_kapitalisasi text not null default 'perlu_telaah';
+alter table public.asset_components add column if not exists catatan_telaah text;
 alter table public.asset_components add column if not exists is_origin_inventory boolean not null default false;
 alter table public.asset_components add column if not exists financials_customized_in_asset boolean not null default false;
+alter table public.asset_components add column if not exists created_at timestamptz not null default now();
+alter table public.asset_components add column if not exists updated_at timestamptz not null default now();
+
+-- Constraint maksimal tepat satu komponen asal per aset
+create unique index if not exists uq_asset_origin_inventory_component 
+on public.asset_components(asset_id) 
+where is_origin_inventory = true;
+
+-- Pemetaan terbukti untuk komponen asal pada data lama sebelum kolom penanda ada:
+-- Jika aset tertaut memiliki tepat 1 komponen perolehan_baru, tandai sebagai is_origin_inventory = true
+with ranked as (
+  select ac.id, a.id as asset_id,
+         count(*) over (partition by a.id) as cnt
+  from public.asset_components ac
+  join public.assets a on a.id = ac.asset_id
+  where a.legacy_inventory_id is not null
+    and ac.jenis_pekerjaan = 'perolehan_baru'
+)
+update public.asset_components
+set is_origin_inventory = true
+where id in (select id from ranked where cnt = 1)
+  and is_origin_inventory = false;
+
+-- Jika ambigu (>1 komponen perolehan_baru pada aset legacy), tandai perlu_telaah
+with ranked as (
+  select ac.id, a.id as asset_id,
+         count(*) over (partition by a.id) as cnt
+  from public.asset_components ac
+  join public.assets a on a.id = ac.asset_id
+  where a.legacy_inventory_id is not null
+    and ac.jenis_pekerjaan = 'perolehan_baru'
+)
+update public.asset_components
+set status_kapitalisasi = 'perlu_telaah',
+    catatan_telaah = 'Komponen asal inventaris ambigu (>1 perolehan_baru), perlu peninjauan manual'
+where id in (select id from ranked where cnt > 1)
+  and not exists (
+    select 1 from public.asset_components x 
+    where x.asset_id = asset_components.asset_id and x.is_origin_inventory = true
+  );
 
 create index if not exists idx_asset_components_asset on public.asset_components(asset_id);
 create index if not exists idx_asset_components_org on public.asset_components(org_id);
@@ -178,18 +256,25 @@ begin
     raise exception 'SIMKOS_CROSS_TENANT_ASSET: Aset induk (%) bukan milik organisasi (%)', new.asset_id, new.org_id;
   end if;
 
-  -- Tandai jika ada pembaruan finansial langsung melalui modul Aset
+  -- Pengawasan penanda perubahan finansial berbasis server (tidak dapat dipalsukan client)
   if tg_op = 'UPDATE' then
+    -- Cegah client mereset manual penanda kustomisasi
+    if old.financials_customized_in_asset = true and new.financials_customized_in_asset = false then
+      raise exception 'SIMKOS_CANNOT_RESET_CUSTOMIZED_FINANCIALS: Penanda kustomisasi finansial aset tidak dapat direset manual oleh client';
+    end if;
+
+    -- Jika ada modifikasi biaya/tanggal/nota langsung dari modul Aset (bukan dari internal sync inventaris)
     if (new.biaya_perolehan is distinct from old.biaya_perolehan 
         or new.tanggal_perolehan is distinct from old.tanggal_perolehan 
         or new.bukti_dokumen_url is distinct from old.bukti_dokumen_url) then
-      new.financials_customized_in_asset := true;
+      if coalesce(current_setting('simkos.in_inventory_sync', true), 'false') <> 'true' then
+        new.financials_customized_in_asset := true;
+      end if;
     end if;
   end if;
 
   -- Validasi relasi pengeluaran & penguncian baris untuk konkurensi aman
   if new.expense_id is not null then
-    -- Kunci baris expenses secara eksplisit agar konkurensi tidak membocorkan over-allocation
     select org_id, nominal into v_exp_org, v_exp_nominal
     from public.expenses
     where id = new.expense_id
@@ -347,7 +432,6 @@ begin
 
   -- ATURAN 2: Proteksi Wewenang Staf pada Draf Aset
   -- Staf TIDAK diizinkan memodifikasi atribut finansial (harga/tanggal perolehan) melalui inventaris lama
-  -- untuk mencegah eskalasi wewenang melewati RLS assets.
   if not v_is_privileged then
     if (new.harga is distinct from old.harga or new.tanggal_pembelian is distinct from old.tanggal_pembelian) then
       raise exception 'SIMKOS_STAFF_CANNOT_MUTATE_ASSET_FINANCIALS: Staf tidak memiliki hak untuk mengubah nilai biaya atau tanggal aset melalui menu inventaris.';
@@ -368,28 +452,20 @@ begin
     updated_at = now()
   where id = v_asset_id;
 
-  -- ATURAN 3: Identifikasi TEPAT SATU komponen asal hasil backfill
+  -- ATURAN 3: Identifikasi TEPAT SATU komponen asal hasil backfill (tanpa tebakan)
   select id, financials_customized_in_asset into v_origin_comp_id, v_financials_customized
   from public.asset_components
   where asset_id = v_asset_id
-    and is_origin_inventory = true
-  order by created_at asc
-  limit 1;
-
-  -- Fallback jika is_origin_inventory belum terpasang (komponen terawal)
-  if v_origin_comp_id is null then
-    select id, financials_customized_in_asset into v_origin_comp_id, v_financials_customized
-    from public.asset_components
-    where asset_id = v_asset_id
-    order by created_at asc
-    limit 1;
-  end if;
+    and is_origin_inventory = true;
 
   -- ATURAN 4: Proteksi Atribut Finansial yang Sudah Diperbarui di Modul Aset
-  -- Jika komponen asal ini sudah disesuaikan secara finansial di modul Aset (financials_customized = true),
+  -- Jika komponen asal ini sudah disesuaikan finansialnya di modul Aset (financials_customized = true),
   -- perubahan catatan atau kondisi fisik di inventaris TIDAK BOLEH menimpa biaya, tanggal, atau nota!
   if v_origin_comp_id is not null and v_is_privileged and not coalesce(v_financials_customized, false) then
     if (new.harga is distinct from old.harga or new.tanggal_pembelian is distinct from old.tanggal_pembelian or new.receipt_url is distinct from old.receipt_url) then
+      -- Set penanda sesi server bahwa update ini berasal dari sinkronisasi inventaris
+      perform set_config('simkos.in_inventory_sync', 'true', true);
+
       update public.asset_components
       set
         biaya_perolehan = new.harga,
@@ -397,6 +473,8 @@ begin
         bukti_dokumen_url = new.receipt_url,
         updated_at = now()
       where id = v_origin_comp_id;
+
+      perform set_config('simkos.in_inventory_sync', 'false', true);
     end if;
   end if;
 
@@ -409,11 +487,13 @@ create trigger trg_sync_inventory_to_asset
 after update on public.inventories
 for each row execute function public.sync_inventory_to_asset();
 
--- 8. RLS Policies
+-- 8. Pembersihan Eksplisit Objek Versi Lama & Pemasangan RLS Policies Baru
 alter table public.assets enable row level security;
 alter table public.asset_components enable row level security;
 
--- Bersihkan seluruh policy lama/permisif yang mungkin pernah dibuat di lingkungan uji
+-- Hapus secara eksplisit policy versi sebelumnya (termasuk assets_org_access)
+drop policy if exists assets_org_access on public.assets;
+drop policy if exists asset_components_org_access on public.asset_components;
 drop policy if exists assets_org_read on public.assets;
 drop policy if exists assets_org_write on public.assets;
 drop policy if exists assets_org_update on public.assets;
@@ -430,7 +510,7 @@ drop policy if exists asset_components_permissive_policy on public.asset_compone
 drop policy if exists "Enable all for users based on org_id" on public.asset_components;
 drop policy if exists asset_components_policy on public.asset_components;
 
--- Pasang policy baru yang ketat:
+-- Pasang policy baru yang granular:
 -- Baca: seluruh anggota organisasi (admin, owner, staff)
 create policy assets_org_read on public.assets
 for select using (public.is_org_member(org_id));
@@ -487,7 +567,10 @@ create trigger asset_components_doc_path_org
 before insert or update of bukti_dokumen_url on public.asset_components
 for each row execute function public.enforce_org_storage_path('bukti_dokumen_url');
 
--- 10. Prosedur Backfill Idempoten & Terotorisasi
+-- 10. Pembersihan Fungsi Tanpa Parameter & Prosedur Backfill Idempoten Terotorisasi
+drop function if exists public.backfill_inventories_to_assets();
+drop function if exists public.backfill_inventories_to_assets(uuid);
+
 create or replace function public.backfill_inventories_to_assets(p_org_id uuid default null)
 returns table(inserted_assets int, inserted_components int)
 language plpgsql

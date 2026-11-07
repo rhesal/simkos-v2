@@ -335,3 +335,28 @@ test('UI Verifikasi: Tampilan bersih dari istilah fase dan memakai label Belum d
   assert.ok(!detailViewSrc.includes('Fase 3'), 'DetailAsetView tidak memuat teks Fase 3')
   assert.ok(!tambahViewSrc.includes('fase selanjutnya'), 'TambahAsetView tidak memuat teks fase selanjutnya')
 })
+
+test('UI Verifikasi Router & Integrasi Navigasi: Rute Aset, Tambah, Detail, Edit, dan BottomNav', () => {
+  const routerSrc = fs.readFileSync(path.join(ROOT, 'src/router/index.js'), 'utf8')
+  const bottomNavSrc = fs.readFileSync(path.join(ROOT, 'src/components/BottomNav.vue'), 'utf8')
+
+  // Pastikan rute-rute modul aset terdaftar di router
+  assert.ok(routerSrc.includes("path: '/aset'"), 'Router mendaftarkan /aset')
+  assert.ok(routerSrc.includes("name: 'Aset'"), 'Router mendaftarkan name Aset')
+  assert.ok(routerSrc.includes("path: '/aset/tambah'"), 'Router mendaftarkan /aset/tambah')
+  assert.ok(routerSrc.includes("name: 'TambahAset'"), 'Router mendaftarkan name TambahAset')
+  assert.ok(routerSrc.includes("path: '/aset/:id'"), 'Router mendaftarkan /aset/:id')
+  assert.ok(routerSrc.includes("name: 'DetailAset'"), 'Router mendaftarkan name DetailAset')
+  assert.ok(routerSrc.includes("path: '/aset/:id/edit'"), 'Router mendaftarkan /aset/:id/edit')
+  assert.ok(routerSrc.includes("name: 'EditAset'"), 'Router mendaftarkan name EditAset')
+
+  // Pastikan file komponen rute aset benar-benar ada di disk
+  assert.ok(fs.existsSync(path.join(ROOT, 'src/views/AsetView.vue')), 'AsetView.vue harus ada')
+  assert.ok(fs.existsSync(path.join(ROOT, 'src/views/TambahAsetView.vue')), 'TambahAsetView.vue harus ada')
+  assert.ok(fs.existsSync(path.join(ROOT, 'src/views/DetailAsetView.vue')), 'DetailAsetView.vue harus ada')
+
+  // Pastikan BottomNav mengarahkan ke /aset dengan label Aset
+  assert.ok(bottomNavSrc.includes("to: '/aset'"), 'BottomNav memiliki link ke /aset')
+  assert.ok(bottomNavSrc.includes("label: 'Aset'"), 'BottomNav memiliki label Aset')
+  assert.ok(bottomNavSrc.includes("route.path.startsWith('/aset')"), 'BottomNav mengaktifkan tab saat berada di rute aset')
+})
