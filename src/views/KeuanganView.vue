@@ -41,23 +41,200 @@
         </div>
 
         <!-- ========== WIDGET ARUS KAS MINI ========== -->
-        <div class="grid grid-cols-2 gap-4">
-          <!-- Pemasukan -->
-          <div class="bg-white border-2 border-border p-5 rounded-[var(--radius-card)] shadow-sm relative overflow-hidden">
-            <p class="text-xs font-bold text-text-muted">Total Pemasukan</p>
-            <p class="text-xl font-black text-income mt-1.5">
-              {{ formatCurrency(totalPemasukan) }}
-            </p>
-            <div class="absolute right-3 bottom-3 text-2xl opacity-10">📈</div>
+        <div class="space-y-3">
+          <div class="grid grid-cols-2 gap-4">
+            <!-- Pemasukan Card -->
+            <div
+              @click="toggleFinanceList('masuk')"
+              class="cursor-pointer bg-white border-2 p-5 rounded-[var(--radius-card)] shadow-sm relative overflow-hidden active:scale-[0.98] transition-all duration-150 select-none"
+              :class="activeFinanceList === 'masuk' ? 'border-income ring-4 ring-income/20 bg-income/5' : 'border-border hover:border-income/40'"
+              role="button"
+              tabindex="0"
+              aria-label="Tampilkan rincian daftar pemasukan"
+            >
+              <div class="flex items-center justify-between">
+                <p class="text-xs font-bold text-text-muted">Total Pemasukan</p>
+                <span
+                  class="text-[10px] font-extrabold px-1.5 py-0.5 rounded transition-colors"
+                  :class="activeFinanceList === 'masuk' ? 'bg-income text-white' : 'bg-income/10 text-income'"
+                >
+                  {{ activeFinanceList === 'masuk' ? '✕ Tutup' : '👆 Rincian' }}
+                </span>
+              </div>
+              <p class="text-xl font-black text-income mt-1.5">
+                {{ formatCurrency(totalPemasukan) }}
+              </p>
+              <p class="text-[11px] font-bold text-income/80 mt-1">
+                {{ currentMonthIncomes.length }} transaksi bulan ini
+              </p>
+              <div class="absolute right-3 bottom-3 text-2xl opacity-10">📈</div>
+            </div>
+
+            <!-- Pengeluaran Card -->
+            <div
+              @click="toggleFinanceList('keluar')"
+              class="cursor-pointer bg-white border-2 p-5 rounded-[var(--radius-card)] shadow-sm relative overflow-hidden active:scale-[0.98] transition-all duration-150 select-none"
+              :class="activeFinanceList === 'keluar' ? 'border-expense ring-4 ring-expense/20 bg-expense/5' : 'border-border hover:border-expense/40'"
+              role="button"
+              tabindex="0"
+              aria-label="Tampilkan rincian daftar pengeluaran"
+            >
+              <div class="flex items-center justify-between">
+                <p class="text-xs font-bold text-text-muted">Total Pengeluaran</p>
+                <span
+                  class="text-[10px] font-extrabold px-1.5 py-0.5 rounded transition-colors"
+                  :class="activeFinanceList === 'keluar' ? 'bg-expense text-white' : 'bg-expense/10 text-expense'"
+                >
+                  {{ activeFinanceList === 'keluar' ? '✕ Tutup' : '👆 Rincian' }}
+                </span>
+              </div>
+              <p class="text-xl font-black text-expense mt-1.5">
+                {{ formatCurrency(totalPengeluaran) }}
+              </p>
+              <p class="text-[11px] font-bold text-expense/80 mt-1">
+                {{ currentMonthExpenses.length }} transaksi bulan ini
+              </p>
+              <div class="absolute right-3 bottom-3 text-2xl opacity-10">📉</div>
+            </div>
+          </div>
+          <p class="text-[11px] text-text-muted text-center font-medium">
+            💡 Ketuk kartu Total Pemasukan atau Pengeluaran untuk melihat rincian transaksi
+          </p>
+        </div>
+
+        <!-- Rincian Daftar Pemasukan (Saat Card Pemasukan Diklik) -->
+        <div
+          v-if="activeFinanceList === 'masuk'"
+          class="bg-white rounded-[var(--radius-card)] border-2 border-income/30 p-5 shadow-md space-y-4 animate-fade-in-up"
+        >
+          <div class="flex items-center justify-between border-b border-border pb-3">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <span class="w-8 h-8 rounded-lg bg-income/10 text-income flex items-center justify-center font-black flex-shrink-0">📈</span>
+              <div class="min-w-0">
+                <h3 class="text-base font-extrabold text-text-primary truncate">Daftar Pemasukan Bulan Ini</h3>
+                <p class="text-xs font-medium text-text-muted">{{ currentMonthIncomes.length }} transaksi diterima</p>
+              </div>
+            </div>
+            <button
+              @click="activeFinanceList = null"
+              class="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 flex items-center justify-center font-bold text-sm active:scale-95 flex-shrink-0"
+              aria-label="Tutup rincian pemasukan"
+            >
+              ✕
+            </button>
           </div>
 
-          <!-- Pengeluaran -->
-          <div class="bg-white border-2 border-border p-5 rounded-[var(--radius-card)] shadow-sm relative overflow-hidden">
-            <p class="text-xs font-bold text-text-muted">Total Pengeluaran</p>
-            <p class="text-xl font-black text-expense mt-1.5">
-              {{ formatCurrency(totalPengeluaran) }}
-            </p>
-            <div class="absolute right-3 bottom-3 text-2xl opacity-10">📉</div>
+          <!-- Empty Incomes -->
+          <div v-if="currentMonthIncomes.length === 0" class="py-8 text-center text-text-muted">
+            <p class="text-3xl mb-1">📭</p>
+            <p class="text-sm font-bold text-text-primary">Belum ada pemasukan bulan ini</p>
+            <p class="text-xs text-text-secondary mt-0.5">Pembayaran sewa yang masuk akan tercatat otomatis di sini.</p>
+          </div>
+
+          <!-- Incomes List -->
+          <div v-else class="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+            <div
+              v-for="inc in currentMonthIncomes"
+              :key="inc.id"
+              class="p-3.5 bg-gray-50 border border-border rounded-xl flex items-center justify-between gap-3 hover:bg-income/5 transition-colors"
+            >
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="px-2 py-0.5 bg-income/15 text-income text-xs font-extrabold rounded-md flex-shrink-0">
+                    Kamar {{ inc.rentals?.rooms?.nomor_kamar || '-' }}
+                  </span>
+                  <p class="text-sm font-bold text-text-primary truncate">
+                    {{ inc.rentals?.tenants?.nama_lengkap || 'Penghuni' }}
+                  </p>
+                </div>
+                <div class="flex items-center gap-2 mt-1 text-xs text-text-muted">
+                  <span>📅 {{ formatDateDisplay(inc.tanggal_bayar) }}</span>
+                  <span>•</span>
+                  <span>💳 {{ inc.metode_bayar || 'Transfer' }}</span>
+                  <template v-if="inc.rentals?.rooms?.locations?.nama_lokasi">
+                    <span>•</span>
+                    <span class="truncate">🏢 {{ inc.rentals.rooms.locations.nama_lokasi }}</span>
+                  </template>
+                </div>
+                <p v-if="inc.keterangan" class="text-xs text-text-secondary mt-0.5 truncate">
+                  {{ inc.keterangan }}
+                </p>
+              </div>
+              <div class="text-right flex-shrink-0">
+                <span class="text-sm font-black text-income block">
+                  + {{ formatCurrency(inc.nominal) }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Rincian Daftar Pengeluaran (Saat Card Pengeluaran Diklik) -->
+        <div
+          v-if="activeFinanceList === 'keluar'"
+          class="bg-white rounded-[var(--radius-card)] border-2 border-expense/30 p-5 shadow-md space-y-4 animate-fade-in-up"
+        >
+          <div class="flex items-center justify-between border-b border-border pb-3">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <span class="w-8 h-8 rounded-lg bg-expense/10 text-expense flex items-center justify-center font-black flex-shrink-0">📉</span>
+              <div class="min-w-0">
+                <h3 class="text-base font-extrabold text-text-primary truncate">Daftar Pengeluaran Bulan Ini</h3>
+                <p class="text-xs font-medium text-text-muted">{{ currentMonthExpenses.length }} pos pengeluaran dicatat</p>
+              </div>
+            </div>
+            <button
+              @click="activeFinanceList = null"
+              class="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 flex items-center justify-center font-bold text-sm active:scale-95 flex-shrink-0"
+              aria-label="Tutup rincian pengeluaran"
+            >
+              ✕
+            </button>
+          </div>
+
+          <!-- Empty Expenses -->
+          <div v-if="currentMonthExpenses.length === 0" class="py-8 text-center text-text-muted">
+            <p class="text-3xl mb-1">📭</p>
+            <p class="text-sm font-bold text-text-primary">Belum ada pengeluaran bulan ini</p>
+            <p class="text-xs text-text-secondary mt-0.5">Biaya operasional yang dicatat akan tercantum di sini.</p>
+          </div>
+
+          <!-- Expenses List -->
+          <div v-else class="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+            <div
+              v-for="exp in currentMonthExpenses"
+              :key="exp.id"
+              class="p-3.5 bg-gray-50 border border-border rounded-xl flex items-center justify-between gap-3 hover:bg-expense/5 transition-colors"
+            >
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="px-2 py-0.5 bg-expense/15 text-expense text-xs font-extrabold rounded-md flex-shrink-0">
+                    📦 {{ exp.kategori || 'Biaya' }}
+                  </span>
+                  <p class="text-sm font-bold text-text-primary truncate">
+                    {{ exp.keterangan || 'Pengeluaran' }}
+                  </p>
+                </div>
+                <div class="flex items-center gap-2 mt-1 text-xs text-text-muted">
+                  <span>📅 {{ formatDateDisplay(exp.tanggal_pengeluaran) }}</span>
+                  <template v-if="exp.locations?.nama_lokasi">
+                    <span>•</span>
+                    <span class="truncate">🏢 {{ exp.locations.nama_lokasi }}</span>
+                  </template>
+                  <template v-else-if="exp.location_id == null">
+                    <span>•</span>
+                    <span>🌐 Tagihan Bersama</span>
+                  </template>
+                </div>
+                <p v-if="exp.penerima" class="text-xs text-text-secondary mt-0.5 truncate">
+                  Penerima: {{ exp.penerima }}
+                </p>
+              </div>
+              <div class="text-right flex-shrink-0">
+                <span class="text-sm font-black text-expense block">
+                  - {{ formatCurrency(exp.nominal) }}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -371,6 +548,15 @@ import { getRoomBadgeFontSize } from '../lib/sewa.js'
 
 const isLoading = ref(true)
 const selectedLocationFilter = ref('ALL')
+const activeFinanceList = ref(null) // null | 'masuk' | 'keluar'
+
+function toggleFinanceList(type) {
+  if (activeFinanceList.value === type) {
+    activeFinanceList.value = null
+  } else {
+    activeFinanceList.value = type
+  }
+}
 
 // Payment Modal States
 const showPaymentModal = ref(false)
@@ -405,19 +591,23 @@ const currentMonthPrefix = computed(() => {
 
 // Current month cash transactions
 const currentMonthIncomes = computed(() => {
-  return incomesList.value.filter(item => {
-    const matchesLocation = selectedLocationFilter.value === 'ALL' || item.rentals?.rooms?.location_id === selectedLocationFilter.value
-    const matchesMonth = item.tanggal_bayar && item.tanggal_bayar.startsWith(currentMonthPrefix.value)
-    return matchesLocation && matchesMonth
-  })
+  return incomesList.value
+    .filter(item => {
+      const matchesLocation = selectedLocationFilter.value === 'ALL' || item.rentals?.rooms?.location_id === selectedLocationFilter.value
+      const matchesMonth = item.tanggal_bayar && item.tanggal_bayar.startsWith(currentMonthPrefix.value)
+      return matchesLocation && matchesMonth
+    })
+    .sort((a, b) => new Date(b.tanggal_bayar || 0) - new Date(a.tanggal_bayar || 0))
 })
 
 const currentMonthExpenses = computed(() => {
-  return expensesList.value.filter(item => {
-    const matchesLocation = selectedLocationFilter.value === 'ALL' || item.location_id === selectedLocationFilter.value
-    const matchesMonth = item.tanggal_pengeluaran && item.tanggal_pengeluaran.startsWith(currentMonthPrefix.value)
-    return matchesLocation && matchesMonth
-  })
+  return expensesList.value
+    .filter(item => {
+      const matchesLocation = selectedLocationFilter.value === 'ALL' || item.location_id === selectedLocationFilter.value
+      const matchesMonth = item.tanggal_pengeluaran && item.tanggal_pengeluaran.startsWith(currentMonthPrefix.value)
+      return matchesLocation && matchesMonth
+    })
+    .sort((a, b) => new Date(b.tanggal_pengeluaran || 0) - new Date(a.tanggal_pengeluaran || 0))
 })
 
 // Tagihan bersama (location_id NULL) bulan ini.
@@ -483,7 +673,8 @@ async function loadFinanceData() {
     // 2. Fetch incomes with location reference
     const { data: incomesData, error: incomesError } = await supabase
       .from('incomes')
-      .select('*, rentals!inner(rooms!inner(location_id))')
+      .select('*, rentals!inner(id, rooms!inner(id, nomor_kamar, location_id, locations(nama_lokasi)), tenants(id, nama_lengkap, nomor_hp))')
+      .order('tanggal_bayar', { ascending: false })
 
     if (incomesError) throw incomesError
     incomesList.value = incomesData || []
@@ -491,7 +682,8 @@ async function loadFinanceData() {
     // 3. Fetch expenses
     const { data: expensesData, error: expensesError } = await supabase
       .from('expenses')
-      .select('*')
+      .select('*, locations(nama_lokasi)')
+      .order('tanggal_pengeluaran', { ascending: false })
 
     if (expensesError) throw expensesError
     expensesList.value = expensesData || []

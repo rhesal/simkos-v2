@@ -114,20 +114,77 @@
       </div>
 
       <template v-else>
-        <!-- Summary Mini Cards -->
-        <div class="grid grid-cols-2 gap-4">
-          <div class="bg-white border-2 border-border p-4 rounded-[var(--radius-card)] shadow-sm">
-            <p class="text-xs font-bold text-text-muted">Total Masuk</p>
-            <p class="text-lg font-black text-income mt-1">
-              {{ formatCurrency(filteredTotalIncome) }}
-            </p>
+        <!-- Summary Mini Cards (Clickable Filter Masuk / Keluar) -->
+        <div class="space-y-3">
+          <div class="grid grid-cols-2 gap-4">
+            <!-- Total Masuk Card -->
+            <div
+              @click="toggleTypeFilter('masuk')"
+              class="cursor-pointer bg-white border-2 p-4 rounded-[var(--radius-card)] shadow-sm active:scale-[0.98] transition-all duration-150 select-none relative overflow-hidden"
+              :class="filterTipe === 'masuk' ? 'border-income ring-4 ring-income/20 bg-income/5' : 'border-border hover:border-income/40'"
+              role="button"
+              tabindex="0"
+              aria-label="Filter hanya transaksi masuk"
+            >
+              <div class="flex items-center justify-between">
+                <p class="text-xs font-bold text-text-muted">Total Masuk</p>
+                <span
+                  class="text-[10px] font-extrabold px-1.5 py-0.5 rounded transition-colors"
+                  :class="filterTipe === 'masuk' ? 'bg-income text-white' : 'bg-income/10 text-income'"
+                >
+                  {{ filterTipe === 'masuk' ? '✓ Aktif' : '👆 Filter' }}
+                </span>
+              </div>
+              <p class="text-lg font-black text-income mt-1">
+                {{ formatCurrency(filteredTotalIncome) }}
+              </p>
+            </div>
+
+            <!-- Total Keluar Card -->
+            <div
+              @click="toggleTypeFilter('keluar')"
+              class="cursor-pointer bg-white border-2 p-4 rounded-[var(--radius-card)] shadow-sm active:scale-[0.98] transition-all duration-150 select-none relative overflow-hidden"
+              :class="filterTipe === 'keluar' ? 'border-expense ring-4 ring-expense/20 bg-expense/5' : 'border-border hover:border-expense/40'"
+              role="button"
+              tabindex="0"
+              aria-label="Filter hanya transaksi keluar"
+            >
+              <div class="flex items-center justify-between">
+                <p class="text-xs font-bold text-text-muted">Total Keluar</p>
+                <span
+                  class="text-[10px] font-extrabold px-1.5 py-0.5 rounded transition-colors"
+                  :class="filterTipe === 'keluar' ? 'bg-expense text-white' : 'bg-expense/10 text-expense'"
+                >
+                  {{ filterTipe === 'keluar' ? '✓ Aktif' : '👆 Filter' }}
+                </span>
+              </div>
+              <p class="text-lg font-black text-expense mt-1">
+                {{ formatCurrency(filteredTotalExpense) }}
+              </p>
+            </div>
           </div>
-          <div class="bg-white border-2 border-border p-4 rounded-[var(--radius-card)] shadow-sm">
-            <p class="text-xs font-bold text-text-muted">Total Keluar</p>
-            <p class="text-lg font-black text-expense mt-1">
-              {{ formatCurrency(filteredTotalExpense) }}
-            </p>
+
+          <!-- Active Filter Pill & Reset Button -->
+          <div v-if="filterTipe !== 'ALL'" class="flex items-center justify-between px-1 animate-fade-in-up">
+            <span class="text-xs font-bold text-text-secondary flex items-center gap-1.5">
+              <span>Menampilkan:</span>
+              <span
+                class="px-2.5 py-0.5 rounded-full text-xs font-extrabold"
+                :class="filterTipe === 'masuk' ? 'bg-income/15 text-income' : 'bg-expense/15 text-expense'"
+              >
+                {{ filterTipe === 'masuk' ? '📈 Pemasukan Saja' : '📉 Pengeluaran Saja' }}
+              </span>
+            </span>
+            <button
+              @click="filterTipe = 'ALL'"
+              class="text-xs font-bold text-navy hover:underline active:scale-95 transition-all flex items-center gap-1"
+            >
+              <span>✕</span> Tampilkan Semua
+            </button>
           </div>
+          <p v-else class="text-[11px] text-text-muted text-center font-medium">
+            💡 Ketuk kartu Total Masuk atau Total Keluar untuk memfilter daftar transaksi
+          </p>
         </div>
 
         <!-- Pesan hasil hapus pengeluaran -->
@@ -383,9 +440,18 @@ import { buildCsv, csvFileParts, localDateStamp } from '../lib/csv.js'
 const isLoading = ref(true)
 const locationList = ref([])
 const selectedLocationFilter = ref('ALL')
+const filterTipe = ref('ALL') // 'ALL' | 'masuk' | 'keluar'
 const transactionsList = ref([])
 const startDate = ref('')
 const endDate = ref('')
+
+function toggleTypeFilter(tipe) {
+  if (filterTipe.value === tipe) {
+    filterTipe.value = 'ALL'
+  } else {
+    filterTipe.value = tipe
+  }
+}
 
 function resetDateFilters() {
   startDate.value = ''
@@ -586,8 +652,8 @@ async function deleteExpense() {
   }
 }
 
-// Filter transactions by location and date range
-const filteredTransactions = computed(() => {
+// Base filter by location and date range
+const baseFilteredTransactions = computed(() => {
   let list = transactionsList.value
 
   if (selectedLocationFilter.value !== 'ALL') {
@@ -607,8 +673,16 @@ const filteredTransactions = computed(() => {
   return list
 })
 
+// Filter transactions by location, date range, and clicked type card
+const filteredTransactions = computed(() => {
+  if (filterTipe.value === 'ALL') {
+    return baseFilteredTransactions.value
+  }
+  return baseFilteredTransactions.value.filter(tx => tx.tipe === filterTipe.value)
+})
+
 const filteredTotalIncome = computed(() => {
-  return filteredTransactions.value
+  return baseFilteredTransactions.value
     .filter(tx => tx.tipe === 'masuk')
     .reduce((sum, tx) => sum + tx.nominal, 0)
 })
@@ -620,13 +694,13 @@ function isCountedInTotal(tx) {
 }
 
 const filteredTotalExpense = computed(() => {
-  return filteredTransactions.value
+  return baseFilteredTransactions.value
     .filter(tx => tx.tipe === 'keluar' && isCountedInTotal(tx))
     .reduce((sum, tx) => sum + tx.nominal, 0)
 })
 
 const filteredTagihanBersama = computed(() => {
-  return filteredTransactions.value
+  return baseFilteredTransactions.value
     .filter(tx => tx.semuaKos)
     .reduce((sum, tx) => sum + tx.nominal, 0)
 })
