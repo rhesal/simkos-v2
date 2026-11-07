@@ -190,6 +190,23 @@
           />
         </div>
 
+        <!-- Alamat Asal / KTP -->
+        <div class="space-y-2 animate-fade-in-up animate-stagger-5">
+          <label for="alamat" class="block text-lg font-bold text-text-primary">
+            Alamat Asal / KTP
+          </label>
+          <input
+            id="alamat"
+            v-model="form.alamat"
+            type="text"
+            placeholder="Contoh: Kab. Jombang, Jawa Timur"
+            class="w-full bg-card border-2 border-border rounded-[var(--radius-btn)]
+                   px-5 py-4 text-lg font-semibold text-text-primary placeholder-text-muted
+                   focus:border-navy focus:ring-4 focus:ring-navy/10 focus:outline-none
+                   transition-all duration-200 shadow-sm"
+          />
+        </div>
+
         <!-- Kontak Darurat -->
         <div class="space-y-2 animate-fade-in-up animate-stagger-5">
           <label for="darurat" class="block text-lg font-bold text-text-primary">
@@ -391,6 +408,7 @@ const form = reactive({
   room_id: '',
   nama_lengkap: '',
   nomor_hp: '',
+  alamat: '',
   kontak_darurat: '',
   tipe_sewa: 'bulanan',
   tanggal_masuk: localDateStamp(), // tanggal lokal (WIB), bukan UTC
@@ -550,7 +568,7 @@ async function handleSubmit() {
     // === STEP 2: Penghuni + sewa + status kamar (atomik) ===
     submitSteps.value[1].active = true
 
-    const { error: rpcError } = await supabase.rpc('daftar_penghuni', {
+    let { data: newTenantId, error: rpcError } = await supabase.rpc('daftar_penghuni', {
       p_room_id: form.room_id,
       p_nama_lengkap: form.nama_lengkap.trim(),
       p_nomor_hp: form.nomor_hp.trim(),
@@ -559,7 +577,29 @@ async function handleSubmit() {
       p_tipe_sewa: form.tipe_sewa,
       p_tanggal_masuk: form.tanggal_masuk,
       p_tanggal_jatuh_tempo: form.tanggal_jatuh_tempo,
+      p_alamat: form.alamat.trim() || null,
     })
+
+    // Fallback bila database live belum diperbarui signature RPC-nya (masih 8 parameter)
+    if (rpcError && (rpcError.message?.includes('p_alamat') || rpcError.code === 'PGRST202')) {
+      const fallbackRes = await supabase.rpc('daftar_penghuni', {
+        p_room_id: form.room_id,
+        p_nama_lengkap: form.nama_lengkap.trim(),
+        p_nomor_hp: form.nomor_hp.trim(),
+        p_kontak_darurat: form.kontak_darurat.trim() || null,
+        p_foto_ktp_url: ktpPath,
+        p_tipe_sewa: form.tipe_sewa,
+        p_tanggal_masuk: form.tanggal_masuk,
+        p_tanggal_jatuh_tempo: form.tanggal_jatuh_tempo,
+      })
+      rpcError = fallbackRes.error
+      newTenantId = fallbackRes.data
+      if (!rpcError && form.alamat.trim() && newTenantId) {
+        try {
+          await supabase.from('tenants').update({ alamat: form.alamat.trim() }).eq('id', newTenantId)
+        } catch (_) {}
+      }
+    }
 
     if (rpcError) {
       const err = new Error(`Gagal menyimpan pendaftaran: ${rpcErrorMessage(rpcError, 'Silakan coba lagi.')}`)

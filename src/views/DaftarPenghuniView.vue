@@ -672,6 +672,18 @@
             />
           </div>
 
+          <!-- Alamat Asal / KTP -->
+          <div class="space-y-1.5">
+            <label for="edit-alamat" class="block text-sm font-bold text-text-primary">Alamat Asal / KTP</label>
+            <input
+              id="edit-alamat"
+              v-model="editForm.alamat"
+              type="text"
+              placeholder="Contoh: Kab. Jombang"
+              class="w-full bg-card border-2 border-border rounded-xl px-4 py-3 text-base font-semibold text-text-primary focus:border-navy focus:outline-none"
+            />
+          </div>
+
           <!-- Harga Sewa Bulanan -->
           <div class="space-y-1.5">
             <label for="edit-harga" class="block text-sm font-bold text-text-primary">Harga Sewa Bulanan</label>
@@ -1085,6 +1097,7 @@ const editForm = reactive({
   roomId: null,
   nama_lengkap: '',
   nomor_hp: '',
+  alamat: '',
   harga_bulanan: 0,
   tanggal_jatuh_tempo: ''
 })
@@ -1325,6 +1338,7 @@ function triggerEditModal() {
   editForm.roomId = selectedRoom.value.id
   editForm.nama_lengkap = rental.tenants?.nama_lengkap || ''
   editForm.nomor_hp = rental.tenants?.nomor_hp || ''
+  editForm.alamat = rental.tenants?.alamat || ''
   editForm.harga_bulanan = selectedRoom.value.harga_bulanan || 0
   editForm.tanggal_jatuh_tempo = rental.tanggal_jatuh_tempo || ''
 
@@ -1358,15 +1372,28 @@ async function updatePenghuni() {
   try {
     // 1. Update tenants table
     if (editForm.tenantId) {
+      const updatePayload = {
+        nama_lengkap: editForm.nama_lengkap.trim(),
+        nomor_hp: editForm.nomor_hp.trim(),
+        alamat: editForm.alamat.trim() || null
+      }
       const { error: tenantError } = await supabase
         .from('tenants')
-        .update({
-          nama_lengkap: editForm.nama_lengkap.trim(),
-          nomor_hp: editForm.nomor_hp.trim()
-        })
+        .update(updatePayload)
         .eq('id', editForm.tenantId)
 
-      if (tenantError) throw tenantError
+      if (tenantError) {
+        if (tenantError.message?.includes('alamat') || tenantError.code === '42703') {
+          delete updatePayload.alamat
+          const { error: retryError } = await supabase
+            .from('tenants')
+            .update(updatePayload)
+            .eq('id', editForm.tenantId)
+          if (retryError) throw retryError
+        } else {
+          throw tenantError
+        }
+      }
     }
 
     // 2. Update rooms table (harga_bulanan)

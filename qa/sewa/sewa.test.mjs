@@ -162,3 +162,20 @@ test('getRoomBadgeFontSize: ukuran font badge kamar proporsional terhadap panjan
   assert.equal(getRoomBadgeFontSize('KD06-T'), 'text-[11px] font-extrabold tracking-tight')
   assert.equal(getRoomBadgeFontSize('LANTAI-2'), 'text-[9px] font-extrabold tracking-tighter')
 })
+
+test('input alamat tersedia di TambahPenghuniView, DaftarPenghuniView edit modal, dan migrasi SQL', () => {
+  const tambah = read('../../src/views/TambahPenghuniView.vue')
+  assert.match(tambah, /id="alamat"/)
+  assert.match(tambah, /v-model="form\.alamat"/)
+  assert.match(tambah, /p_alamat:\s*form\.alamat/)
+
+  const daftar = read('../../src/views/DaftarPenghuniView.vue')
+  assert.match(daftar, /id="edit-alamat"/)
+  assert.match(daftar, /v-model="editForm\.alamat"/)
+  assert.match(daftar, /alamat:\s*editForm\.alamat/)
+
+  const mig700 = readFileSync(new URL('../../supabase/migrations/20261107000700_tenant_alamat.sql', import.meta.url), 'utf8')
+  assert.match(mig700, /alter table public\.tenants\s+add column if not exists alamat text;/i)
+  assert.match(mig700, /p_alamat\s+text default null/i)
+})
+
