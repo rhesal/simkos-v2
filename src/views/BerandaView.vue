@@ -19,6 +19,13 @@
             </svg>
           </button>
 
+          <!-- Settings Backdrop -->
+          <div
+            v-if="isSettingsOpen"
+            class="fixed inset-0 z-40"
+            @click="isSettingsOpen = false"
+          />
+
           <!-- Settings Dropdown Menu -->
           <div
             v-if="isSettingsOpen"
@@ -167,6 +174,13 @@
               </svg>
             </button>
           </div>
+
+          <!-- Dropdown Backdrop -->
+          <div
+            v-if="isDropdownOpen"
+            class="fixed inset-0 z-40"
+            @click="isDropdownOpen = false"
+          />
 
           <!-- Dropdown Menu Items -->
           <div

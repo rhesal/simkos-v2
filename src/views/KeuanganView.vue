@@ -1,7 +1,7 @@
 <template>
   <div class="min-h-screen bg-bg-primary pb-24">
     <!-- Header -->
-    <header class="bg-navy rounded-b-4xl px-6 pt-12 pb-8 text-white shadow-lg max-w-lg mx-auto space-y-6">
+    <header class="relative z-20 bg-navy rounded-b-4xl px-6 pt-12 pb-8 text-white shadow-lg max-w-lg mx-auto space-y-6">
       <div class="flex items-center justify-between">
         <h1 class="text-3xl font-black tracking-tight">Keuangan</h1>
         <span class="bg-white/10 px-4 py-1.5 rounded-full text-sm font-bold">
@@ -11,28 +11,11 @@
 
       <!-- Location Filter Dropdown -->
       <div class="space-y-1.5">
-        <label for="location-filter" class="block text-xs font-bold text-blue-200">Filter Lokasi Kos</label>
-        <div class="relative">
-          <select
-            id="location-filter"
-            v-model="selectedLocationFilter"
-            class="w-full px-5 py-4 bg-white border-2 border-white/20 rounded-xl appearance-none focus:outline-none focus:border-white text-lg font-medium text-gray-800 shadow-sm"
-          >
-            <option value="ALL">🏢 Semua Lokasi</option>
-            <option
-              v-for="loc in locationsList"
-              :key="loc.id"
-              :value="loc.id"
-            >
-              🏠 {{ loc.nama_lokasi }}
-            </option>
-          </select>
-          <div class="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-            </svg>
-          </div>
-        </div>
+        <label class="block text-xs font-bold text-blue-200">Filter Lokasi Kos</label>
+        <CustomLocationDropdown
+          v-model="selectedLocationFilter"
+          :locations="locationsList"
+        />
       </div>
     </header>
 
@@ -382,6 +365,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { supabase } from '../supabase.js'
 import BottomNav from '../components/BottomNav.vue'
 import BaseModal from '../components/BaseModal.vue'
+import CustomLocationDropdown from '../components/CustomLocationDropdown.vue'
 import { localDateStamp, advanceOneMonth } from '../lib/date.js'
 import { getRoomBadgeFontSize } from '../lib/sewa.js'
 
