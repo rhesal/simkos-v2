@@ -227,7 +227,7 @@
         <!-- Transactions List -->
         <div v-else class="space-y-4">
           <div
-            v-for="tx in filteredTransactions"
+            v-for="tx in paginatedTransactions"
             :key="tx.id"
             class="bg-white rounded-[var(--radius-card)] border-2 border-border p-5 flex items-center gap-4 shadow-sm hover:shadow-md transition-all duration-200"
             :class="tx.tipe === 'keluar' ? 'cursor-pointer active:scale-[0.99]' : ''"
@@ -292,6 +292,15 @@
               aria-hidden="true"
             >›</span>
           </div>
+
+          <!-- Pagination Riwayat Transaksi -->
+          <BasePagination
+            v-model="currentPage"
+            :total-items="filteredTransactions.length"
+            :page-size="pageSize"
+            item-label="transaksi"
+            class="print-hide"
+          />
         </div>
       </template>
     </div>
@@ -430,8 +439,9 @@
 
 <script setup>
 import BaseModal from '../components/BaseModal.vue'
+import BasePagination from '../components/BasePagination.vue'
 import CustomLocationDropdown from '../components/CustomLocationDropdown.vue'
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { supabase } from '../supabase.js'
 import { RECEIPT_BUCKET, getSignedUrl, deleteStorageFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
@@ -444,6 +454,8 @@ const filterTipe = ref('ALL') // 'ALL' | 'masuk' | 'keluar'
 const transactionsList = ref([])
 const startDate = ref('')
 const endDate = ref('')
+const currentPage = ref(1)
+const pageSize = ref(10)
 
 function toggleTypeFilter(tipe) {
   if (filterTipe.value === tipe) {
@@ -679,6 +691,15 @@ const filteredTransactions = computed(() => {
     return baseFilteredTransactions.value
   }
   return baseFilteredTransactions.value.filter(tx => tx.tipe === filterTipe.value)
+})
+
+const paginatedTransactions = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredTransactions.value.slice(start, start + pageSize.value)
+})
+
+watch([selectedLocationFilter, filterTipe, startDate, endDate], () => {
+  currentPage.value = 1
 })
 
 const filteredTotalIncome = computed(() => {

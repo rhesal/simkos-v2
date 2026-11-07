@@ -68,7 +68,7 @@
         <!-- Inventory List (Row Layout) -->
         <div v-else class="flex flex-col gap-3">
           <div
-            v-for="asset in filteredAssets"
+            v-for="asset in paginatedAssets"
             :key="asset.id"
             class="bg-white rounded-[var(--radius-card)] border-2 border-border p-4 pt-5 flex items-center gap-3.5 shadow-sm hover:shadow transition-all duration-150 relative overflow-hidden"
           >
@@ -145,6 +145,14 @@
               {{ asset.locations.nama_lokasi }}
             </span>
           </div>
+
+          <!-- Pagination Inventaris -->
+          <BasePagination
+            v-model="currentPage"
+            :total-items="filteredAssets.length"
+            :page-size="pageSize"
+            item-label="barang"
+          />
         </div>
       </template>
     </div>
@@ -500,6 +508,7 @@
 
 <script setup>
 import BaseModal from '../components/BaseModal.vue'
+import BasePagination from '../components/BasePagination.vue'
 import CustomLocationDropdown from '../components/CustomLocationDropdown.vue'
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { supabase } from '../supabase.js'
@@ -512,6 +521,8 @@ const isLoading = ref(true)
 const isSubmitting = ref(false)
 const selectedLocationFilter = ref('ALL')
 const activeTab = ref('Fasilitas Kamar')
+const currentPage = ref(1)
+const pageSize = ref(10)
 
 // Modals
 const showModal = ref(false)
@@ -562,6 +573,15 @@ const filteredAssets = computed(() => {
     const matchesLocation = selectedLocationFilter.value === 'ALL' || asset.location_id === selectedLocationFilter.value
     return matchesLocation
   })
+})
+
+const paginatedAssets = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredAssets.value.slice(start, start + pageSize.value)
+})
+
+watch([selectedLocationFilter, activeTab], () => {
+  currentPage.value = 1
 })
 
 // Fetch locations & inventories

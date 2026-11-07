@@ -136,7 +136,7 @@
         <!-- Rooms Row List -->
         <div v-else class="flex flex-col gap-3">
           <div
-            v-for="room in filteredRooms"
+            v-for="room in paginatedRooms"
             :key="room.id"
             @click="handleRoomClick(room)"
             class="bg-white rounded-[var(--radius-card)] border-2 border-border p-4 flex items-center justify-between gap-4 cursor-pointer shadow-sm active:scale-[0.98] hover:shadow transition-all duration-150 relative overflow-hidden"
@@ -208,6 +208,14 @@
               {{ room.locations?.nama_lokasi }}
             </span>
           </div>
+
+          <!-- Pagination Kamar Kos -->
+          <BasePagination
+            v-model="currentRoomPage"
+            :total-items="filteredRooms.length"
+            :page-size="roomPageSize"
+            item-label="kamar"
+          />
         </div>
       </template>
     </div>
@@ -1180,6 +1188,7 @@
 
 <script setup>
 import BaseModal from '../components/BaseModal.vue'
+import BasePagination from '../components/BasePagination.vue'
 import CustomLocationDropdown from '../components/CustomLocationDropdown.vue'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -1197,6 +1206,8 @@ const locationsList = ref([])
 const selectedLocationFilter = ref('ALL')
 const searchQuery = ref('')
 const statusFilter = ref('Semua')
+const currentRoomPage = ref(1)
+const roomPageSize = ref(10)
 
 // Modal visibility & selected room state
 const showDetailModal = ref(false)
@@ -1394,6 +1405,15 @@ const filteredRooms = computed(() => {
   }
 
   return list
+})
+
+const paginatedRooms = computed(() => {
+  const start = (currentRoomPage.value - 1) * roomPageSize.value
+  return filteredRooms.value.slice(start, start + roomPageSize.value)
+})
+
+watch([selectedLocationFilter, statusFilter, searchQuery], () => {
+  currentRoomPage.value = 1
 })
 
 // Room Click Handler

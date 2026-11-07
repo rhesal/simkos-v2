@@ -375,7 +375,7 @@
           <!-- Peringatan List -->
           <div v-else class="space-y-3">
             <div
-              v-for="item in radarList"
+              v-for="item in paginatedRadarList"
               :key="item.id"
               @click="openPaymentModal(item.rental)"
               class="bg-white rounded-[var(--radius-card)] border-2 border-border p-4 flex items-center justify-between shadow-sm relative overflow-hidden cursor-pointer hover:border-navy hover:shadow-md transition-all active:scale-[0.99]"
@@ -421,6 +421,14 @@
                 </span>
               </div>
             </div>
+
+            <!-- Pagination Radar Jatuh Tempo -->
+            <BasePagination
+              v-model="currentRadarPage"
+              :total-items="radarList.length"
+              :page-size="radarPageSize"
+              item-label="peringatan"
+            />
           </div>
         </div>
       </template>
@@ -703,6 +711,7 @@ import { localDateStamp, advanceOneMonth } from '../lib/date.js'
 import { calculateEffectiveDueDate } from '../lib/sewa.js'
 import BottomNav from '../components/BottomNav.vue'
 import BaseModal from '../components/BaseModal.vue'
+import BasePagination from '../components/BasePagination.vue'
 
 const router = useRouter()
 
@@ -837,6 +846,18 @@ const radarList = computed(() => {
   })
   .filter(item => item.diffDays <= 5) // H-5 or overdue
   .sort((a, b) => a.diffDays - b.diffDays)
+})
+
+const currentRadarPage = ref(1)
+const radarPageSize = ref(5)
+
+const paginatedRadarList = computed(() => {
+  const start = (currentRadarPage.value - 1) * radarPageSize.value
+  return radarList.value.slice(start, start + radarPageSize.value)
+})
+
+watch(selectedLocation, () => {
+  currentRadarPage.value = 1
 })
 
 // --- Fetch Locations ---

@@ -132,9 +132,9 @@
           </div>
 
           <!-- Incomes List -->
-          <div v-else class="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+          <div v-else class="space-y-2.5">
             <div
-              v-for="inc in currentMonthIncomes"
+              v-for="inc in paginatedIncomes"
               :key="inc.id"
               class="p-3.5 bg-gray-50 border border-border rounded-xl flex items-center justify-between gap-3 hover:bg-income/5 transition-colors"
             >
@@ -166,6 +166,14 @@
                 </span>
               </div>
             </div>
+
+            <!-- Pagination Pemasukan -->
+            <BasePagination
+              v-model="currentIncomePage"
+              :total-items="currentMonthIncomes.length"
+              :page-size="incomePageSize"
+              item-label="transaksi"
+            />
           </div>
         </div>
 
@@ -199,9 +207,9 @@
           </div>
 
           <!-- Expenses List -->
-          <div v-else class="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+          <div v-else class="space-y-2.5">
             <div
-              v-for="exp in currentMonthExpenses"
+              v-for="exp in paginatedExpenses"
               :key="exp.id"
               class="p-3.5 bg-gray-50 border border-border rounded-xl flex items-center justify-between gap-3 hover:bg-expense/5 transition-colors"
             >
@@ -235,6 +243,14 @@
                 </span>
               </div>
             </div>
+
+            <!-- Pagination Pengeluaran -->
+            <BasePagination
+              v-model="currentExpensePage"
+              :total-items="currentMonthExpenses.length"
+              :page-size="expensePageSize"
+              item-label="transaksi"
+            />
           </div>
         </div>
 
@@ -297,7 +313,7 @@
           <!-- Unpaid List (Memanjang Horizontal) -->
           <div v-else class="space-y-3">
             <div
-              v-for="rental in daftarBelumBayar"
+              v-for="rental in paginatedBelumBayar"
               :key="rental.id"
               @click="openPaymentModal(rental)"
               class="bg-white rounded-[var(--radius-card)] border-2 border-border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm hover:shadow hover:border-income/40 active:scale-[0.99] transition-all duration-150 relative overflow-hidden cursor-pointer"
@@ -362,6 +378,14 @@
                 {{ rental.rooms?.locations?.nama_lokasi }}
               </span>
             </div>
+
+            <!-- Pagination Belum Bayar -->
+            <BasePagination
+              v-model="currentUnpaidPage"
+              :total-items="daftarBelumBayar.length"
+              :page-size="unpaidPageSize"
+              item-label="penghuni"
+            />
           </div>
         </div>
       </template>
@@ -538,10 +562,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { supabase } from '../supabase.js'
 import BottomNav from '../components/BottomNav.vue'
 import BaseModal from '../components/BaseModal.vue'
+import BasePagination from '../components/BasePagination.vue'
 import CustomLocationDropdown from '../components/CustomLocationDropdown.vue'
 import { localDateStamp, advanceOneMonth } from '../lib/date.js'
 import { getRoomBadgeFontSize } from '../lib/sewa.js'
@@ -549,6 +574,19 @@ import { getRoomBadgeFontSize } from '../lib/sewa.js'
 const isLoading = ref(true)
 const selectedLocationFilter = ref('ALL')
 const activeFinanceList = ref(null) // null | 'masuk' | 'keluar'
+
+const currentIncomePage = ref(1)
+const incomePageSize = ref(5)
+const currentExpensePage = ref(1)
+const expensePageSize = ref(5)
+const currentUnpaidPage = ref(1)
+const unpaidPageSize = ref(5)
+
+watch(selectedLocationFilter, () => {
+  currentIncomePage.value = 1
+  currentExpensePage.value = 1
+  currentUnpaidPage.value = 1
+})
 
 function toggleFinanceList(type) {
   if (activeFinanceList.value === type) {
@@ -600,6 +638,11 @@ const currentMonthIncomes = computed(() => {
     .sort((a, b) => new Date(b.tanggal_bayar || 0) - new Date(a.tanggal_bayar || 0))
 })
 
+const paginatedIncomes = computed(() => {
+  const start = (currentIncomePage.value - 1) * incomePageSize.value
+  return currentMonthIncomes.value.slice(start, start + incomePageSize.value)
+})
+
 const currentMonthExpenses = computed(() => {
   return expensesList.value
     .filter(item => {
@@ -608,6 +651,11 @@ const currentMonthExpenses = computed(() => {
       return matchesLocation && matchesMonth
     })
     .sort((a, b) => new Date(b.tanggal_pengeluaran || 0) - new Date(a.tanggal_pengeluaran || 0))
+})
+
+const paginatedExpenses = computed(() => {
+  const start = (currentExpensePage.value - 1) * expensePageSize.value
+  return currentMonthExpenses.value.slice(start, start + expensePageSize.value)
 })
 
 // Tagihan bersama (location_id NULL) bulan ini.
@@ -640,6 +688,11 @@ const daftarBelumBayar = computed(() => {
     
     return !hasPaid
   })
+})
+
+const paginatedBelumBayar = computed(() => {
+  const start = (currentUnpaidPage.value - 1) * unpaidPageSize.value
+  return daftarBelumBayar.value.slice(start, start + unpaidPageSize.value)
 })
 
 // Load Locations
