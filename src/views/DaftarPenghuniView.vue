@@ -23,12 +23,21 @@
               class="w-full px-4 py-3.5 bg-white border-2 border-white/20 rounded-xl focus:outline-none focus:border-white text-base font-medium text-gray-800 shadow-sm"
             />
           </div>
-          <router-link
-            to="/tambah-penghuni"
-            class="px-4 py-3.5 bg-white text-navy font-bold rounded-xl flex items-center justify-center gap-1.5 shadow active:scale-95 transition-transform"
-          >
-            <span>➕</span> Daftar
-          </router-link>
+          <div class="flex items-center gap-2">
+            <router-link
+              to="/migrasi-data"
+              class="px-3 py-3.5 bg-white/15 hover:bg-white/25 text-white font-bold rounded-xl flex items-center justify-center gap-1 shadow active:scale-95 transition-transform text-xs"
+              title="Migrasi Catatan Buku Kas"
+            >
+              <span>⚡</span> Migrasi
+            </router-link>
+            <router-link
+              to="/tambah-penghuni"
+              class="px-4 py-3.5 bg-white text-navy font-bold rounded-xl flex items-center justify-center gap-1.5 shadow active:scale-95 transition-transform"
+            >
+              <span>➕</span> Daftar
+            </router-link>
+          </div>
         </div>
 
         <!-- Filters Grid -->
@@ -1022,6 +1031,7 @@
 <script setup>
 import BaseModal from '../components/BaseModal.vue'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { supabase } from '../supabase.js'
 import { KTP_BUCKET, IMAGE_ACCEPT, validateImageFile, uploadPrivateFile, removeStorageFile, deleteStorageFile, downloadPrivateFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
@@ -1029,6 +1039,7 @@ import KtpViewerModal from '../components/KtpViewerModal.vue'
 import { localDateStamp } from '../lib/date.js'
 import { pindahTargetRooms, roomOptionLabel, rpcErrorMessage, RIWAYAT_SEWA_MSG, getRoomBadgeFontSize } from '../lib/sewa.js'
 
+const route = useRoute()
 const isLoading = ref(true)
 const roomsList = ref([])
 const locationsList = ref([])
@@ -1151,6 +1162,14 @@ async function loadRoomsAndRentals() {
 onMounted(async () => {
   await loadLocations()
   await loadRoomsAndRentals()
+
+  // Jika diarahkan dari migrasi data dengan parameter room_id, buka otomatis modal kamar tsb
+  if (route.query.room_id) {
+    const targetRoom = roomsList.value.find(r => r.id === route.query.room_id)
+    if (targetRoom) {
+      handleRoomClick(targetRoom)
+    }
+  }
 })
 
 // Statistics Computed Properties

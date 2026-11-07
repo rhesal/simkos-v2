@@ -72,6 +72,18 @@
               </span>
               Daftar Penghuni Baru
             </router-link>
+            <router-link
+              to="/migrasi-data"
+              @click="isSettingsOpen = false"
+              class="w-full px-5 py-4 text-left text-lg font-bold text-text-primary hover:bg-gray-50 active:bg-gray-100 flex items-center gap-3 border-b border-border"
+            >
+              <span class="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center flex-shrink-0">
+                <svg class="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                </svg>
+              </span>
+              Migrasi Data Cerdas
+            </router-link>
             <button
               @click="handleLogout"
               class="w-full px-5 py-4 text-left text-lg font-bold text-expense hover:bg-red-50 active:bg-red-100 flex items-center gap-3"

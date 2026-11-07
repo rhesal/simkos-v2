@@ -66,6 +66,11 @@ const routes = [
     component: () => import('../views/DaftarPenghuniView.vue'),
   },
   {
+    path: '/migrasi-data',
+    name: 'MigrasiData',
+    component: () => import('../views/MigrasiDataView.vue'),
+  },
+  {
     path: '/login',
     name: 'Login',
     component: () => import('../views/LoginView.vue'),
