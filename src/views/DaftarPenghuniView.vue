@@ -359,17 +359,31 @@
 
               <!-- Daftar Pembayaran / DP -->
               <div class="pt-2">
-                <p class="font-bold text-slate-900 mb-1">Pembayaran/DP :</p>
+                <div class="flex items-center justify-between mb-1">
+                  <p class="font-bold text-slate-900">Pembayaran/DP :</p>
+                  <span class="text-[10px] text-slate-400 font-semibold italic">Ketuk baris untuk edit</span>
+                </div>
                 <div v-if="isLoadingTenantIncomes" class="text-xs text-slate-500 py-1 italic animate-pulse">
                   Memuat riwayat pembayaran...
                 </div>
                 <div v-else-if="tenantIncomes.length === 0" class="text-xs text-slate-500 italic pl-1">
                   (Belum ada riwayat pembayaran tercatat)
                 </div>
-                <div v-else class="space-y-1 pl-1">
-                  <p v-for="(inc, idx) in tenantIncomes" :key="inc.id" class="text-xs text-slate-800">
-                    {{ formatBarisPembayaran(inc, idx) }}
-                  </p>
+                <div v-else class="space-y-1">
+                  <div
+                    v-for="(inc, idx) in tenantIncomes"
+                    :key="inc.id"
+                    @click="openEditPaymentModal(inc)"
+                    class="flex items-center justify-between p-1.5 rounded-lg hover:bg-emerald-100/70 active:bg-emerald-200 cursor-pointer transition group border border-transparent hover:border-emerald-200"
+                    title="Klik untuk ubah metode pembayaran / nominal"
+                  >
+                    <p class="text-xs text-slate-800 font-medium">
+                      {{ formatBarisPembayaran(inc, idx) }}
+                    </p>
+                    <span class="text-[11px] text-emerald-700 opacity-60 group-hover:opacity-100 font-bold flex items-center gap-0.5 shrink-0 ml-2">
+                      ✏️ Edit
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -639,6 +653,132 @@
           >
             ➕ Daftarkan
           </router-link>
+        </div>
+      </div>
+    </BaseModal>
+
+    <!-- Modal Edit Riwayat Pembayaran -->
+    <BaseModal
+      v-if="showEditPaymentModal"
+      class="bg-navy/70 backdrop-blur-sm z-[70] animate-fade-in"
+    >
+      <div class="bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl w-full max-w-sm p-6 space-y-4 animate-fade-in-up">
+        <!-- Header -->
+        <div class="flex items-center justify-between border-b-2 border-border pb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">💳</span>
+            <h3 class="text-lg font-black text-text-primary">Edit Pembayaran</h3>
+          </div>
+          <button
+            @click="showEditPaymentModal = false"
+            class="text-text-muted hover:text-text-primary text-xl font-bold"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div class="space-y-4 py-1">
+          <!-- Metode Pembayaran -->
+          <div class="space-y-1.5">
+            <label class="block text-xs font-bold text-text-muted uppercase tracking-wider">
+              Metode Pembayaran
+            </label>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                @click="editPaymentForm.metode = 'Transfer'"
+                :class="[
+                  'py-2.5 px-3 rounded-xl font-bold text-sm border-2 transition flex items-center justify-center gap-1.5',
+                  editPaymentForm.metode === 'Transfer'
+                    ? 'bg-navy text-white border-navy shadow-sm'
+                    : 'bg-gray-50 text-text-muted border-border hover:bg-gray-100'
+                ]"
+              >
+                <span>💳</span> Transfer
+              </button>
+              <button
+                type="button"
+                @click="editPaymentForm.metode = 'Tunai'"
+                :class="[
+                  'py-2.5 px-3 rounded-xl font-bold text-sm border-2 transition flex items-center justify-center gap-1.5',
+                  editPaymentForm.metode === 'Tunai'
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                    : 'bg-gray-50 text-text-muted border-border hover:bg-gray-100'
+                ]"
+              >
+                <span>💵</span> Tunai
+              </button>
+            </div>
+          </div>
+
+          <!-- Nominal -->
+          <div class="space-y-1.5">
+            <label for="edit-pay-nominal" class="block text-xs font-bold text-text-muted uppercase tracking-wider">
+              Nominal (Rp)
+            </label>
+            <input
+              id="edit-pay-nominal"
+              v-model.number="editPaymentForm.nominal"
+              type="number"
+              class="w-full bg-card border-2 border-border rounded-xl px-4 py-2.5 text-base font-bold text-text-primary focus:border-navy focus:outline-none"
+            />
+          </div>
+
+          <!-- Tanggal Bayar -->
+          <div class="space-y-1.5">
+            <label for="edit-pay-tanggal" class="block text-xs font-bold text-text-muted uppercase tracking-wider">
+              Tanggal Pembayaran
+            </label>
+            <input
+              id="edit-pay-tanggal"
+              v-model="editPaymentForm.tanggal_bayar"
+              type="date"
+              class="w-full bg-card border-2 border-border rounded-xl px-4 py-2.5 text-sm font-semibold text-text-primary focus:border-navy focus:outline-none"
+            />
+          </div>
+
+          <!-- Keterangan -->
+          <div class="space-y-1.5">
+            <label for="edit-pay-ket" class="block text-xs font-bold text-text-muted uppercase tracking-wider">
+              Keterangan
+            </label>
+            <input
+              id="edit-pay-ket"
+              v-model="editPaymentForm.keterangan"
+              type="text"
+              placeholder="Contoh: Sewa Kamar (Transfer)"
+              class="w-full bg-card border-2 border-border rounded-xl px-4 py-2.5 text-sm font-semibold text-text-primary focus:border-navy focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <!-- Tombol Aksi -->
+        <div class="pt-2 flex items-center justify-between gap-2 border-t border-border">
+          <button
+            type="button"
+            @click="hapusPembayaran"
+            class="py-2.5 px-3 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-bold transition flex items-center gap-1"
+          >
+            🗑️ Hapus
+          </button>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              @click="showEditPaymentModal = false"
+              class="py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-text-primary rounded-xl text-xs font-bold transition"
+            >
+              Batal
+            </button>
+            <button
+              type="button"
+              :disabled="isUpdatingPayment"
+              @click="simpanPerubahanPembayaran"
+              class="py-2.5 px-5 bg-navy hover:bg-navy/90 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <span v-if="isUpdatingPayment">Menyimpan...</span>
+              <span v-else>Simpan Perubahan</span>
+            </button>
+          </div>
         </div>
       </div>
     </BaseModal>
@@ -1051,6 +1191,15 @@ const statusFilter = ref('Semua')
 const showDetailModal = ref(false)
 const showEmptyModal = ref(false)
 const showEditModal = ref(false)
+const showEditPaymentModal = ref(false)
+const isUpdatingPayment = ref(false)
+const editPaymentForm = reactive({
+  id: null,
+  nominal: 0,
+  tanggal_bayar: '',
+  keterangan: '',
+  metode: 'Transfer'
+})
 const showModalEdukasiHapus = ref(false)
 const showCheckoutModal = ref(false)
 const showBlacklistModal = ref(false)
@@ -1304,9 +1453,101 @@ function formatBarisPembayaran(inc, index) {
     }
   }
   const nomStr = new Intl.NumberFormat('id-ID').format(inc.nominal || 0)
-  const metode = String(inc.metode_bayar || 'Transfer').toLowerCase()
-  const metodeSingkat = metode.includes('trans') ? 'trnfer' : 'tunai'
+  const combined = (String(inc.metode_bayar || '') + ' ' + String(inc.keterangan || '')).toLowerCase()
+  const isTunai = combined.includes('tunai') || combined.includes('cash')
+  const metodeSingkat = isTunai ? 'tunai' : 'trnfer'
   return `${index + 1}. Tgl.${tglStr} = ${nomStr} / ${metodeSingkat} lunas`
+}
+
+function openEditPaymentModal(inc) {
+  editPaymentForm.id = inc.id
+  editPaymentForm.nominal = inc.nominal || 0
+  editPaymentForm.tanggal_bayar = inc.tanggal_bayar || ''
+  editPaymentForm.keterangan = inc.keterangan || ''
+
+  const combined = (String(inc.metode_bayar || '') + ' ' + String(inc.keterangan || '')).toLowerCase()
+  if (combined.includes('tunai') || combined.includes('cash')) {
+    editPaymentForm.metode = 'Tunai'
+  } else {
+    editPaymentForm.metode = 'Transfer'
+  }
+
+  showEditPaymentModal.value = true
+}
+
+async function simpanPerubahanPembayaran() {
+  if (!editPaymentForm.id) return
+  isUpdatingPayment.value = true
+
+  try {
+    let newKet = editPaymentForm.keterangan.trim()
+    newKet = newKet.replace(/\s*\((?:transfer|tunai|cash|transfer bank)\)/gi, '').trim()
+    if (!newKet) {
+      newKet = `Sewa Kamar (${editPaymentForm.metode})`
+    } else {
+      newKet = `${newKet} (${editPaymentForm.metode})`
+    }
+
+    const payload = {
+      tanggal_bayar: editPaymentForm.tanggal_bayar,
+      nominal: Number(editPaymentForm.nominal),
+      keterangan: newKet,
+      metode_bayar: editPaymentForm.metode
+    }
+
+    const { error } = await supabase
+      .from('incomes')
+      .update(payload)
+      .eq('id', editPaymentForm.id)
+
+    if (error) {
+      if (error.message?.includes('metode_bayar') || error.code === '42703') {
+        delete payload.metode_bayar
+        const { error: retryErr } = await supabase
+          .from('incomes')
+          .update(payload)
+          .eq('id', editPaymentForm.id)
+        if (retryErr) throw retryErr
+      } else {
+        throw error
+      }
+    }
+
+    showEditPaymentModal.value = false
+    if (selectedRoom.value?.activeRental) {
+      await loadBukuKasData(selectedRoom.value.activeRental)
+    }
+  } catch (err) {
+    alert(`Gagal memperbarui pembayaran: ${err.message || err}`)
+    console.error('[SimKos] Update payment error:', err)
+  } finally {
+    isUpdatingPayment.value = false
+  }
+}
+
+async function hapusPembayaran() {
+  if (!editPaymentForm.id) return
+  if (!confirm('Apakah Anda yakin ingin menghapus catatan pembayaran ini?')) return
+
+  isUpdatingPayment.value = true
+  try {
+    const { error } = await supabase
+      .from('incomes')
+      .delete()
+      .eq('id', editPaymentForm.id)
+
+    if (error) throw error
+
+    showEditPaymentModal.value = false
+    if (selectedRoom.value?.activeRental) {
+      await loadBukuKasData(selectedRoom.value.activeRental)
+    }
+  } catch (err) {
+    alert(`Gagal menghapus pembayaran: ${err.message || err}`)
+    console.error('[SimKos] Delete payment error:', err)
+  } finally {
+    isUpdatingPayment.value = false
+  }
 }
 
 function copyCatatanKas() {
