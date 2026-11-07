@@ -138,7 +138,7 @@
                      transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-white/25 min-w-0"
             >
               <div class="flex items-center gap-3 min-w-0">
-                <span class="text-2xl flex-shrink-0">🏠</span>
+                <span class="text-2xl flex-shrink-0">{{ selectedLocation === 'ALL' ? '🏢' : '🏠' }}</span>
                 <span class="truncate">{{ selectedLocationName }}</span>
               </div>
               <svg
@@ -173,6 +173,27 @@
             v-if="isDropdownOpen"
             class="absolute z-50 left-0 right-0 mt-2 bg-white rounded-[var(--radius-card)] border-2 border-border shadow-2xl overflow-hidden"
           >
+            <!-- Opsi Semua Lokasi -->
+            <div
+              class="flex items-center justify-between border-b border-border hover:bg-gray-50 transition-colors"
+              :class="{ 'bg-navy/5': selectedLocation === 'ALL' }"
+            >
+              <button
+                @click="selectLocation('ALL')"
+                class="flex-1 px-5 py-4 text-left text-lg font-bold text-text-primary flex items-center gap-3 min-w-0"
+              >
+                <span class="text-2xl flex-shrink-0">🏢</span>
+                <span class="truncate">Semua Lokasi</span>
+                <span class="text-xs bg-navy/10 text-navy font-extrabold px-2.5 py-0.5 rounded-full ml-1">
+                  {{ locations.length }} Kos
+                </span>
+                <svg v-if="selectedLocation === 'ALL'" class="w-5 h-5 text-navy ml-auto flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+              </button>
+            </div>
+
+            <!-- Daftar Masing-Masing Lokasi Kos -->
             <div
               v-for="loc in locations"
               :key="loc.id"
@@ -268,7 +289,12 @@
                   <span class="text-xl font-extrabold text-red-300">{{ formatCurrency(totalPengeluaran) }}</span>
                 </div>
                 <p v-if="totalTagihanBersama > 0" class="text-xs font-semibold text-blue-200/90">
-                  🌐 Tagihan bersama {{ formatCurrency(totalTagihanBersama) }} tidak termasuk total kos ini
+                  <template v-if="selectedLocation === 'ALL'">
+                    🌐 Termasuk tagihan bersama {{ formatCurrency(totalTagihanBersama) }}
+                  </template>
+                  <template v-else>
+                    🌐 Tagihan bersama {{ formatCurrency(totalTagihanBersama) }} tidak termasuk total kos ini
+                  </template>
                 </p>
               </div>
             </div>
@@ -708,6 +734,7 @@ const currentLocationObject = computed(() => {
 })
 
 const selectedLocationName = computed(() => {
+  if (selectedLocation.value === 'ALL') return 'Semua Lokasi'
   const loc = currentLocationObject.value
   return loc ? loc.nama_lokasi : 'Pilih Lokasi'
 })
@@ -735,7 +762,7 @@ const totalPemasukan = computed(() => {
 // tidak dihitung per kos, supaya tidak terhitung dobel di tiap kos.
 const totalPengeluaran = computed(() => {
   return expensesList.value
-    .filter(item => item.location_id != null)
+    .filter(item => selectedLocation.value === 'ALL' || item.location_id != null)
     .filter(item => item.tanggal_pengeluaran && item.tanggal_pengeluaran.startsWith(currentMonthPrefix.value))
     .reduce((sum, item) => sum + (item.nominal || 0), 0)
 })
@@ -818,51 +845,67 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 async function fetchDashboardData(locationId) {
   if (!locationId) return
 
-  // Guard: locationId masuk ke string filter .or() PostgREST, jadi pastikan UUID.
-  if (!UUID_RE.test(String(locationId))) {
+  const isAll = locationId === 'ALL'
+  if (!isAll && !UUID_RE.test(String(locationId))) {
     console.error('[SimKos] location_id bukan UUID, fetch dashboard dibatalkan:', locationId)
     return
   }
-  const safeLocationId = String(locationId).toLowerCase()
+  const safeLocationId = isAll ? '' : String(locationId).toLowerCase()
 
   isLoadingData.value = true
 
   try {
     // 1. Fetch rooms
-    const { data: roomsData, error: roomsError } = await supabase
+    let roomsQuery = supabase
       .from('rooms')
       .select('*')
-      .eq('location_id', locationId)
       .order('nomor_kamar', { ascending: true })
 
+    if (!isAll) {
+      roomsQuery = roomsQuery.eq('location_id', locationId)
+    }
+
+    const { data: roomsData, error: roomsError } = await roomsQuery
     if (roomsError) throw roomsError
     rooms.value = roomsData || []
 
     // 2. Fetch active rentals for radar
-    const { data: rentalsData, error: rentalsError } = await supabase
+    let rentalsQuery = supabase
       .from('rentals')
       .select('*, tenants(nama_lengkap), rooms!inner(nomor_kamar, location_id, harga_bulanan, locations(nama_lokasi))')
       .eq('status_aktif', true)
-      .eq('rooms.location_id', locationId)
 
+    if (!isAll) {
+      rentalsQuery = rentalsQuery.eq('rooms.location_id', locationId)
+    }
+
+    const { data: rentalsData, error: rentalsError } = await rentalsQuery
     if (rentalsError) throw rentalsError
     rentalsList.value = rentalsData || []
 
     // 3. Fetch incomes
-    const { data: incomesData, error: incomesError } = await supabase
+    let incomesQuery = supabase
       .from('incomes')
       .select('nominal, tanggal_bayar, rentals!inner(rooms!inner(location_id))')
-      .eq('rentals.rooms.location_id', locationId)
 
+    if (!isAll) {
+      incomesQuery = incomesQuery.eq('rentals.rooms.location_id', locationId)
+    }
+
+    const { data: incomesData, error: incomesError } = await incomesQuery
     if (incomesError) throw incomesError
     incomesList.value = incomesData || []
 
     // 4. Fetch expenses
-    const { data: expensesData, error: expensesError } = await supabase
+    let expensesQuery = supabase
       .from('expenses')
       .select('nominal, tanggal_pengeluaran, location_id')
-      .or(`location_id.eq.${safeLocationId},location_id.is.null`)
 
+    if (!isAll) {
+      expensesQuery = expensesQuery.or(`location_id.eq.${safeLocationId},location_id.is.null`)
+    }
+
+    const { data: expensesData, error: expensesError } = await expensesQuery
     if (expensesError) throw expensesError
     expensesList.value = expensesData || []
 
