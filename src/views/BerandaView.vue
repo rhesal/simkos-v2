@@ -700,6 +700,7 @@ import { supabase } from '../supabase.js'
 import { signOutWithLocalFallback } from '../lib/auth.js'
 import { clearSignedUrlCache, clearOrgIdCache } from '../lib/storage.js'
 import { localDateStamp, advanceOneMonth } from '../lib/date.js'
+import { calculateEffectiveDueDate } from '../lib/sewa.js'
 import BottomNav from '../components/BottomNav.vue'
 import BaseModal from '../components/BaseModal.vue'
 
@@ -809,8 +810,11 @@ const radarList = computed(() => {
     const roomNo = rental.rooms?.nomor_kamar || ''
     const locName = rental.rooms?.locations?.nama_lokasi || ''
     
+    // Hitung tanggal jatuh tempo efektif (otomatis memperhitungkan pembayaran yang sudah masuk)
+    const effectiveDueDate = calculateEffectiveDueDate(rental) || rental.tanggal_jatuh_tempo
+
     // Parse tanggal_jatuh_tempo
-    const parts = rental.tanggal_jatuh_tempo.split('-')
+    const parts = (effectiveDueDate || '').split('-')
     let diffDays = 999
     if (parts.length === 3) {
       const year = parseInt(parts[0], 10)
@@ -827,7 +831,7 @@ const radarList = computed(() => {
       rental,
       nama: tenantName,
       kamar: `Kamar ${roomNo} (${locName})`,
-      jatuhTempo: rental.tanggal_jatuh_tempo,
+      jatuhTempo: effectiveDueDate,
       diffDays
     }
   })
@@ -883,10 +887,10 @@ async function fetchDashboardData(locationId) {
     if (roomsError) throw roomsError
     rooms.value = roomsData || []
 
-    // 2. Fetch active rentals for radar
+    // 2. Fetch active rentals for radar beserta riwayat pembayarannya
     let rentalsQuery = supabase
       .from('rentals')
-      .select('*, tenants(nama_lengkap), rooms!inner(nomor_kamar, location_id, harga_bulanan, locations(nama_lokasi))')
+      .select('*, tenants(nama_lengkap), rooms!inner(nomor_kamar, location_id, harga_bulanan, locations(nama_lokasi)), incomes(id, nominal, tanggal_bayar, keterangan)')
       .eq('status_aktif', true)
 
     if (!isAll) {
@@ -896,6 +900,21 @@ async function fetchDashboardData(locationId) {
     const { data: rentalsData, error: rentalsError } = await rentalsQuery
     if (rentalsError) throw rentalsError
     rentalsList.value = rentalsData || []
+
+    // Sinkronisasi otomatis tanggal jatuh tempo rental jika penghuni sudah bayar
+    for (const rental of rentalsList.value) {
+      const effDue = calculateEffectiveDueDate(rental)
+      if (effDue && effDue !== rental.tanggal_jatuh_tempo) {
+        supabase
+          .from('rentals')
+          .update({ tanggal_jatuh_tempo: effDue })
+          .eq('id', rental.id)
+          .then(({ error }) => {
+            if (error) console.warn('[SimKos] Auto-sinkronisasi tanggal jatuh tempo gagal:', error)
+          })
+        rental.tanggal_jatuh_tempo = effDue
+      }
+    }
 
     // 3. Fetch incomes
     let incomesQuery = supabase

@@ -1,6 +1,7 @@
 // Aturan sewa yang dipakai TambahPenghuniView & DaftarPenghuniView:
 // kamar kosong, daftar kamar tujuan pindah, dan pesan error RPC
 // (pindah_kamar / daftar_penghuni, migration 600) untuk pengguna.
+import { advanceOneMonth } from './date.js'
 
 // Nilai yang diizinkan DB (migration 600). Dibandingkan PERSIS, tanpa
 // lower/trim: constraint rooms_status_kamar_check menjamin hanya dua nilai ini.
@@ -114,4 +115,72 @@ export function getRoomBadgeFontSize(roomNo) {
   if (len <= 6) return 'text-[11px] font-extrabold tracking-tight'
   return 'text-[9px] font-extrabold tracking-tighter'
 }
+
+/**
+ * Menghitung tanggal jatuh tempo efektif sebuah rental dengan
+ * memperhitungkan riwayat pembayaran yang sudah diterima (incomes).
+ * 
+ * Jika penghuni sudah membayar untuk periode jatuh tempo (misal tanggal bayar
+ * di bulan yang sama dengan jatuh tempo, atau tanggal bayar >= tanggal jatuh tempo),
+ * maka tanggal jatuh tempo berikutnya yang belum dibayar dimajukan secara proporsional.
+ *
+ * Contoh kasus:
+ * - rental.tanggal_jatuh_tempo = '2026-11-05'
+ * - penghuni sudah bayar tanggal '2026-11-05'
+ * - maka jatuh tempo efektif yang belum dibayar adalah '2026-12-05'.
+ */
+export function calculateEffectiveDueDate(rental) {
+  if (!rental || !rental.tanggal_jatuh_tempo) return null
+
+  let currentDue = rental.tanggal_jatuh_tempo
+  const incomes = Array.isArray(rental.incomes) ? rental.incomes : []
+
+  if (incomes.length === 0) {
+    return currentDue
+  }
+
+  // Ambil hanya pembayaran yang memiliki tanggal_bayar valid
+  // Urutkan ascending berdasarkan tanggal bayar
+  const sortedIncomes = [...incomes]
+    .filter(inc => inc && inc.tanggal_bayar)
+    .sort((a, b) => String(a.tanggal_bayar).localeCompare(String(b.tanggal_bayar)))
+
+  for (const inc of sortedIncomes) {
+    const payDate = String(inc.tanggal_bayar).trim()
+    const payMonth = payDate.substring(0, 7) // YYYY-MM
+    const dueMonth = currentDue.substring(0, 7) // YYYY-MM
+
+    // Pembayaran dianggap melunasi currentDue jika:
+    // 1. Bulan bayar sama dengan bulan jatuh tempo (misal bayar di bulan Nov untuk jatuh tempo Nov)
+    // 2. ATAU tanggal bayar >= tanggal jatuh tempo
+    // 3. ATAU tanggal bayar paling lama 25 hari sebelum tanggal jatuh tempo (pembayaran awal)
+    let isMatchingPayment = false
+    if (payMonth === dueMonth) {
+      isMatchingPayment = true
+    } else if (payDate >= currentDue) {
+      isMatchingPayment = true
+    } else {
+      const partsP = payDate.split('-')
+      const partsD = currentDue.split('-')
+      if (partsP.length === 3 && partsD.length === 3) {
+        const dPay = new Date(parseInt(partsP[0], 10), parseInt(partsP[1], 10) - 1, parseInt(partsP[2], 10))
+        const dDue = new Date(parseInt(partsD[0], 10), parseInt(partsD[1], 10) - 1, parseInt(partsD[2], 10))
+        const diffDays = (dDue.getTime() - dPay.getTime()) / (1000 * 60 * 60 * 24)
+        if (diffDays >= 0 && diffDays <= 25) {
+          isMatchingPayment = true
+        }
+      }
+    }
+
+    if (isMatchingPayment) {
+      const nextDue = advanceOneMonth(currentDue)
+      if (nextDue) {
+        currentDue = nextDue
+      }
+    }
+  }
+
+  return currentDue
+}
+
 

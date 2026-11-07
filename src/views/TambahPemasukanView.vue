@@ -223,7 +223,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { localDateStamp } from '../lib/date.js'
+import { localDateStamp, advanceOneMonth } from '../lib/date.js'
 import { useRouter } from 'vue-router'
 import { supabase } from '../supabase.js'
 
@@ -360,26 +360,21 @@ async function handleSubmit() {
     if (error) throw error
 
     // 2. Automatically advance the tenant due date (tanggal_jatuh_tempo) in rentals only if category is 'Sewa Kamar'
-    if (form.kategori === 'Sewa Kamar') {
-      if (activeRental.value?.tanggal_jatuh_tempo) {
-        const tanggalLama = new Date(activeRental.value.tanggal_jatuh_tempo)
-        tanggalLama.setMonth(tanggalLama.getMonth() + 1)
-
-        const yyyy = tanggalLama.getFullYear()
-        const mm = String(tanggalLama.getMonth() + 1).padStart(2, '0')
-        const dd = String(tanggalLama.getDate()).padStart(2, '0')
-        const tanggalJatuhTempoBaru = `${yyyy}-${mm}-${dd}`
-
+    const isSewa = !form.kategori || /sewa/i.test(form.kategori)
+    if (isSewa && activeRental.value?.tanggal_jatuh_tempo) {
+      const tanggalJatuhTempoBaru = advanceOneMonth(activeRental.value.tanggal_jatuh_tempo)
+      if (tanggalJatuhTempoBaru) {
         const { error: updateRentalError } = await supabase
           .from('rentals')
           .update({ tanggal_jatuh_tempo: tanggalJatuhTempoBaru })
           .eq('id', activeRental.value.id)
 
-        if (updateRentalError) throw updateRentalError
-        console.log('Sukses memperbarui siklus jatuh tempo sewa utama.')
+        if (updateRentalError) {
+          console.warn('[SimKos] Gagal mengupdate tanggal jatuh tempo rental:', updateRentalError)
+        } else {
+          activeRental.value.tanggal_jatuh_tempo = tanggalJatuhTempoBaru
+        }
       }
-    } else {
-      console.log('Pemasukan non-sewa dideteksi (Listrik/Denda/Lainnya). Siklus jatuh tempo sewa utama dipertahankan.')
     }
 
     successMsg.value = 'Pembayaran berhasil disimpan dan tanggal jatuh tempo diperbarui!'
