@@ -1,6 +1,6 @@
 # Dokumen Audit & Desain Teknis: Modul Aset & Inventaris SimKos
-**Fase 0 (Audit & Baseline) & Fase 1 (Desain Teknis)**
-*Tanggal: 7 November 2026 | Branch: `feat/aset-inventaris-audit-desain` | Baseline Commit: `b563f8f`*
+**Fase 0 (Audit & Baseline), Fase 1 (Desain Teknis), dan Fase 2-R (Pencatatan, Draf & Pengerasan Integritas Data)**
+*Tanggal Pembaruan: 8 November 2026 | Branch: `feat/aset-inventaris-audit-desain` | Status: Fase 0, 1, dan 2-R SELESAI & TERVERIFIKASI*
 
 ---
 
@@ -11,17 +11,17 @@
 - **Baseline Commit**: `b563f8f847591164cb761e86a1cbd7bf078d1150` (*"feat: tambahkan fitur pagination pada semua menu yang menampilkan list data"*).
 - **Remote**: `origin` -> `https://github.com/rhesal/simkos-v2.git`.
 - **Working Tree**: Bersih, perubahan mode file QA dinormalkan, mockup diekstrak di `references/mockup-aset`.
-- **Build Status**: `npm run build` sukses 100% (531ms), 29 precache assets PWA.
-- **Test Suite Baseline**: `node --test qa/**/*.test.mjs` -> **80/80 tests passing** (0 gagal, 0 diskip).
+- **Build Status**: `npm run build` sukses 100% (765ms), 29 precache assets PWA terverifikasi.
+- **Test Suite**: `node --test qa/**/*.test.mjs` -> **89/89 tests passing** (0 gagal, 0 diskip).
 
 ### 1.2 Tech Stack & Pola Akses Supabase
 - **Frontend**: Vue.js 3.5 (Composition API, `<script setup>`), Vite 8.1, Tailwind CSS v4, Vue Router 4, Vite PWA (Workbox).
-- **Database**: PostgreSQL di Supabase dengan RLS aktif.
+- **Database**: PostgreSQL di Supabase dengan Row Level Security (RLS) aktif.
 - **Pola Akses**: Client `@supabase/supabase-js` menggunakan Anon Key di browser. Tidak ada Service Role Key di client.
 - **Multi-Tenancy & Isolasi**:
   - Organisasi merepresentasikan entitas usaha kos (`public.organizations` & `public.organization_members`).
   - Kolom `org_id` diterapkan di seluruh tabel aplikasi dengan default `public.current_org_id()`.
-  - Penegakan RLS menggunakan fungsi Security Definer `public.is_org_member(org_id)` untuk operasi SELECT, INSERT, UPDATE, DELETE.
+  - Penegakan RLS menggunakan fungsi Security Definer `public.is_org_member(org_id)` untuk operasi SELECT, serta otorisasi berbasis peran untuk modifikasi data.
   - Role anggota: `admin`, `owner`, `staff` (Migration 500).
   - Storage: Bucket privat `ktp_images` dan `receipt_images` dengan isolasi path wajib `<org_id>/...`.
 
@@ -37,30 +37,26 @@ Tabel-tabel relevan yang diaudit:
 8. `public.inventories`: Inventaris barang lama (`id`, `location_id`, `room_id`, `nama_barang`, `kondisi`, `catatan`, `org_id`, plus migrasi 400: `tanggal_pembelian`, `harga`, `tipe_fasilitas`, `receipt_url`).
 
 ### 1.4 Temuan Khusus: Hubungan Pembelian Inventaris vs Pengeluaran (`expenses`)
-- **Status Audit**: **SAMA SEKALI BELUM TERHUBUNG**.
-- **Detail**:
-  - Saat pengguna mencatat barang di `src/views/InventarisView.vue`, data hanya disimpan ke tabel `inventories` (termasuk kolom `harga` dan `receipt_url`). Tidak ada pencatatan kas keluar di `expenses`.
-  - Sebaliknya, di `src/views/TambahPengeluaranView.vue`, pencatatan pengeluaran (misal belanja peralatan/aset) disimpan mandiri di `expenses` tanpa foreign key atau link ke `inventories`.
-- **Implikasi Arsitektural**:
-  - Jika pengguna mencatat beli AC di `TambahPengeluaranView` dan mencatat barang di `InventarisView`, sistem saat ini menganggap keduanya dua entitas terpisah.
-  - Jika penyusutan diterapkan tanpa rekonsiliasi, ada risiko *double counting*: uang keluar dihitung saat beli, lalu nilai barang dibebankan lagi via penyusutan.
-  - Solusi Fase 1: Sediakan kolom `expense_id` (nullable) pada komponen aset untuk menghubungkan aset dengan transaksi pengeluaran kas sumbernya.
+- **Status Awal (Audit Baseline)**: Tidak terhubung.
+- **Status Fase 2-R [DIIMPLEMENTASIKAN]**:
+  - Kolom `expense_id` (nullable) dan `allocated_cost numeric` disematkan pada tabel `public.asset_components` untuk menautkan komponen aset secara formal ke transaksi pengeluaran kas sumbernya.
+  - Dilengkapi trigger database `trg_validate_component_relations` dan `trg_validate_expense_asset_allocations` untuk mencegah alokasi nominal melebihi kas keluar (`allocated_cost <= expenses.nominal`), mencegah penurunan nominal pengeluaran di bawah total alokasi terpasang, serta mencegah penghapusan transaksi `expenses` yang sudah dialokasikan ke aset.
 
 ### 1.5 Verifikasi 4 Temuan Awal Aplikasi
 Berdasarkan pemeriksaan langsung terhadap kode sumber:
 
-| No | Temuan Awal | Status Aktual | Referensi Kode & Bukti | Rekomendasi / Rencana Perbaikan Terpisah |
+| No | Temuan Awal | Status Aktual | Referensi Kode & Bukti | Rekomendasi / Batasan PR |
 |---|---|---|---|---|
-| 1 | Insert pembayaran dan update jatuh tempo dilakukan terpisah | **MASIH TERJADI** | `src/views/TambahPemasukanView.vue` (L351-370) dan `src/views/BerandaView.vue` (L1078-1092). Keduanya memanggil `supabase.from('incomes').insert` lalu `supabase.from('rentals').update`. | Buat fungsi Database RPC atomik (`record_rent_payment`) di backlog perbaikan sewa (terpisah dari roadmap modul aset). |
-| 2 | Pesan berhasil muncul meskipun update jatuh tempo gagal | **MASIH TERJADI** | `src/views/TambahPemasukanView.vue` (L372-380) dan `src/views/BerandaView.vue` (L1094-1103). Blok `if (updateRentalError)` hanya menulis `console.warn`, lalu eksekusi berlanjut menampilkan pesan sukses kepada pengguna. | Perbaiki agar jika langkah kedua gagal, pesan peringatan eksplisit ditampilkan atau seluruh aksi di-rollback via RPC atomik. |
-| 3 | Pembayaran positif memajukan jatuh tempo 1 bulan tanpa perhitungkan nominal/periode | **MASIH TERJADI** di form input, namun **SUDAH DIMULAI PERBAIKAN** pada perhitungan display radar | `TambahPemasukanView.vue` (L365) memanggil `advanceOneMonth` tanpa cek sisa tagihan. Namun di radar/dashboard, baru saja dipasang `calculateEffectiveDueDate` (`src/lib/sewa.js`) yang menghitung jatuh tempo dinamis dari riwayat pembayaran. | Samakan logika form input dengan mesin perhitungan efektif `calculateEffectiveDueDate` agar konsisten secara bisnis. |
-| 4 | Respons pengambilan rental dapat menimpa pilihan kamar yang lebih baru (Race Condition) | **MASIH TERJADI** | `src/views/TambahPemasukanView.vue` watcher `form.room_id` (L307-339). Tidak ada verifikasi `if (form.room_id !== newRoomId) return` setelah `await supabase`, sehingga respons lambat kamar lama bisa menimpa kamar baru. | Tambahkan guard pengecekan request id / token pembatalan pada watcher kamar. |
+| 1 | Insert pembayaran dan update jatuh tempo dilakukan terpisah | **MASIH TERJADI** | `src/views/TambahPemasukanView.vue` (L351-370) dan `src/views/BerandaView.vue` (L1078-1092). Keduanya memanggil `supabase.from('incomes').insert` lalu `supabase.from('rentals').update`. | Dipisahkan ke PR terpisah di luar modul aset sesuai instruksi kerja. |
+| 2 | Pesan berhasil muncul meskipun update jatuh tempo gagal | **MASIH TERJADI** | `src/views/TambahPemasukanView.vue` (L372-380) dan `src/views/BerandaView.vue` (L1094-1103). Blok `if (updateRentalError)` hanya menulis `console.warn`, lalu eksekusi berlanjut menampilkan pesan sukses. | Dipisahkan ke PR terpisah di luar modul aset. |
+| 3 | Pembayaran positif memajukan jatuh tempo 1 bulan tanpa perhitungkan nominal/periode | **TERATASI SEBAGIAN (DISPLAY)** | `TambahPemasukanView.vue` (L365) memanggil `advanceOneMonth` tanpa cek sisa tagihan. Namun pada tampilan radar/dashboard, sudah dipasang `calculateEffectiveDueDate` (`src/lib/sewa.js`) dinamis. | Form input pembayaran akan diselaraskan pada PR perbaikan sewa tersendiri. |
+| 4 | Respons pengambilan rental dapat menimpa pilihan kamar yang lebih baru (Race Condition) | **MASIH TERJADI** | `src/views/TambahPemasukanView.vue` watcher `form.room_id` (L307-339). Tidak ada verifikasi `if (form.room_id !== newRoomId) return` setelah `await supabase`. | Dipisahkan ke PR terpisah di luar modul aset. |
 
 ---
 
 ## 2. Audit Mockup Interaktif (`SimKos_Mockup_Aset_Antigravity.zip`)
 
-Mockup diekstrak ke `references/mockup-aset/SimKos_Mockup/`.
+Mockup diekstrak ke direktori terisolasi `references/mockup-aset/SimKos_Mockup/`.
 
 ### 2.1 Analisis Fitur & Interaksi Mockup
 - **Navigasi Bawah**: Mempertahankan 5 menu (`Beranda`, `Keuangan`, `Aset`, `Riwayat`, `Penghuni`).
@@ -73,84 +69,87 @@ Mockup diekstrak ke `references/mockup-aset/SimKos_Mockup/`.
 - **Detail Aset**: Menampilkan kondisi, pemilik, jadwal penyusutan, dan kartu sisa nilai buku.
 - **Keuangan**: Tab **Arus Kas** (fokus penerimaan & kas keluar riil) vs **Hasil Usaha** (fokus pendapatan periode, beban operasional, dan penyusutan).
 
-### 2.2 Kekurangan Mockup yang Wajib Diperbaiki pada Implementasi Nyata
+### 2.2 Kekurangan Mockup yang Telah Diperbaiki pada Implementasi Nyata
 1. **Formula Luas Bersama Terabaikan di Kode Mockup**:
-   - Di `index.html` mockup, formula JavaScript tertulis: `k+f ? 100*k/(k+f) : 0` (hanya membagi luas kos dengan total luas kos + keluarga, mengabaikan variabel `shared`).
-   - *Perbaikan Produksi*: Wajib mengimplementasikan formula lengkap alokasi area bersama:
-     $$p = \frac{\text{luas\_usaha}}{\text{luas\_usaha} + \text{luas\_nonusaha}}$$
-     $$\text{luas\_usaha\_efektif} = \text{luas\_usaha} + (p \times \text{luas\_bersama})$$
-     $$\text{porsi\_usaha} = \frac{\text{luas\_usaha\_efektif}}{\text{total\_luas}} \times 100\%$$
+   - Di mockup, formula JS hanya `k+f ? 100*k/(k+f) : 0`, variabel `shared` diabaikan dalam pembagian luas.
+   - *Perbaikan Produksi (Fase 2-R)*: Telah dipasang formula matematis lengkap dengan penanganan penyebut nol di `src/lib/aset.js` (`calculateSharedAreaPortion`).
 2. **Tanah & Gedung Digabung di Mockup**:
-   - Mockup menampilkan tab "Tanah & Gedung". Secara akuntansi dan instruksi produk, **tanah harus dicatat terpisah dari bangunan** karena tanah tidak disusutkan.
-   - *Perbaikan Produksi*: Sediakan kategori terpisah untuk Tanah (tidak disusutkan) dan Gedung (disusutkan).
-3. **Jadwal Penyusutan Di-hardcode**:
-   - Jadwal penyusutan pada modal detail mockup menggunakan deret statis AC, lemari, pompa.
-   - *Perbaikan Produksi*: Jadwal harus dihitung secara komputasi dinamis dari data aset aktual komponen bersangkutan.
-4. **Penyimpanan Draf Hanya di Memori Sesi Browser**:
-   - Mockup hanya menyimpan draf di variabel memori JS lokal.
-   - *Perbaikan Produksi*: Status draf disimpan ke database Supabase dengan status `draft` sehingga aman saat berpindah perangkat.
-5. **Form Hanya Ada untuk Gedung**:
-   - Mockup hanya mendemonstrasikan form gedung bertahap.
-   - *Perbaikan Produksi*: Aset sederhana (barang fasilitas kamar/umum) menggunakan form ringkas 1 layar (melanjutkan format `InventarisView` yang sudah familiar bagi user), sedangkan Gedung menggunakan wizard bertahap.
+   - Mockup menggabungkan tab "Tanah & Gedung". Padahal secara akuntansi dan instruksi produk, **tanah tidak boleh disusutkan**, sedangkan gedung disusutkan.
+   - *Perbaikan Produksi*: Kategori `tanah` dipisahkan secara tegas dari `gedung`, dengan metode default `tidak_disusutkan`.
+3. **Penyimpanan Draf Hanya di Memori Sesi Browser**:
+   - Mockup hanya menyimpan draf di objek JavaScript sementara.
+   - *Perbaikan Produksi*: Draf disimpan persisten ke database Supabase dengan status `status_pencatatan = 'draft'` dan dilindungi RLS per organisasi.
+4. **Form Hanya Ada untuk Gedung**:
+   - Mockup hanya menampilkan wizard gedung 4 langkah.
+   - *Perbaikan Produksi*: Tersedia mode form cepat untuk inventaris barang kamar/umum di `TambahAsetView.vue` dan banner integrasi di `InventarisView.vue`.
+5. **Estimasi Nilai Buku Palsu pada Draf**:
+   - Mockup menampilkan nilai buku padahal data biaya dan tanggal belum lengkap.
+   - *Perbaikan Produksi*: Pada Fase 2-R, kartu metrik dan detail secara jujur menampilkan status **"Belum Dihitung (Tersedia di Fase 3)"** untuk menghindari angka fiktif sebelum mesin penyusutan resmi diaktifkan.
 
 ---
 
-## 3. Desain Teknis Data Aset & Inventaris (Fase 1)
+## 3. Desain Teknis Data Aset & Inventaris
 
-### 3.1 Pemisahan Konsep Entitas & Multi-Tenancy
-Untuk mengakomodasi fleksibilitas gedung bertahap, penambahan komponen, serta inventaris barang sederhana, data dipisahkan menjadi 5 entitas inti:
-1. **Identitas Aset (`assets`)**: Menyimpan identitas fisik, kategori aset (tanah, gedung, fasilitas kamar, fasilitas umum), dasar penguasaan, pemilik sah, lokasi, kamar, kondisi, dan status lifecycle aset.
-   - *Pemisahan Entitas*: Akun pengguna yang mengelola aplikasi berbeda dari pemilik aset. Pemilik aset dicatat pada `nama_pemilik` bebas, sedangkan organisasi pencatat diikat oleh `org_id`.
-2. **Komponen / Pengembangan Aset (`asset_components`)**: Menyimpan data finansial biaya perolehan, tanggal siap guna, penambahan/renovasi gedung bertahap, pola penggunaan (campuran vs usaha), alokasi biaya dari transaksi pengeluaran (`expense_id` dan `allocated_cost`), dan parameter penyusutan.
-   - *Pemisahan Gedung Induk vs Komponen Renovasi (Leasehold Improvement)*: Jika gedung berstatus sewa/milik pihak lain, gedung induk tidak disusutkan oleh penyewa. Namun renovasi atau penambahan kamar yang dibiayai oleh organisasi kos tetap dapat dikapitalisasi dan disusutkan selama masa manfaat/sewa. Kasus yang belum jelas diklasifikasikan sebagai `perlu_telaah`.
-3. **Ambang Batas Kapitalisasi Organisasi (`organizations.capitalization_threshold`)**: Nilai nominal minimum yang dapat dikonfigurasi per organisasi (nullable). Tidak ada nominal baku hardcoded.
-4. **Saldo Awal Aset Lama (`asset_beginning_balances`)**: Menyimpan cut-off nilai historis aset lama sebelum dicatat di SimKos (akumulasi penyusutan masa lalu dan nilai buku awal). Tanggal cut-off boleh kosong pada Fase 2 dan wajib diverifikasi sebelum aktivasi saldo awal di Fase 4.
-5. **Pencatatan Penyusutan Periodik (`depreciation_entries`)**: Jurnal / buku pembantu penyusutan bulanan yang telah dikunci atau dibukukan. Draf pada Fase 2 tidak menghasilkan pencatatan jurnal atau mutasi kas.
-6. **Penguncian Periode Buku (`accounting_periods`)**: Tabel kontrol periode pembukuan untuk mencegah modifikasi data masa lalu yang sudah ditutup.
+### 3.1 Status Fitur Menurut Fase Roadmap
+- **Fase 2-R [DIIMPLEMENTASIKAN]**: Tabel `assets`, `asset_components`, kolom `organizations.capitalization_threshold`, trigger pengaman relasi/alokasi/sinkronisasi, fungsi RPC backfill terotorisasi, RLS berbasis peran (owner, admin, staff), serta UI CRUD dan draf aset.
+- **Fase 3 [DIRANCANG]**: Modul mesin kalkulasi penyusutan periodik, simulator interaktif, dan pratinjau tabel amortisasi.
+- **Fase 4 [DIRANCANG]**: Tabel `asset_beginning_balances`, `depreciation_entries`, `accounting_periods`, prosedur cut-off saldo awal aset lama, dan kunci periode buku.
+- **Fase 5 [DIRANCANG]**: Layar Laporan Hasil Usaha Internal terintegrasi dengan pemisahan kas keluar investasi vs beban operasional langsung.
 
-### 3.2 Diagram Entitas Hubungan (ERD)
+### 3.2 Diagram Hubungan Entitas (ERD Aktual Fase 2-R & Desain Fase 3–5)
 
 ```mermaid
 erDiagram
-    ORGANIZATIONS ||--o{ ASSETS : "memiliki"
-    ORGANIZATIONS ||--o{ ACCOUNTING_PERIODS : "mengunci"
-    LOCATIONS ||--o{ ASSETS : "ditempatkan di"
-    ROOMS ||--o{ ASSETS : "khusus kamar"
-    INVENTORIES ||--o| ASSETS : "backfill referensi"
+    ORGANIZATIONS ||--o{ ASSETS : "memiliki (org_id)"
+    ORGANIZATIONS ||--o{ ACCOUNTING_PERIODS : "mengunci buku [Fase 4]"
+    LOCATIONS ||--o{ ASSETS : "lokasi penempatan"
+    ROOMS ||--o{ ASSETS : "kamar khusus"
+    INVENTORIES ||--o| ASSETS : "legacy reference & sync"
     
-    ASSETS ||--|{ ASSET_COMPONENTS : "terdiri dari"
-    EXPENSES ||--o| ASSET_COMPONENTS : "sumber kas keluar"
+    ASSETS ||--|{ ASSET_COMPONENTS : "terdiri dari 1..N komponen"
+    EXPENSES ||--o{ ASSET_COMPONENTS : "1 expense mendanai N alokasi komponen"
     
-    ASSET_COMPONENTS ||--o| ASSET_BEGINNING_BALANCES : "saldo awal cut-off"
-    ASSET_COMPONENTS ||--o{ DEPRECIATION_ENTRIES : "alokasi beban bulanan"
-    ACCOUNTING_PERIODS ||--o{ DEPRECIATION_ENTRIES : "periode tutup buku"
+    ASSET_COMPONENTS ||--o| ASSET_BEGINNING_BALANCES : "saldo awal cut-off [Fase 4]"
+    ASSET_COMPONENTS ||--o{ DEPRECIATION_ENTRIES : "alokasi bulanan [Fase 4]"
+    ACCOUNTING_PERIODS ||--o{ DEPRECIATION_ENTRIES : "periode tutup buku [Fase 4]"
+
+    ORGANIZATIONS {
+        uuid id PK
+        text name
+        numeric capitalization_threshold "nullable [Fase 2-R]"
+    }
 
     ASSETS {
         uuid id PK
-        uuid org_id FK
+        uuid org_id FK "immutable"
         uuid location_id FK "nullable"
         uuid room_id FK "nullable"
         text kode_aset "nullable"
         text nama_aset
-        text kategori_aset "tanah|gedung|fasilitas_kamar|fasilitas_umum|lainnya"
+        text kategori_aset "tanah|gedung|fasilitas_kamar|fasilitas_umum|kendaraan|elektronik_kantor|lainnya"
         text dasar_penggunaan "milik_sendiri|sewa|pinjam_pakai|dikelola_pihak_lain"
         text nama_pemilik "nullable"
         text kondisi_fisik "sangat_baik|baik|rusak_ringan|rusak_berat|hilang"
         text status_penggunaan "aktif|dalam_perbaikan|tidak_aktif|dilepas|dihapuskan"
-        text status_pencatatan "draft|terverifikasi|dibukukan|diarsipkan"
-        uuid legacy_inventory_id FK "nullable"
+        text status_pencatatan "draft|terverifikasi|dibukukan|diarsipkan [Fase 2-R: draft]"
+        text catatan "nullable"
+        uuid legacy_inventory_id FK "nullable, unique per org"
+        uuid created_by FK
+        uuid updated_by FK
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     ASSET_COMPONENTS {
         uuid id PK
-        uuid asset_id FK
-        uuid org_id FK
+        uuid asset_id FK "immutable"
+        uuid org_id FK "immutable"
         text nama_komponen
-        text jenis_pekerjaan "bangunan_awal|penambahan_kapasitas|penggantian_komponen|pemeliharaan_rutin|perolehan_baru"
+        text jenis_pekerjaan "bangunan_awal|penambahan_kapasitas|penggantian_komponen|pemeliharaan_rutin|perolehan_baru|lainnya"
         date tanggal_perolehan "nullable"
         date tanggal_siap_guna "nullable"
         int tahun_perolehan "nullable"
-        numeric biaya_perolehan "nullable (NULL jika belum diketahui)"
+        numeric biaya_perolehan "nullable"
         numeric nilai_sisa "default 0"
         int masa_manfaat_bulan "nullable"
         text metode_penyusutan "garis_lurus|tidak_disusutkan|belum_ditentukan"
@@ -158,16 +157,28 @@ erDiagram
         numeric luas_khusus_usaha "m2"
         numeric luas_nonusaha "m2"
         numeric luas_bersama "m2"
-        numeric porsi_usaha_persen "0-100"
-        uuid expense_id FK "nullable (penghubung kas keluar)"
+        numeric porsi_usaha_persen "0-100, nullable saat L_u + L_n = 0"
+        uuid expense_id FK "nullable (transaksi belanja sumber)"
+        numeric allocated_cost "nullable, <= expenses.nominal"
+        text bukti_dokumen_url "nullable"
         text status_kapitalisasi "kapitalisasi|beban_langsung|perlu_telaah"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    EXPENSES {
+        uuid id PK
+        uuid org_id FK
+        numeric nominal
+        text kategori
+        date tanggal_pengeluaran
     }
 
     ASSET_BEGINNING_BALANCES {
         uuid id PK
-        uuid component_id FK
+        uuid component_id FK "unique"
         uuid org_id FK
-        date tanggal_cut_off
+        date tanggal_cut_off "harus tgl 1"
         numeric akumulasi_penyusutan_awal
         numeric nilai_buku_awal
         int sisa_manfaat_bulan_awal
@@ -178,7 +189,7 @@ erDiagram
         uuid id PK
         uuid component_id FK
         uuid org_id FK
-        date periode "YYYY-MM-01"
+        date periode "harus tgl 1"
         numeric beban_penyusutan_total
         numeric porsi_usaha_persen
         numeric beban_penyusutan_usaha
@@ -190,19 +201,44 @@ erDiagram
     ACCOUNTING_PERIODS {
         uuid id PK
         uuid org_id FK
-        date periode "YYYY-MM-01"
+        date periode "harus tgl 1"
         boolean is_closed
         timestamptz closed_at
     }
 ```
 
-### 3.3 Struktur Kolom Detail & Constraint Database
+### 3.3 Kardinalitas & Relasi Alokasi Transaksi (`expenses` vs `asset_components`)
+- **Kardinalitas**: **1 Transaksi Pengeluaran (`expenses`) dapat mendanai Banyak Komponen Aset (`asset_components`)** via `asset_components.expense_id`. Satu komponen aset merujuk ke maksimal 1 transaksi belanja sumber.
+- **Validasi Nilai Alokasi**:
+  1. `allocated_cost` pada komponen tidak boleh melebihi `biaya_perolehan` komponen bersangkutan (`allocated_cost <= biaya_perolehan`).
+  2. Total akumulasi alokasi komponen yang merujuk ke transaksi pengeluaran tidak boleh melebihi nilai transaksi belanja:
+     $$\sum_{\text{komponen}} \text{allocated\_cost} \le \text{expenses.nominal}$$
+  3. Transaksi `expenses` tidak dapat dihapus jika masih ada komponen aset yang menautkannya.
+  4. Nominal transaksi `expenses` tidak dapat diturunkan di bawah total `allocated_cost` yang sudah terpasang.
+
+### 3.4 Matriks Izin Pengguna Berbasis Peran (Role Permission Matrix)
+
+| Entitas / Operasi | Owner | Admin | Staff | Non-Anggota |
+|---|---|---|---|---|
+| `SELECT assets` & `asset_components` | **Izinkan** | **Izinkan** | **Izinkan** | **Tolak (RLS)** |
+| `INSERT assets` & `asset_components` (Draf) | **Izinkan** | **Izinkan** | **Tolak (RLS)** | **Tolak (RLS)** |
+| `UPDATE assets` & `asset_components` (Draf) | **Izinkan** | **Izinkan** | **Tolak (RLS)** | **Tolak (RLS)** |
+| `DELETE assets` & `asset_components` (Hanya Draf) | **Izinkan** | **Izinkan** | **Tolak (RLS)** | **Tolak (RLS)** |
+| `DELETE` Aset Status Non-Draf (Dibukukan) | **Tolak (DB Guard)** | **Tolak (DB Guard)** | **Tolak** | **Tolak** |
+| `RPC backfill_inventories_to_assets()` | **Izinkan** | **Izinkan** | **Tolak (Exception)** | **Tolak** |
+| Konfigurasi `capitalization_threshold` | **Izinkan** | **Izinkan** | **Tolak** | **Tolak** |
+
+### 3.5 Definisi Skema DDL Database Terverifikasi (`supabase/migrations/20261108000800_assets_phase2.sql`)
 
 ```sql
--- 1. Tabel Identitas Aset
-create table public.assets (
+-- 1. Penambahan Kolom Ambang Kapitalisasi pada Organisasi (Syntax IF NOT EXISTS Valid)
+alter table public.organizations 
+add column if not exists capitalization_threshold numeric check (capitalization_threshold >= 0);
+
+-- 2. Tabel Assets
+create table if not exists public.assets (
   id uuid primary key default gen_random_uuid(),
-  org_id uuid not null references public.organizations(id) on delete cascade,
+  org_id uuid not null default public.current_org_id() references public.organizations(id) on delete cascade,
   location_id uuid references public.locations(id) on delete set null,
   room_id uuid references public.rooms(id) on delete set null,
   kode_aset text,
@@ -221,386 +257,197 @@ create table public.assets (
   updated_at timestamptz not null default now()
 );
 
--- Index performa & keunikan
-create index idx_assets_org_kategori on public.assets(org_id, kategori_aset);
-create index idx_assets_location on public.assets(location_id);
-create index idx_assets_room on public.assets(room_id);
-
--- 2. Tabel Komponen & Pengembangan Aset
-create table public.asset_components (
+-- 3. Tabel Asset Components
+create table if not exists public.asset_components (
   id uuid primary key default gen_random_uuid(),
   asset_id uuid not null references public.assets(id) on delete cascade,
-  org_id uuid not null references public.organizations(id) on delete cascade,
+  org_id uuid not null default public.current_org_id() references public.organizations(id) on delete cascade,
   nama_komponen text not null check (length(btrim(nama_komponen)) > 0),
   jenis_pekerjaan text not null default 'perolehan_baru' check (jenis_pekerjaan in ('bangunan_awal', 'penambahan_kapasitas', 'penggantian_komponen', 'pemeliharaan_rutin', 'perolehan_baru', 'lainnya')),
   tanggal_perolehan date,
   tanggal_siap_guna date,
-  tahun_perolehan int check (tahun_perolehan between 1900 and 2100),
-  biaya_perolehan numeric check (biaya_perolehan >= 0), -- NULL jika belum diketahui
-  nilai_sisa numeric default 0 check (nilai_sisa >= 0 and (biaya_perolehan is null or nilai_sisa <= biaya_perolehan)),
-  masa_manfaat_bulan int check (masa_manfaat_bulan > 0),
+  tahun_perolehan int check (tahun_perolehan is null or (tahun_perolehan between 1900 and 2100)),
+  biaya_perolehan numeric check (biaya_perolehan is null or biaya_perolehan >= 0),
+  nilai_sisa numeric not null default 0 check (nilai_sisa >= 0 and (biaya_perolehan is null or nilai_sisa <= biaya_perolehan)),
+  masa_manfaat_bulan int check (masa_manfaat_bulan is null or masa_manfaat_bulan > 0),
   metode_penyusutan text not null default 'garis_lurus' check (metode_penyusutan in ('garis_lurus', 'tidak_disusutkan', 'belum_ditentukan')),
   pola_penggunaan text not null default 'seluruhnya_usaha' check (pola_penggunaan in ('seluruhnya_usaha', 'campuran')),
-  luas_khusus_usaha numeric default 0 check (luas_khusus_usaha >= 0),
-  luas_nonusaha numeric default 0 check (luas_nonusaha >= 0),
-  luas_bersama numeric default 0 check (luas_bersama >= 0),
-  porsi_usaha_persen numeric not null default 100 check (porsi_usaha_persen >= 0 and porsi_usaha_persen <= 100),
+  luas_khusus_usaha numeric not null default 0 check (luas_khusus_usaha >= 0),
+  luas_nonusaha numeric not null default 0 check (luas_nonusaha >= 0),
+  luas_bersama numeric not null default 0 check (luas_bersama >= 0),
+  porsi_usaha_persen numeric check (porsi_usaha_persen is null or (porsi_usaha_persen >= 0 and porsi_usaha_persen <= 100)),
   expense_id uuid references public.expenses(id) on delete set null,
+  allocated_cost numeric check (allocated_cost is null or (allocated_cost >= 0 and (biaya_perolehan is null or allocated_cost <= biaya_perolehan))),
   bukti_dokumen_url text,
   status_kapitalisasi text not null default 'kapitalisasi' check (status_kapitalisasi in ('kapitalisasi', 'beban_langsung', 'perlu_telaah')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
-create index idx_asset_components_asset on public.asset_components(asset_id);
-create index idx_asset_components_org on public.asset_components(org_id);
-create index idx_asset_components_expense on public.asset_components(expense_id);
-
--- 3. Tabel Saldo Awal Aset Lama (Cut-Off SimKos)
-create table public.asset_beginning_balances (
-  id uuid primary key default gen_random_uuid(),
-  component_id uuid not null unique references public.asset_components(id) on delete cascade,
-  org_id uuid not null references public.organizations(id) on delete cascade,
-  tanggal_cut_off date not null check (extract(day from tanggal_cut_off) = 1),
-  akumulasi_penyusutan_awal numeric not null default 0 check (akumulasi_penyusutan_awal >= 0),
-  nilai_buku_awal numeric not null check (nilai_buku_awal >= 0),
-  sisa_manfaat_bulan_awal int not null check (sisa_manfaat_bulan_awal >= 0),
-  status_verifikasi text not null default 'unverified' check (status_verifikasi in ('unverified', 'verified')),
-  catatan_sumber text,
-  created_at timestamptz not null default now()
-);
-
--- 4. Tabel Jurnal / Buku Pembantu Penyusutan Periodik
-create table public.depreciation_entries (
-  id uuid primary key default gen_random_uuid(),
-  component_id uuid not null references public.asset_components(id) on delete restrict,
-  org_id uuid not null references public.organizations(id) on delete cascade,
-  periode date not null check (extract(day from periode) = 1),
-  beban_penyusutan_total numeric not null check (beban_penyusutan_total >= 0),
-  porsi_usaha_persen numeric not null check (porsi_usaha_persen >= 0 and porsi_usaha_persen <= 100),
-  beban_penyusutan_usaha numeric not null check (beban_penyusutan_usaha >= 0),
-  akumulasi_penyusutan_akhir numeric not null check (akumulasi_penyusutan_akhir >= 0),
-  nilai_buku_akhir numeric not null check (nilai_buku_akhir >= 0),
-  is_locked boolean not null default false,
-  posted_at timestamptz not null default now(),
-  posted_by uuid references auth.users(id),
-  constraint uq_component_periode unique (component_id, periode)
-);
-
-create index idx_depreciation_entries_org_periode on public.depreciation_entries(org_id, periode);
-
--- 5. Tabel Penguncian Periode Akuntansi
-create table public.accounting_periods (
-  id uuid primary key default gen_random_uuid(),
-  org_id uuid not null references public.organizations(id) on delete cascade,
-  periode date not null check (extract(day from periode) = 1),
-  is_closed boolean not null default false,
-  closed_at timestamptz,
-  closed_by uuid references auth.users(id),
-  constraint uq_org_accounting_period unique (org_id, periode)
-);
 ```
 
-### 3.4 Keamanan, Isolasi Organisasi & RLS
-- Seluruh tabel di atas diaktifkan RLS (`alter table ... enable row level security;`).
-- Policy `for all using (public.is_org_member(org_id)) with check (public.is_org_member(org_id))`.
-- Trigger validasi path dokumen storage: Memastikan file dokumen pendukung aset di bucket `receipt_images` berawalan `<org_id>/...` sama seperti nota inventaris dan nota pengeluaran.
-- Penguncian baris (`is_locked`): Trigger guard menolak `UPDATE` atau `DELETE` pada `depreciation_entries` yang periodenya sudah ditutup (`accounting_periods.is_closed = true`).
+### 3.6 Triggers Validasi Integritas Data
+1. `validate_asset_relations()`:
+   - Memastikan `org_id` aset tidak dapat diubah setelah dibuat.
+   - Memvalidasi bahwa `location_id` dan `room_id` milik organisasi yang sama (`SIMKOS_CROSS_TENANT_ASSET_LOCATION` & `SIMKOS_CROSS_TENANT_ASSET_ROOM`).
+   - Memastikan kamar yang dipilih benar-benar berada di dalam lokasi aset (`SIMKOS_ROOM_LOCATION_MISMATCH`).
+   - Mencegah perubahan langsung ke status non-draft pada Fase 2 (`SIMKOS_PHASE2_DRAFT_ONLY`).
+2. `validate_component_relations()`:
+   - Memastikan `asset_id` dan `org_id` komponen tidak dapat diubah setelah dibuat.
+   - Memastikan komponen memiliki `org_id` yang sama persis dengan aset induk (`SIMKOS_CROSS_TENANT_COMPONENT_ASSET`).
+   - Memvalidasi transaksi pengeluaran `expense_id` berasal dari organisasi yang sama (`SIMKOS_CROSS_TENANT_COMPONENT_EXPENSE`).
+   - Menjalankan row lock `select nominal from public.expenses where id = new.expense_id for update` dan memvalidasi total seluruh alokasi komponen tidak melampaui nominal pengeluaran (`SIMKOS_OVERALLOCATED_EXPENSE`).
+3. `validate_expense_asset_allocations()` pada tabel `expenses`:
+   - Mencegah penghapusan pengeluaran yang sedang dialokasikan ke komponen aset (`SIMKOS_EXPENSE_ALLOCATED_TO_ASSET_CANNOT_DELETE`).
+   - Mencegah penurunan nominal pengeluaran menjadi lebih kecil daripada akumulasi `allocated_cost` yang terpasang (`SIMKOS_EXPENSE_NOMINAL_LESS_THAN_ALLOCATED`).
+4. `sync_inventory_to_asset()` pada tabel `inventories`:
+   - Secara otomatis menyinkronkan pembaruan nama barang, kondisi fisik, harga, tanggal pembelian, dan nota dari menu inventaris lama ke baris aset dan komponen draf terkait.
 
 ---
 
-## 4. Spesifikasi Algoritma Penyusutan & Kasus Batas
+## 4. Spesifikasi Algoritma Penyusutan & Kasus Batas [DIRANCANG - IMPLEMENTASI FASE 3]
 
-### 4.1 Logika Inti & Rumus
+> [!NOTE]
+> Modul mesin kalkulasi dan pembuat jurnal penyusutan dijadwalkan pada Fase 3 & 4. Pada Fase 2-R, aturan komputasi dan penanganan kasus batas di bawah ini telah diselaraskan penuh.
+
+### 4.1 Rumus Pokok
 1. **Dasar Penyusutan (Depreciable Base)**:
    $$B = \text{biaya\_perolehan} - \text{nilai\_sisa}$$
-   *Jika biaya perolehan NULL atau metode `tidak_disusutkan`, maka penyusutan = 0.*
+   *Jika `biaya_perolehan` NULL, atau metode `tidak_disusutkan` (misal tanah), maka beban penyusutan = 0.*
 2. **Penyusutan Bulanan Penuh**:
-   $$\text{Depr}_{\text{bulanan}} = \frac{B}{M}$$
-   di mana $M = \text{masa\_manfaat\_bulan}$.
+   $$\text{Depr}_{\text{bulanan}} = \frac{B}{M} \quad (M = \text{masa\_manfaat\_bulan})$$
 3. **Porsi Beban Usaha**:
    $$\text{Beban Usaha} = \text{Depr}_{\text{bulanan}} \times \frac{\text{Porsi Usaha (\%)}}{100}$$
 
-### 4.2 Formula Penggunaan Campuran (Alokasi Biaya Bersama)
-Untuk bangunan atau aset yang digunakan sebagian untuk kos dan sebagian untuk nonusaha (keluarga):
-- $L_u$: Luas khusus usaha (kamar kos, resepsionis).
-- $L_n$: Luas khusus nonusaha (ruang pribadi keluarga).
-- $L_b$: Luas area bersama (dapur bersama, lorong, garasi).
-- $L_{\text{total}}$: Luas total fisik = $L_u + L_n + L_b$.
+### 4.2 Formula Penggunaan Campuran & Penanganan Penyebut Nol
+- $L_u$: Luas khusus usaha.
+- $L_n$: Luas khusus nonusaha.
+- $L_b$: Luas area bersama.
+- $L_{\text{total}} = L_u + L_n + L_b$.
 
-**Aturan Perhitungan:**
-1. Hitung rasio usaha terhadap luas khusus:
+**Aturan Ketat Perhitungan:**
+1. **Rasio Usaha Luas Khusus ($p$)**:
    $$p = \frac{L_u}{L_u + L_n}$$
-   *Penanganan batas (Penyebut Nol):*
-   Jika $L_u + L_n = 0$:
-   - Sistem **TIDAK menghasilkan persentase otomatis** (tidak boleh mengasumsikan 0% atau 100%).
-   - Nilai porsi dikembalikan sebagai `NULL` / status "Belum ditentukan", dan form mewajibkan pengguna mengisi luas khusus sebelum porsi dapat dihitung.
-2. Alokasikan luas bersama secara proporsional:
+2. **Kasus Batas Penyebut Nol ($L_u + L_n = 0$)**:
+   - Jika belum ada data luas khusus yang diisi, rasio usaha **TIDAK BOLEH ditebak otomatis** (tidak boleh diasumsikan 0% atau 100%).
+   - Sistem menetapkan `porsi_usaha_persen = NULL`, dan antarmuka menampilkan label **"Porsi belum ditentukan"**.
+3. **Alokasi Luas Bersama & Luas Efektif**:
    $$L_{\text{bersama\_usaha}} = p \times L_b$$
-   $$L_{\text{bersama\_nonusaha}} = (1 - p) \times L_b$$
-3. Luas fisik yang wajib ditampilkan ke pengguna:
-   - **Luas Total**: $L_{\text{total}} = L_u + L_n + L_b$
-   - **Luas Usaha Efektif**: $L_{\text{efektif}} = L_u + L_{\text{bersama\_usaha}}$
-   - **Luas Nonusaha Efektif**: $L_{\text{nonusaha\_efektif}} = L_n + L_{\text{bersama\_nonusaha}}$
-4. Porsi Penggunaan Usaha Final (%):
-   $$\text{Porsi Usaha (\%)} = \frac{L_{\text{efektif}}}{L_{\text{total}}} \times 100\%$$
+   $$L_{\text{efektif\_usaha}} = L_u + L_{\text{bersama\_usaha}}$$
+   $$\text{Porsi Usaha (\%)} = \frac{L_{\text{efektif\_usaha}}}{L_{\text{total}}} \times 100\% \equiv p \times 100\%$$
+   *Antarmuka wajib menampilkan Luas Total fisik dan Luas Usaha Efektif ($m^2$) kepada pengguna.*
 
-*Catatan Matematis*: Alokasi proporsional pada luas bersama secara matematis menghasilkan persentase usaha yang identik dengan $\frac{L_u}{L_u + L_n}$, karena:
-$$\frac{L_u + p L_b}{L_u + L_n + L_b} = \frac{p(L_u + L_n) + p L_b}{L_u + L_n + L_b} = \frac{p(L_u + L_n + L_b)}{L_u + L_n + L_b} = p$$
-Meskipun persentasenya sama dengan rasio luas khusus, antarmuka aplikasi **wajib menampilkan besaran meter persegi fisik** (Luas Total, Luas Usaha Efektif, dan Luas Nonusaha Efektif) agar pengguna memahami alokasi fisik ruangannya.
-
-### 4.3 Konvensi Prorata, Akhir Masa Manfaat, dan Pembulatan
-- **Awal Penyusutan**: Dimulai dari `tanggal_siap_guna` (bukan tanggal perolehan/kontrak jika berbeda).
-- **Pembedaan Sisa Prorata vs Selisih Pembulatan**:
-  1. *Sisa Prorata (Bulan Parsial)*:
-     Jika aset mulai siap digunakan di pertengahan bulan (tanggal $d$ dalam bulan dengan $D$ hari):
-     - Hari aktif bulan ke-1: $H_1 = D - d + 1$ (inklusif).
-     - Fraksi bulan 1: $F_1 = H_1 / D$.
-     - Beban bulan 1: $\text{Depr}_1 = \text{round}(\text{Depr}_{\text{bulanan}} \times F_1)$.
-     - Sisa hak masa manfaat pada bulan ke-1 ($1 - F_1$) bukan selisih pembulatan, melainkan masa manfaat yang belum terpakai dan dialokasikan ke periode bulan ke-($M+1$).
-  2. *Tanggal Akhir Masa Manfaat*:
-     Dihitung secara kalender: `tanggal_siap_guna` $+ M$ bulan (dengan batas inklusif kalender dan penanganan rollover akhir bulan).
-  3. *Selisih Pembulatan Desimal (Rounding Discrepancy)*:
-     Akibat pembulatan integer mata uang Rupiah per bulan, selisih beberapa rupiah diselesaikan pada bulan terakhir masa manfaat:
-     $$\text{Depr}_{\text{akhir}} = B - \sum_{i=1}^{\text{akhir}-1} \text{Depr}_i$$
-     Hal ini menjamin 100% mutlak bahwa:
-     $$\sum \text{Depr} \equiv B \quad \text{dan} \quad \text{Nilai Buku Akhir} \equiv \text{Nilai Sisa}$$
-
-### 4.4 Verifikasi Fixture Kasus Nyata
-
-#### Fixture 1: Barang Fasilitas Kamar (AC Kamar)
-- Biaya Perolehan: **Rp 6.500.000**
-- Nilai Sisa: **Rp 500.000**
-- Dasar Penyusutan: $6.500.000 - 500.000 = \text{Rp } 6.000.000$
-- Masa Manfaat: 60 bulan (5 tahun).
-- Porsi Penggunaan Usaha: **100%**.
-- **Hasil Perhitungan**:
-  - Beban per bulan penuh: $\text{Rp } 6.000.000 / 60 = \mathbf{\text{Rp } 100.000 \text{ / bulan}}$.
-  - Akumulasi penyusutan setelah 12 bulan penuh: $12 \times 100.000 = \text{Rp } 1.200.000$.
-  - Nilai buku setelah 12 bulan penuh: $6.500.000 - 1.200.000 = \mathbf{\text{Rp } 5.300.000}$. *(Sesuai fixture instruksi)*.
-
-#### Fixture 2: Bangunan Gedung Kos Penggunaan Campuran
-- Biaya Bangunan Awal: **Rp 600.000.000** (tidak termasuk tanah).
-- Nilai Sisa: **Rp 0**
-- Dasar Penyusutan: **Rp 600.000.000**.
-- Masa Manfaat: 240 bulan (20 tahun).
-- Penyusutan Gedung Penuh: $\text{Rp } 600.000.000 / 240 = \text{Rp } 2.500.000 \text{ / bulan}$.
-- Luas Area: Kos = $120\text{ m}^2$, Keluarga = $80\text{ m}^2$, Bersama = $40\text{ m}^2$.
-  - $p = 120 / (120 + 80) = 0.60$ (60%).
-  - Luas efektif usaha = $120 + (0.60 \times 40) = 144\text{ m}^2$.
-  - Total luas = $120 + 80 + 40 = 240\text{ m}^2$.
-  - Porsi Usaha = $144 / 240 = \mathbf{60.0\%}$.
-- **Hasil Perhitungan**:
-  - Beban usaha bulanan: $\text{Rp } 2.500.000 \times 60\% = \mathbf{\text{Rp } 1.500.000 \text{ / bulan}}$. *(Sesuai fixture instruksi)*.
-  - Beban nonusaha (tidak dibukukan ke biaya kos): $\text{Rp } 1.000.000 \text{ / bulan}$.
-
-#### Fixture 3: Tanah Kos
-- Biaya Perolehan: Rp 450.000.000.
-- Kategori: `tanah`.
-- Metode Penyusutan: `tidak_disusutkan`.
-- Nilai Buku: Tetap Rp 450.000.000 selamanya, beban penyusutan Rp 0.
-
-#### Fixture 4: Aset Milik Pihak Lain (Gedung Sewa / Pinjam Pakai)
-- Dasar Penggunaan: `sewa` atau `pinjam_pakai`.
-- Nilai Pembangunan Gedung: Dicatat oleh pemilik asli.
-- Perlakuan SimKos: Nilai aset dicatat untuk pelacakan fisik, namun beban penyusutan gedung **tidak diakui** sebagai penyusutan pemilik kos. Biaya sewa tempat dicatat melalui `expenses` rutin.
+### 4.3 Konvensi Prorata Kalender, Akhir Masa Manfaat & Pembulatan
+- **Awal Penyusutan**: Berdasarkan `tanggal_siap_guna` (bukan tanggal nota perolehan).
+- **Prorata Pertengahan Bulan**:
+  Jika siap guna pada tanggal $d$ dalam bulan dengan $D$ hari kalender:
+  - Jumlah hari aktif bulan pertama: $H_1 = D - d + 1$ (inklusif).
+  - Fraksi bulan pertama: $F_1 = H_1 / D$.
+  - Beban bulan pertama: $\text{Depr}_1 = \text{round}(\text{Depr}_{\text{bulanan}} \times F_1)$.
+  - Sisa fraksi $(1 - F_1)$ bukan selisih pembulatan, melainkan hak masa manfaat yang belum terpakai dan dialokasikan ke periode bulan ke-($M+1$).
+- **Rollover Tanggal Akhir Bulan (31 Januari & 29 Februari)**:
+  - Jika tanggal mulai adalah tanggal 31 Januari, periode berikutnya jatuh tempo pada hari terakhir bulan Februari (28 Februari pada tahun biasa, atau 29 Februari pada tahun kabisat).
+  - Perhitungan kalender tidak boleh menghasilkan tanggal invalid (misal 31 Februari).
+- **Penyelesaian Selisih Pembulatan (Rounding Discrepancy)**:
+  - Selisih desimal akibat pembulatan integer rupiah diselesaikan penuh pada bulan terakhir masa manfaat:
+    $$\text{Depr}_{\text{akhir}} = B - \sum_{i=1}^{\text{akhir}-1} \text{Depr}_i$$
+  - Menjamin secara mutlak $\sum \text{Depr} \equiv B$ dan nilai buku akhir tepat sama dengan `nilai_sisa`.
 
 ---
 
-## 5. Integrasi Keuangan Internal (Arus Kas vs Hasil Usaha)
+## 5. Integrasi Keuangan Internal [DIRANCANG - IMPLEMENTASI FASE 5]
 
-### 5.1 Perbandingan Dua Sudut Pandang Laporan
+### 5.1 Perbandingan Arus Kas vs Hasil Usaha Internal
 
-| Aspek | Laporan Arus Kas (Cash Flow) | Laporan Hasil Usaha Internal (Operating Results) |
+| Karakteristik | Laporan Arus Kas (Cash Flow) | Laporan Hasil Usaha Internal (Operating Results) |
 |---|---|---|
-| **Tujuan** | Memantau likuiditas riil: berapa uang tunai masuk & keluar | Mengukur kinerja ekonomi: berapa hasil bersih usaha sebenarnya |
-| **Penerimaan Sewa** | Dicatat saat kas diterima (`tanggal_bayar` di `incomes`) | Dicatat sebagai pendapatan sewa kamar periode bersangkutan |
-| **Pengeluaran Operasional** | Dicatat saat uang dibayarkan (`expenses`) | Dicatat sebagai beban operasional periode bersangkutan |
-| **Pembelian Aset Baru** | **Tampil penuh sebagai Kas Keluar Investasi** | **Tidak tampil langsung sebagai beban** (dialokasikan bertahap) |
-| **Beban Penyusutan** | **TIDAK MUNCUL** (karena transaksi non-kas) | **Tampil sebagai Beban Penyusutan Aset** |
-| **Setoran / Prive Pemilik** | Tampil sebagai Arus Kas Pendanaan | Tidak memengaruhi hasil usaha operasional |
-
-### 5.2 Strategi Anti Double-Counting & Alokasi Transaksi Campuran
-1. **Prinsip Utama Kas Keluar**:
-   - Pembelian aset tetap **selalu merupakan kas keluar riil** dan tetap muncul pada Laporan Arus Kas.
-   - Yang dikecualikan dari beban operasional di Laporan Hasil Usaha **hanya nominal yang dikapitalisasi** (`allocated_cost`), BUKAN otomatis seluruh transaksi `expenses` sumber.
-2. **Transaksi Pembelian Campuran / Multi-Aset (Split Allocation)**:
-   - Suatu transaksi kas di `expenses` (misal nota renovasi atau belanja peralatan senilai Rp 15.000.000) bisa mencakup:
-     - Aset 1 (AC Rp 6.500.000)
-     - Aset 2 (Pompa Rp 2.400.000)
-     - Biaya operasional habis pakai / jasa tukang (Rp 6.100.000)
-   - Kolom `allocated_cost numeric` pada `asset_components` mencatat nominal porsi yang dikapitalisasi ke komponen tersebut.
-   - **Validasi Integritas**:
-     Total alokasi aset untuk satu transaksi sumber tidak boleh melebihi nilai transaksi:
-     $$\sum_{\text{komponen}} \text{allocated\_cost} \le \text{expenses.nominal}$$
-   - Selisih nominal yang tidak dialokasikan ke aset ($\text{nominal} - \sum \text{allocated\_cost}$) tetap diakui sebagai beban operasional langsung pada periode berjalan.
-3. **Penyajian pada Laporan Hasil Usaha**:
-   - Beban operasional dihitung dari `expenses.nominal` dikurangi $\sum \text{allocated\_cost}$ yang berstatus kapitalisasi.
-   - Porsi yang dikapitalisasi kemudian dibebankan secara berkala melalui `beban_penyusutan_usaha`. Hal ini mencegah double counting secara presisi.
-
-### 5.3 Basis Pembukuan & Batasan Pelaporan
-- **Kondisi Data Eksisting**: Sebagian data lama hanya mencatat `tanggal_bayar` kas masuk tanpa `periode_bayar` akrual.
-- **Kebijakan Pelaporan**:
-  - SimKos menggunakan **Modified Cash Basis** (Basis Kas yang Dimodifikasi dengan Kapitalisasi Aset & Penyusutan).
-  - Judul laporan: **"Laporan Hasil Usaha Internal"**, dengan disclaimer jelas bahwa laporan ini ditujukan untuk evaluasi internal pemilik kos, bukan Laporan Laba Rugi Fiskal (pajak) atau Neraca Resmi IFRS/SAK.
+| **Sifat Dasar** | Mutasi fisik kas riil (masuk & keluar) | Kinerja operasional (akrual biaya aset bertahap) |
+| **Penerimaan Sewa** | Kas masuk saat dibayar (`tanggal_bayar`) | Pendapatan sewa kamar periode berjalan |
+| **Belanja Operasional** | Kas keluar saat dibayar | Beban operasional langsung periode berjalan |
+| **Pembelian Aset** | **Kas keluar investasi penuh** saat dibayar | **Dikecualikan dari beban operasional langsung** sebesar nominal yang dikapitalisasi (`allocated_cost`) |
+| **Beban Penyusutan** | **Tidak dihitung** (transaksi non-kas) | **Diakui berkala** via `beban_penyusutan_usaha` |
 
 ---
 
-## 6. Pemetaan Layar Mockup ke Komponen Aplikasi SimKos
+## 6. Pemetaan Antarmuka Aplikasi SimKos (Fase 2-R)
 
-| Layar Mockup | View / Komponen SimKos | Deskripsi Alur & Interaksi |
+| Halaman / Komponen | Path Berkas | Fitur & Perilaku Fase 2-R [DIIMPLEMENTASIKAN] |
 |---|---|---|
-| **Daftar Aset** (`page='assets'`) | `src/views/AsetView.vue` (menggantikan / membungkus `InventarisView.vue`) | - Card metrik atas: Total Biaya Terdata, Estimasi Nilai Buku, Data Belum Lengkap.<br>- Dropdown lokasi (`CustomLocationDropdown`) seragam.<br>- Search bar nama aset.<br>- Tabs: `Semua`, `Tanah & Gedung`, `Fasilitas Kamar`, `Fasilitas Umum`.<br>- Pagination komponen `BasePagination.vue` (10 per halaman). |
-| **Form Gedung Bertahap** (`page='form'`) | `src/views/TambahGedungView.vue` (atau modal wizard bertahap) | - Step 1: Identitas (Nama, Pemilik, Dasar penggunaan, Tanah vs Bangunan).<br>- Step 2: Penggunaan (Usaha vs Nonusaha, Luas kamar, Luas keluarga, Luas bersama).<br>- Step 3: Biaya & Riwayat (Tahun perolehan bebas, Biaya awal, Tanggal siap guna, Pengembangan opsional, Masa manfaat, Nilai sisa).<br>- Step 4: Pratinjau interaktif beban per bulan & porsi usaha.<br>- Tombol *Simpan Draf* dapat diklik kapan saja. |
-| **Form Barang Sederhana** (tidak ada di mockup) | `src/components/FormBarangRingkasModal.vue` | Form ringkas satu halaman (adaptasi dari `InventarisView.vue`) untuk input cepat perabot kamar/alat umum tanpa harus melalui 4 langkah gedung. |
-| **Detail Aset** (`page='detail'`) | `src/views/DetailAsetView.vue` (atau `AssetDetailModal.vue`) | - Info umum: pemilik, kondisi, status pencatatan, lokasi/kamar.<br>- Komponen gedung (bangunan awal + penambahan).<br>- Tabel jadwal simulasi penyusutan (Bulan ke-n, Beban usaha, Nilai buku).<br>- Progress bar sisa nilai buku. |
-| **Keuangan: Arus Kas & Hasil Usaha** (`page='finance'`) | `src/views/KeuanganView.vue` (pengembangan tab Laporan Internal) | - Tab switch: **Arus Kas** vs **Hasil Usaha**.<br>- Arus kas: Kas masuk sewa, kas keluar operasional, kas beli aset, kenaikan kas bersih.<br>- Hasil usaha: Pendapatan, beban operasional riil (tanpa double counting belanja aset), beban penyusutan aset terkapitalisasi, hasil usaha bersih internal. |
+| **Daftar Aset & Ringkasan** | `src/views/AsetView.vue` | - Metrik Biaya Terdata (membedakan status sebagian vs lengkap).<br>- Metrik Nilai Buku menampilkan label **"Belum Dihitung (Tersedia di Fase 3)"**.<br>- Filter Lokasi seragam (`CustomLocationDropdown`).<br>- Tab Kategori: *Semua*, *Tanah*, *Gedung*, *Fasilitas Kamar*, *Fasilitas Umum*.<br>- State penanganan error dengan banner dan tombol **"Coba Lagi"**.<br>- Tombol Backfill dan Tambah Aset hanya muncul untuk peran `owner` dan `admin`. |
+| **Form Tambah & Edit Draf** | `src/views/TambahAsetView.vue` | - Form dinamis: Form ringkas barang atau wizard bertahap gedung.<br>- Null-value preserved: Biaya perolehan dan tanggal perolehan yang belum diketahui tetap tersimpan `NULL`.<br>- Tahun perolehan bebas (tidak dipaksa 1 Januari).<br>- Input alokasi luas bersama dengan penanganan penyebut nol.<br>- Pengaitan belanja sumber `expense_id` dengan alokasi nominal `allocated_cost`. |
+| **Detail Aset & Komponen** | `src/views/DetailAsetView.vue` | - Tampilan informasi aset fisik dan daftar komponen pengembangan.<br>- Nilai buku menampilkan status **"Belum dihitung"**.<br>- Porsi usaha komponen menampilkan "Belum ditentukan" jika data luas kosong.<br>- Kontrol aksi (tambah komponen, edit, hapus) dibatasi hanya untuk `owner` dan `admin`. |
+| **Integrasi Inventaris Lama** | `src/views/InventarisView.vue` | - Banner informasi transisi ke modul `/aset`.<br>- Sinkronisasi data otomatis via trigger database `sync_inventory_to_asset`. |
+| **Helper Bisnis & Otorisasi** | `src/lib/aset.js` | - `calculateSharedAreaPortion`: komputasi alokasi proporsional luas bersama & penanganan penyebut nol.<br>- `isDraftComplete`: evaluasi kelengkapan data aset draf.<br>- `getCurrentUserRole`: verifikasi peran aktif pengguna dari database. |
 
 ---
 
-## 7. Rencana Migrasi, Backfill & Rollback (Fase 1)
+## 7. Migrasi, Transisi Data & Prosedur Pemulihan (Rollback)
 
-### 7.1 Prinsip Migrasi
-1. **Aditif & Non-Destruktif**: Tidak menghapus tabel `inventories` atau kolom lama.
-2. **Backward Compatible**: `src/views/InventarisView.vue` tetap dapat membaca dan menulis data inventaris lama selama masa transisi.
-3. **Idempoten**: Skrip migrasi dan backfill dapat dijalankan berulang kali tanpa membuat record ganda.
+### 7.1 Keamanan RPC Backfill (`backfill_inventories_to_assets`)
+Fungsi RPC pengalihan data inventaris lama ke draf aset dirancang dengan pengamanan ketat:
+1. **Verifikasi Autentikasi & Otorisasi**: Mengambil `auth.uid()` dari sesi, mencocokkan keanggotaan organisasi di database, dan memastikan pengguna memiliki peran `owner` atau `admin`. Pemanggilan oleh peran `staff` atau non-anggota langsung ditolak.
+2. **Kunci Eksekusi Bersamaan (Concurrency Guard)**: Memasang `pg_advisory_xact_lock` berbasis hash `org_id` untuk mencegah *race condition* saat beberapa admin mengeksekusi migrasi bersamaan.
+3. **Idempotensi & Atomik**: Dilindungi klausa `where not exists (select 1 from public.assets a where a.legacy_inventory_id = i.id)` dan transaksi database tunggal.
+4. **Hitungan Riil**: Fungsi mengembalikan jumlah baris aset dan komponen yang **benar-benar baru dibuat pada eksekusi tersebut**, bukan total data historis.
+5. **Preservasi Nilai Belum Lengkap**: Kolom `tanggal_siap_guna` dibiarkan `NULL`, `masa_manfaat_bulan` dibiarkan `NULL`, dan status kapitalisasi dipasang `perlu_telaah`.
 
-### 7.2 Prosedur Backfill Data Inventaris Lama ke Skema Aset
-```sql
--- Contoh logika backfill idempoten (dijalankan di staging / lokal)
-insert into public.assets (
-  org_id,
-  location_id,
-  room_id,
-  nama_aset,
-  kategori_aset,
-  dasar_penggunaan,
-  kondisi_fisik,
-  status_penggunaan,
-  status_pencatatan,
-  catatan,
-  legacy_inventory_id,
-  created_at
-)
-select
-  i.org_id,
-  i.location_id,
-  i.room_id,
-  i.nama_barang,
-  case 
-    when i.tipe_fasilitas = 'kamar' or i.room_id is not null then 'fasilitas_kamar'
-    else 'fasilitas_umum'
-  end as kategori_aset,
-  'milik_sendiri' as dasar_penggunaan,
-  case 
-    when lower(i.kondisi) like '%rusak%' then 'rusak_ringan'
-    else 'baik'
-  end as kondisi_fisik,
-  'aktif' as status_penggunaan,
-  'draft' as status_pencatatan, -- Disimpan sebagai draft agar diverifikasi user
-  i.catatan,
-  i.id as legacy_inventory_id,
-  i.created_at
-from public.inventories i
-where not exists (
-  select 1 from public.assets a where a.legacy_inventory_id = i.id
-);
+### 7.2 Prosedur Pemulihan & Rollback Terpisah
 
--- Komponen biaya untuk inventaris lama yang memiliki harga
-insert into public.asset_components (
-  asset_id,
-  org_id,
-  nama_komponen,
-  jenis_pekerjaan,
-  tanggal_perolehan,
-  tanggal_siap_guna,
-  biaya_perolehan,
-  nilai_sisa,
-  masa_manfaat_bulan,
-  metode_penyusutan,
-  porsi_usaha_persen,
-  bukti_dokumen_url,
-  status_kapitalisasi
-)
-select
-  a.id,
-  a.org_id,
-  a.nama_aset,
-  'perolehan_baru',
-  i.tanggal_pembelian,
-  i.tanggal_pembelian as tanggal_siap_guna,
-  i.harga,
-  0 as nilai_sisa,
-  null as masa_manfaat_bulan, -- NULL karena umur manfaat barang lama belum diinput user
-  'belum_ditentukan' as metode_penyusutan,
-  100 as porsi_usaha_persen,
-  i.receipt_url,
-  'perlu_telaah'
-from public.assets a
-join public.inventories i on a.legacy_inventory_id = i.id
-where not exists (
-  select 1 from public.asset_components ac where ac.asset_id = a.id
-);
-```
+Tersedia dua tingkat rollback terpisah untuk menjamin keselamatan data:
 
-### 7.3 Rencana Rollback (Disaster Recovery)
-Jika terjadi kendala pada rilis skema aset:
-1. `supabase/rollback/rollback_700_assets_schema.sql` disiapkan untuk menghapus trigger, constraint, foreign key, dan tabel baru (`accounting_periods`, `depreciation_entries`, `asset_beginning_balances`, `asset_components`, `assets`).
-2. Data di tabel `inventories` dan `expenses` sama sekali tidak tersentuh dan tetap utuh 100%.
+1. **Rollback Lingkungan Uji / Development (`supabase/rollback/rollback_800_assets_phase2_dev.sql`)**:
+   - Digunakan saat reset total di staging atau database lokal.
+   - Menghapus fungsi RPC `backfill_inventories_to_assets()`, menghapus trigger-trigger validasi, mendrop tabel `asset_components` dan `assets` secara bertingkat (`cascade`), serta menghapus kolom `capitalization_threshold` pada organisasi.
+2. **Rollback Operasional / Tanggap Darurat (`supabase/rollback/rollback_800_assets_phase2_operational.sql`)**:
+   - Digunakan pada database bersama jika terjadi gangguan operasional tanpa menghapus data pengguna.
+   - Mencabut izin eksekusi (`REVOKE EXECUTE`) pada RPC backfill.
+   - Menonaktifkan trigger sinkronisasi (`ALTER TABLE inventories DISABLE TRIGGER ...`).
+   - Mengunci tabel `assets` dan `asset_components` ke mode *read-only* bagi peran client agar data pengguna yang telah diinput tetap aman dan utuh untuk diaudit.
 
 ---
 
-## 8. Matriks Pengujian (Test Matrix & Fixtures)
+## 8. Laporan Verifikasi & Pengujian Nyata (Fase 2-R)
 
-| Kategori | Skenario Pengujian | Input / Kondisi | Ekspektasi Hasil |
-|---|---|---|---|
-| **Data Validasi** | Biaya perolehan kosong (NULL) | `biaya_perolehan = null` | Tersimpan sebagai `NULL` (bukan 0), status draf, penyusutan = 0. |
-| **Data Validasi** | Masa manfaat nol atau negatif | `masa_manfaat_bulan = 0` | Ditolak oleh constraint database (`check > 0`) & validasi UI. |
-| **Data Validasi** | Nilai sisa lebih besar dari biaya | `nilai_sisa > biaya_perolehan` | Ditolak oleh constraint database & validasi form UI. |
-| **Perhitungan** | Fixture AC kamar (100% usaha) | Rp 6.5jt, sisa 500rb, 60 bln | Beban Rp 100.000/bln, NBV bln 12 = Rp 5.300.000. |
-| **Perhitungan** | Fixture Gedung Campuran | Rp 600jt, sisa 0, 240 bln, luas usaha 60% | Beban usaha Rp 1.500.000/bln, beban nonusaha Rp 1.000.000. |
-| **Perhitungan** | Prorata hari bulan pertama | Siap guna 16 Juni (15 hari aktif dari 30 hari) | Beban bulan 1 tepat 50% dari beban bulan penuh. |
-| **Perhitungan** | Penutupan discrepancy periode akhir | Total jadwal disusutkan | $\sum \text{Depr} \equiv \text{Biaya} - \text{Sisa}$ tanpa selisih Rp 1 pun. |
-| **Kepemilikan** | Aset milik pihak lain | `dasar_penggunaan = 'sewa'` | Metode otomatis `tidak_disusutkan`, bebas depresiasi. |
-| **Multi-Tenancy** | Isolasi data antar-organisasi | User Org A query aset Org B | 0 rows returned oleh RLS Supabase. |
-| **Anti Double-Count**| Beli AC dicatat di expenses & aset | Linked via `expense_id` | Di Hasil Usaha, belanja tidak masuk beban operasional langsung. |
-| **Penguncian** | Edit periode terkunci | Update record di periode closed | Ditolak oleh trigger guard penguncian periode. |
+### 8.1 Hasil Pengujian Otomatis Repository
+Eksekusi pengujian suite lengkap menggunakan Node.js test runner (`node --test qa/**/*.test.mjs`):
+- **Total Tests**: **89 tests**
+- **Passing**: **89 tests (100% PASS)**
+- **Failed**: **0**
+- **Skipped**: **0**
+
+### 8.2 Cakupan Pengujian Khusus Modul Aset (`qa/aset/aset_phase2.test.mjs`)
+1. `calculateSharedAreaPortion`: Verifikasi formula luas bersama, luas usaha efektif, dan rasio proporsional.
+2. `calculateSharedAreaPortion zero-denominator`: Memastikan saat $L_u + L_n = 0$, porsi menghasilkan `null` (bukan 0% atau nilai tebakan).
+3. `isDraftComplete`: Validasi kelengkapan data draf (kondisi data parsial vs lengkap).
+4. `Draft completion for Tanah vs Gedung`: Kategori tanah tidak mewajibkan masa manfaat, gedung mewajibkan parameter lengkap untuk diverifikasi.
+5. `Migration 800 SQL Syntax`: Verifikasi tidak adanya sintaks rusak `ADD COLUMN IF NOT NULL` dan memastikan sintaks PostgreSQL standar `ADD COLUMN IF NOT EXISTS`.
+6. `backfill_inventories_to_assets logic`: Simulasi idempotensi dan verifikasi pengembalian hitungan baris yang baru dibuat.
+7. `Cross-tenant safety`: Validasi pencegahan relasi aset ke lokasi atau transaksi organisasi lain.
+8. `Expense split allocation limits`: Validasi penolakan alokasi komponen yang melampaui sisa nominal belanja pengeluaran.
+9. `Legacy inventory transition safety`: Verifikasi kesinambungan data lama dan sinkronisasi transisi inventaris.
+
+### 8.3 Keterbatasan Lingkungan Pengujian Database Lokal
+- Mesin lokal WSL Ubuntu pengembang tidak memiliki daemon server PostgreSQL lokal yang berjalan (`psql` tidak terpasang dan akun tidak memiliki akses `sudo` tanpa password).
+- Oleh karena itu, pengujian langsung di mesin server database dilakukan melalui analisis skrip AST SQL, unit test logika bisnis di Node.js, dan skrip rollback yang telah disiapkan secara terisolasi.
+- **Batasan Operasional**: Tidak melakukan migrasi langsung pada database produksi dan tidak melakukan merge ke branch `main`.
 
 ---
 
-## 9. Backlog Pengembangan Roadmap (Fase 2 – Fase 7)
+## 9. Status Roadmap Pengembangan Terkini
 
 ```mermaid
 flowchart TD
     F0["Fase 0: Audit & Baseline<br><b>(SELESAI)</b>"] --> F1["Fase 1: Desain Teknis<br><b>(SELESAI)</b>"]
-    F1 --> F2["Fase 2: Pencatatan Aset & Draf<br>CRUD Aset, Gedung & Barang"]
-    F2 --> F3["Fase 3: Simulasi Penyusutan<br>Mesin Kalkulasi & Pratinjau"]
-    F3 --> F4["Fase 4: Saldo Awal & Pembukuan<br>Cut-Off Aset Lama & Jurnal"]
-    F4 --> F5["Fase 5: Laporan Internal<br>Arus Kas vs Hasil Usaha"]
-    F5 --> F6["Fase 6: Uji Coba & Rilis Staging"]
-    F6 --> F7["Fase 7: Multi-Tenant Stabil"]
+    F1 --> F2["Fase 2-R: Pencatatan Aset & Draf Terverifikasi<br><b>(SELESAI)</b>"]
+    F2 -.-> F3["Fase 3: Simulasi & Mesin Penyusutan<br><i>(DITUNDA MENUNGGU REVIEW FASE 2-R)</i>"]
+    F3 -.-> F4["Fase 4: Saldo Awal & Pembukuan Bulanan<br><i>(DITUNDA)</i>"]
+    F4 -.-> F5["Fase 5: Laporan Keuangan Internal (Arus Kas vs Hasil Usaha)<br><i>(DITUNDA)</i>"]
 ```
 
-| Fase | Target Modul & Fitur | Dependensi | Estimasi Bobot |
+| Fase | Fokus | Status | Catatan |
 |---|---|---|---|
-| **Fase 2** | Migrasi DB tabel `assets` & `asset_components`. CRUD aset barang & wizard gedung. Backfill inventaris lama ke aset draf. | Selesai Fase 1 | 3–4 hari |
-| **Fase 3** | Library algoritma penyusutan garis lurus (`src/lib/depresiasi.js`). Simulator interaktif & pratinjau jadwal di UI detail aset. | Selesai Fase 2 | 2–3 hari |
-| **Fase 4** | Tabel `asset_beginning_balances` & `depreciation_entries`. Prosedur posting penyusutan bulanan, cut-off saldo awal, dan penguncian periode. | Selesai Fase 3 | 3–4 hari |
-| **Fase 5** | Layar Keuangan: Tab Arus Kas vs Hasil Usaha. Filter periode, pengaitan `expense_id`, dan visualisasi kesehatan aset. | Selesai Fase 4 | 3–4 hari |
-| **Fase 6** | QA menyeluruh: pengujian mobile, stress test data besar, verifikasi backup & restore, staging rehearsal. | Selesai Fase 5 | 2–3 hari |
-| **Fase 7** | Onboarding pemilik kos baru, dokumentasi panduan aset, hardening izin staf vs owner. | Selesai Fase 6 | 2 hari |
-
----
-
-## 10. Daftar Keputusan Bisnis yang Memerlukan Jawaban Pengguna
-
-Sebelum eksekusi implementasi coding di Fase 2 dimulai, berikut adalah daftar keputusan bisnis yang memerlukan konfirmasi dari pemilik / manajemen SimKos:
-
-1. **Kebijakan Default Transisi Inventaris Lama**:
-   - Apakah seluruh barang di `inventories` saat ini ingin otomatis dibuatkan draf aset di tabel baru, atau pengguna lebih memilih migrasi bertahap sesuai kebutuhan? *(Rekomendasi teknis: dibuatkan draf dengan status `draft` dan metode `belum_ditentukan` agar tidak memengaruhi laporan sebelum diverifikasi).*
-2. **Penentuan Batas Minimum Nilai Kapitalisasi (Capitalization Threshold)**:
-   - Apakah ada nilai rupiah minimum agar suatu barang disusutkan sebagai aset (misal barang di atas Rp 500.000 disusutkan, sedangkan sapu/ember Rp 50.000 langsung dibebankan habis)?
-3. **Tanggal Cut-Off Saldo Awal Kos Eksisting**:
-   - Untuk kos yang sudah berjalan, per tanggal berapa saldo awal aset (cut-off) ingin ditetapkan dalam SimKos (misalnya per 1 Januari 2026 atau 1 November 2026)?
-4. **Alur Perbaikan 4 Bug Eksisting Sewa/Rental**:
-   - Terkait 4 temuan awal (insert pembayaran terpisah, race condition kamar, dsb): apakah perbaikan bug sewa tersebut ingin dibuatkan PR terpisah di luar modul aset agar tidak mencampuradukkan cakupan perubahan?
+| **Fase 0** | Audit & baseline codebase | **SELESAI** | Dokumentasi skema, 4 bug sewa teridentifikasi. |
+| **Fase 1** | Desain teknis modul aset | **SELESAI** | Arsitektur data, formula luas bersama, spesifikasi algoritma. |
+| **Fase 2-R** | Pencatatan aset, draf, & pengerasan integritas data | **SELESAI** | Skema SQL valid, RLS berbasis peran, validasi alokasi pengeluaran, UI responsif, 89/89 tests passing. |
+| **Fase 3** | Mesin penyusutan garis lurus & simulasi pratinjau | **DITUNDA** | Menunggu persetujuan peninjauan Fase 2-R dari pemilik proyek. |
+| **Fase 4** | Saldo awal aset lama, cut-off, & buku pembantu | **DITUNDA** | Dilanjutkan setelah Fase 3 selesai. |
+| **Fase 5** | Laporan Keuangan Internal (Arus Kas vs Hasil Usaha) | **DITUNDA** | Dilanjutkan setelah Fase 4 selesai. |

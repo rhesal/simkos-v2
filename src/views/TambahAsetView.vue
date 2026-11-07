@@ -235,7 +235,7 @@
             >
               <div v-if="areaCalc.isZeroDenominator" class="font-bold flex items-center gap-1.5">
                 <span>⚠️</span>
-                <span>Luas khusus kos atau nonusaha harus lebih dari 0 m² untuk menghitung proporsi usaha.</span>
+                <span>Luas khusus kos atau nonusaha harus lebih dari 0 m² untuk menghitung proporsi usaha (tidak dapat dihitung otomatis).</span>
               </div>
               <template v-else>
                 <div class="flex justify-between">
@@ -252,7 +252,7 @@
                 </div>
                 <div class="flex justify-between pt-1 border-t border-blue-200/60 font-black text-navy text-sm">
                   <span>Porsi Usaha Terhitung:</span>
-                  <span>{{ areaCalc.porsiUsahaPersen }}%</span>
+                  <span>{{ areaCalc.porsiUsahaPersen !== null ? areaCalc.porsiUsahaPersen + '%' : 'Belum ditentukan' }}</span>
                 </div>
               </template>
             </div>
@@ -284,7 +284,7 @@
 
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-xs font-bold text-text-secondary mb-1">Tahun Perolehan</label>
+                <label class="block text-xs font-bold text-text-secondary mb-1">Tahun Perolehan (Tahun saja)</label>
                 <input
                   v-model.number="componentForm.tahun_perolehan"
                   type="number"
@@ -293,7 +293,7 @@
                 />
               </div>
               <div>
-                <label class="block text-xs font-bold text-text-secondary mb-1">Tanggal Siap Guna</label>
+                <label class="block text-xs font-bold text-text-secondary mb-1">Tanggal Siap Guna (Opsional)</label>
                 <input
                   v-model="componentForm.tanggal_siap_guna"
                   type="date"
@@ -363,10 +363,10 @@
             </div>
             <div class="flex justify-between py-1 border-b border-border">
               <span class="text-text-muted">Porsi Usaha:</span>
-              <b>{{ calculatedPorsiUsaha !== null ? calculatedPorsiUsaha + '%' : '100%' }}</b>
+              <b>{{ calculatedPorsiUsaha !== null ? calculatedPorsiUsaha + '%' : 'Belum ditentukan' }}</b>
             </div>
             <div v-if="form.kategori_aset !== 'tanah'" class="flex justify-between py-1">
-              <span class="text-text-muted">Estimasi Beban Usaha / Bln:</span>
+              <span class="text-text-muted">Simulasi Beban Bulanan:</span>
               <b class="text-navy font-black">{{ monthlyDeprEstimated }}</b>
             </div>
           </div>
@@ -539,10 +539,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { supabase } from '../supabase.js'
-import { calculateSharedAreaAllocation, getAssetCategoryLabel } from '../lib/aset.js'
+import { calculateSharedAreaAllocation, getAssetCategoryLabel, getCurrentUserRole } from '../lib/aset.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -556,6 +556,7 @@ const wizardSteps = ['Identitas', 'Penggunaan', 'Biaya', 'Pratinjau']
 
 const locationsList = ref([])
 const roomsList = ref([])
+const currentUserRole = ref(null)
 
 const form = reactive({
   nama_aset: '',
@@ -620,7 +621,8 @@ const monthlyDeprEstimated = computed(() => {
   const basis = componentForm.biaya_perolehan - (componentForm.nilai_sisa || 0)
   if (basis <= 0) return 'Rp 0'
   const monthlyTotal = basis / (componentForm.masa_manfaat_tahun * 12)
-  const porsi = (calculatedPorsiUsaha.value || 100) / 100
+  const porsi = calculatedPorsiUsaha.value !== null ? calculatedPorsiUsaha.value / 100 : null
+  if (porsi === null) return 'Porsi belum ditentukan'
   const monthlyUsaha = monthlyTotal * porsi
   return formatCurrency(Math.round(monthlyUsaha)) + ' / bln'
 })
@@ -650,6 +652,8 @@ function goBack() {
 }
 
 async function loadInitialData() {
+  currentUserRole.value = await getCurrentUserRole(supabase)
+
   const { data: locs } = await supabase.from('locations').select('id, nama_lokasi').order('nama_lokasi')
   locationsList.value = locs || []
 
@@ -720,7 +724,7 @@ async function saveAsset() {
       room_id: form.room_id,
       kondisi_fisik: form.kondisi_fisik,
       status_penggunaan: form.status_penggunaan,
-      status_pencatatan: form.status_pencatatan || 'draft',
+      status_pencatatan: 'draft', // Selalu draft pada Fase 2
       catatan: form.catatan?.trim() || null,
       updated_at: new Date().toISOString(),
     }
@@ -759,13 +763,12 @@ async function saveAsset() {
       luas_khusus_usaha: componentForm.luas_khusus_usaha || 0,
       luas_nonusaha: componentForm.luas_nonusaha || 0,
       luas_bersama: componentForm.luas_bersama || 0,
-      porsi_usaha_persen: calculatedPorsiUsaha.value !== null ? calculatedPorsiUsaha.value : 100,
-      status_kapitalisasi: 'kapitalisasi',
+      porsi_usaha_persen: calculatedPorsiUsaha.value,
+      status_kapitalisasi: 'perlu_telaah',
       updated_at: new Date().toISOString(),
     }
 
     if (isEditMode.value) {
-      // Cek apakah komponen sudah ada
       const { data: existingComp } = await supabase
         .from('asset_components')
         .select('id')

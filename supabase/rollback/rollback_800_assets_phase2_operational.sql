@@ -8,6 +8,8 @@ comment on table public.assets is 'ARCHIVED / DEPRECATED: Modul Aset Fase 2 nona
 comment on table public.asset_components is 'ARCHIVED / DEPRECATED: Komponen Aset Fase 2 nonaktif sementara.';
 
 -- Nonaktifkan trigger validasi jika terjadi isu operasional
+drop trigger if exists trg_validate_expense_asset_allocations on public.expenses;
+drop trigger if exists trg_sync_inventory_to_asset on public.inventories;
 drop trigger if exists trg_validate_component_relations on public.asset_components;
 drop trigger if exists trg_validate_asset_relations on public.assets;
 

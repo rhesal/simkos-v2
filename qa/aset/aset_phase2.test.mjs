@@ -64,59 +64,119 @@ test('Pemisahan Kategori Tanah vs Gedung & Barang', () => {
   assert.equal(getAssetCategoryIcon('gedung'), '🏢')
 })
 
-test('Migrasi 800: integritas skema Fase 2 & backfill idempoten', () => {
+test('Migrasi 800: integritas sintaks PostgreSQL & skema Fase 2-R', () => {
   const migFile = path.join(ROOT, 'supabase/migrations/20261108000800_assets_phase2.sql')
   assert.ok(fs.existsSync(migFile), 'File migrasi 800 harus ada')
 
   const sql = fs.readFileSync(migFile, 'utf8')
-  assert.match(sql, /capitalization_threshold numeric/, 'Organisasi memiliki ambang kapitalisasi')
+  // Verifikasi koreksi sintaks
+  assert.doesNotMatch(sql, /add column if not null/i, 'Tidak boleh ada sintaks invalid ADD COLUMN IF NOT NULL')
+  assert.match(sql, /add column if not exists capitalization_threshold/i, 'Sintaks valid ADD COLUMN IF NOT EXISTS')
+
+  // Verifikasi tabel dan constraint
   assert.match(sql, /create table if not exists public\.assets/, 'Membuat tabel public.assets')
   assert.match(sql, /create table if not exists public\.asset_components/, 'Membuat tabel public.asset_components')
   assert.match(sql, /legacy_inventory_id/, 'Menyimpan rujukan unik ke inventaris lama')
   assert.match(sql, /uq_assets_legacy_inventory unique/, 'Constraint keunikan backfill legacy_inventory_id')
-  assert.match(sql, /allocated_cost/, 'Mendukung alokasi split transaksi pembelian')
+  assert.match(sql, /allocated_cost numeric check \(allocated_cost >= 0\)/, 'Mendukung alokasi split transaksi pembelian')
+  assert.match(sql, /porsi_usaha_persen numeric check/, 'Porsi usaha mendukung check 0-100 dan nullable')
+
+  // Verifikasi trigger pengamanan & integritas
   assert.match(sql, /SIMKOS_CROSS_TENANT_LOCATION/, 'Trigger menolak cross-tenant location')
   assert.match(sql, /SIMKOS_CROSS_TENANT_ROOM/, 'Trigger menolak cross-tenant room')
+  assert.match(sql, /SIMKOS_ROOM_LOCATION_MISMATCH/, 'Trigger memastikan kamar sesuai lokasi aset')
+  assert.match(sql, /SIMKOS_IMMUTABLE_ORG/, 'Trigger menolak pemindahan organisasi aset')
+  assert.match(sql, /SIMKOS_PHASE2_DRAFT_ONLY/, 'Trigger membatasi aset baru hanya draft di Fase 2')
   assert.match(sql, /SIMKOS_OVERALLOCATED_EXPENSE/, 'Trigger menolak alokasi melebihi transaksi sumber')
-  assert.match(sql, /backfill_inventories_to_assets\(\)/, 'Fungsi backfill idempoten tersedia')
-  assert.match(sql, /where not exists/, 'Backfill menggunakan guard anti duplikasi')
+  assert.match(sql, /SIMKOS_EXPENSE_HAS_ALLOCATED_ASSET/, 'Trigger menolak hapus pengeluaran yang teralokasi')
+  assert.match(sql, /SIMKOS_EXPENSE_BELOW_ALLOCATIONS/, 'Trigger menolak nominal pengeluaran turun di bawah alokasi')
+
+  // Verifikasi trigger transisi inventaris lama
+  assert.match(sql, /trg_sync_inventory_to_asset/, 'Trigger sinkronisasi inventaris lama ke aset terpasang')
+
+  // Verifikasi RPC Backfill aman
+  assert.match(sql, /SIMKOS_UNAUTHENTICATED/, 'RPC backfill menolak user anonim')
+  assert.match(sql, /SIMKOS_UNAUTHORIZED/, 'RPC backfill menolak user selain admin/owner')
+  assert.match(sql, /pg_advisory_xact_lock/, 'RPC backfill menggunakan advisory lock anti race condition')
+  assert.match(sql, /null, -- Tanggal siap guna tidak otomatis disamakan/, 'Tanggal siap guna dibiarkan NULL pada backfill')
+  assert.match(sql, /'perlu_telaah' -- Tidak otomatis beban_langsung/, 'Klasifikasi awal backfill berstatus perlu_telaah')
 })
 
-test('Simulasi Backfill Idempoten: run kedua tidak menghasilkan duplikat', () => {
-  // Simulasi data inventaris lama
+test('Simulasi Backfill Idempoten & Hitungan Nyata: run kedua tidak menghasilkan duplikat', () => {
   const mockInventories = [
-    { id: 'inv-1', nama_barang: 'Kasur Busa No 2', harga: 1200000, tipe_fasilitas: 'kamar' },
-    { id: 'inv-2', nama_barang: 'Meja Belajar', harga: 450000, tipe_fasilitas: 'kamar' }
+    { id: 'inv-1', org_id: 'org-1', nama_barang: 'Kasur Busa No 2', harga: 1200000, tipe_fasilitas: 'kamar' },
+    { id: 'inv-2', org_id: 'org-1', nama_barang: 'Meja Belajar', harga: 450000, tipe_fasilitas: 'kamar' }
   ]
 
   const mockAssetsTable = []
 
-  function runBackfill(sourceList) {
-    let inserted = 0
-    for (const inv of sourceList) {
+  function runBackfill(callerOrgId) {
+    let insertedAssets = 0
+    let insertedComponents = 0
+
+    for (const inv of mockInventories) {
+      if (inv.org_id !== callerOrgId) continue
+
       const exists = mockAssetsTable.some(a => a.legacy_inventory_id === inv.id)
       if (!exists) {
         mockAssetsTable.push({
           id: 'asset-' + inv.id,
+          org_id: inv.org_id,
           nama_aset: inv.nama_barang,
           legacy_inventory_id: inv.id,
           status_pencatatan: 'draft'
         })
-        inserted++
+        insertedAssets++
+        insertedComponents++
       }
     }
-    return inserted
+    return { insertedAssets, insertedComponents }
   }
 
-  // Run pertama
-  const r1 = runBackfill(mockInventories)
-  assert.equal(r1, 2)
+  // Panggilan pertama oleh org-1
+  const r1 = runBackfill('org-1')
+  assert.equal(r1.insertedAssets, 2)
+  assert.equal(r1.insertedComponents, 2)
   assert.equal(mockAssetsTable.length, 2)
 
-  // Run kedua (harus 0 duplikat)
-  const r2 = runBackfill(mockInventories)
-  assert.equal(r2, 0, 'Run kedua tidak boleh memasukkan duplikat')
-  assert.equal(mockAssetsTable.length, 2, 'Total record tetap 2')
+  // Panggilan kedua oleh org-1 (harus 0 dibuat, bukan total historis)
+  const r2 = runBackfill('org-1')
+  assert.equal(r2.insertedAssets, 0, 'Run kedua harus mengembalikan 0 aset baru')
+  assert.equal(r2.insertedComponents, 0, 'Run kedua harus mengembalikan 0 komponen baru')
+  assert.equal(mockAssetsTable.length, 2, 'Total baris di tabel tetap 2')
+
+  // Panggilan oleh org lain (org-2)
+  const r3 = runBackfill('org-2')
+  assert.equal(r3.insertedAssets, 0)
+  assert.equal(mockAssetsTable.length, 2)
+})
+
+test('Validasi Relasi Cross-Tenant: penolakan tautan silang organisasi', () => {
+  const orgA = '00000000-0000-0000-0000-000000000001'
+  const orgB = '00000000-0000-0000-0000-000000000002'
+
+  const mockLocations = [
+    { id: 'loc-A', org_id: orgA },
+    { id: 'loc-B', org_id: orgB }
+  ]
+
+  function validateAssetInsert(asset) {
+    if (asset.location_id) {
+      const loc = mockLocations.find(l => l.id === asset.location_id)
+      if (!loc || loc.org_id !== asset.org_id) {
+        throw new Error('SIMKOS_CROSS_TENANT_LOCATION')
+      }
+    }
+    return true
+  }
+
+  // Insert valid (lokasi seorganisasi)
+  assert.ok(validateAssetInsert({ org_id: orgA, location_id: 'loc-A' }))
+
+  // Insert invalid (lokasi milik org lain)
+  assert.throws(() => {
+    validateAssetInsert({ org_id: orgA, location_id: 'loc-B' })
+  }, /SIMKOS_CROSS_TENANT_LOCATION/)
 })
 
 test('Alokasi Transaksi Campuran: alokasi total tidak boleh melebihi transaksi sumber', () => {
@@ -129,6 +189,45 @@ test('Alokasi Transaksi Campuran: alokasi total tidak boleh melebihi transaksi s
   assert.ok(totalAllocated <= expenseNominal, 'Alokasi valid karena tidak melebihi nominal')
   assert.equal(operationalExpenseLeft, 1100000, 'Sisa Rp 1.100.000 diakui sebagai beban operasional langsung')
 
-  const invalidAllocation = 3000000 // Kelebihan
+  const invalidAllocation = 3000000 // Total jadi 11.900.000 (melebihi 10.000.000)
   assert.ok((totalAllocated + invalidAllocation) > expenseNominal, 'Melebihi batas transaksi sumber')
+})
+
+test('Sinkronisasi Transisi Inventaris: perubahan pada inventaris lama terpropagasi ke draf aset', () => {
+  // Simulasi tabel aset yang tertaut ke inventaris lama
+  const asset = {
+    nama_aset: 'Kipas Angin Lama',
+    kondisi_fisik: 'baik',
+    legacy_inventory_id: 'inv-10'
+  }
+  const component = {
+    biaya_perolehan: 300000,
+    tanggal_perolehan: '2025-01-01'
+  }
+
+  // Simulasi update di menu inventaris lama
+  const updatedLegacy = {
+    id: 'inv-10',
+    nama_barang: 'Kipas Angin Berdiri Maspion',
+    kondisi: 'Rusak Ringan',
+    harga: 350000,
+    tanggal_pembelian: '2025-02-15'
+  }
+
+  // Fungsi sinkronisasi (seperti trigger sync_inventory_to_asset)
+  function applySync(a, c, leg) {
+    if (a.legacy_inventory_id === leg.id) {
+      a.nama_aset = leg.nama_barang
+      a.kondisi_fisik = leg.kondisi.toLowerCase().includes('rusak') ? 'rusak_ringan' : 'baik'
+      c.biaya_perolehan = leg.harga
+      c.tanggal_perolehan = leg.tanggal_pembelian
+    }
+  }
+
+  applySync(asset, component, updatedLegacy)
+
+  assert.equal(asset.nama_aset, 'Kipas Angin Berdiri Maspion')
+  assert.equal(asset.kondisi_fisik, 'rusak_ringan')
+  assert.equal(component.biaya_perolehan, 350000)
+  assert.equal(component.tanggal_perolehan, '2025-02-15')
 })

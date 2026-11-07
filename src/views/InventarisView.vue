@@ -45,6 +45,20 @@
 
     <!-- Content Area -->
     <div class="px-6 py-6 space-y-6 max-w-lg mx-auto">
+      <!-- Banner Integrasi Modul Aset Baru -->
+      <div class="bg-blue-50 border-2 border-blue-200 rounded-2xl p-3.5 flex items-center justify-between gap-3 text-xs shadow-sm">
+        <div class="flex items-center gap-2 text-blue-950 font-bold">
+          <span>💡</span>
+          <span>Inventaris kini terintegrasi dengan modul Aset (gedung, tanah & barang).</span>
+        </div>
+        <router-link
+          to="/aset"
+          class="px-3 py-1.5 bg-navy text-white font-extrabold rounded-xl shadow-sm hover:bg-navy-light whitespace-nowrap transition"
+        >
+          Buka Aset ›
+        </router-link>
+      </div>
+
       <!-- Loading State -->
       <div v-if="isLoading" class="flex flex-col items-center justify-center py-20 gap-3">
         <svg class="w-10 h-10 animate-spin text-navy" fill="none" viewBox="0 0 24 24">

@@ -1,6 +1,7 @@
 /**
- * SimKos — Modul Aset & Inventaris Helper
- * Algoritma, validasi alokasi area, dan status kelengkapan data aset.
+ * SimKos — Modul Aset & Inventaris Helper (Fase 2-R)
+ * Algoritma alokasi area proporsional, pengecekan kelengkapan data,
+ * dan pengecekan otorisasi peran pengguna.
  */
 
 /**
@@ -75,7 +76,7 @@ export function inspectAssetCompleteness(asset, components = []) {
   const mainComp = components.find(c => c.jenis_pekerjaan === 'bangunan_awal' || c.jenis_pekerjaan === 'perolehan_baru') || components[0]
 
   if (!mainComp) {
-    missing.push('Data perolehan awal')
+    missing.push('Komponen perolehan awal')
   } else {
     if (mainComp.biaya_perolehan === null || mainComp.biaya_perolehan === undefined) {
       missing.push('Biaya perolehan')
@@ -86,7 +87,7 @@ export function inspectAssetCompleteness(asset, components = []) {
     if (asset.kategori_aset === 'gedung' && mainComp.pola_penggunaan === 'campuran') {
       const area = calculateSharedAreaAllocation(mainComp.luas_khusus_usaha, mainComp.luas_nonusaha, mainComp.luas_bersama)
       if (!area.canCalculate) {
-        missing.push('Luas area khusus kos/keluarga')
+        missing.push('Luas khusus kos/nonusaha')
       }
     }
     if (mainComp.metode_penyusutan === 'garis_lurus' && !mainComp.masa_manfaat_bulan) {
@@ -97,6 +98,26 @@ export function inspectAssetCompleteness(asset, components = []) {
   return {
     isComplete: missing.length === 0,
     missingFields: missing,
+  }
+}
+
+/**
+ * Mengambil peran pengguna saat ini (admin, owner, staff).
+ */
+export async function getCurrentUserRole(supabaseClient) {
+  try {
+    const { data: { user } } = await supabaseClient.auth.getUser()
+    if (!user) return null
+    const { data, error } = await supabaseClient
+      .from('organization_members')
+      .select('role')
+      .eq('user_id', user.id)
+      .limit(1)
+      .maybeSingle()
+    if (error || !data) return null
+    return data.role
+  } catch {
+    return null
   }
 }
 
@@ -117,7 +138,7 @@ export function getAssetCategoryLabel(kategori) {
 }
 
 /**
- * Icon emoji visual untuk kategori aset.
+ * Icon visual untuk kategori aset.
  */
 export function getAssetCategoryIcon(kategori) {
   const map = {

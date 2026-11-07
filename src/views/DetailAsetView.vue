@@ -14,7 +14,7 @@
           {{ asset?.nama_aset || 'Detail Aset' }}
         </h1>
         <router-link
-          v-if="asset"
+          v-if="asset && canManageAssets"
           :to="`/aset/${asset.id}/edit`"
           class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg font-bold text-white transition"
         >
@@ -26,6 +26,25 @@
 
     <main v-if="isLoading" class="max-w-xl mx-auto px-4 mt-8 text-center text-text-muted text-sm font-semibold">
       Memuat detail aset...
+    </main>
+
+    <!-- Error State dengan Tombol Coba Lagi -->
+    <main v-else-if="errorMessage" class="max-w-xl mx-auto px-4 mt-8 bg-white border-2 border-red-200 rounded-2xl p-8 text-center space-y-3">
+      <span class="text-3xl block">⚠️</span>
+      <p class="font-bold text-base text-red-900">Gagal Memuat Detail Aset</p>
+      <p class="text-xs text-red-700">{{ errorMessage }}</p>
+      <div class="pt-2 flex justify-center gap-2">
+        <button
+          type="button"
+          @click="loadAssetDetail"
+          class="px-4 py-2 bg-navy text-white text-xs font-bold rounded-xl shadow"
+        >
+          Coba Lagi
+        </button>
+        <router-link to="/aset" class="px-4 py-2 border border-border text-xs font-bold rounded-xl">
+          Kembali ke Daftar
+        </router-link>
+      </div>
     </main>
 
     <main v-else-if="!asset" class="max-w-xl mx-auto px-4 mt-8 bg-white border-2 border-border rounded-2xl p-8 text-center space-y-3">
@@ -112,6 +131,7 @@
             <p class="text-xs text-text-muted">Riwayat pembangunan awal dan renovasi lanjutan.</p>
           </div>
           <button
+            v-if="canManageAssets"
             type="button"
             @click="showAddComponentModal = true"
             class="text-xs bg-navy text-white px-3 py-1.5 rounded-xl font-bold shadow hover:bg-navy-light transition"
@@ -148,7 +168,10 @@
               </div>
               <div>
                 <span class="text-text-muted block">Pola Penggunaan:</span>
-                <span class="capitalize">{{ comp.pola_penggunaan?.replace('_', ' ') }} ({{ comp.porsi_usaha_persen }}%)</span>
+                <span class="capitalize">
+                  {{ comp.pola_penggunaan?.replace('_', ' ') }}
+                  ({{ comp.porsi_usaha_persen !== null ? comp.porsi_usaha_persen + '%' : 'Belum ditentukan' }})
+                </span>
               </div>
               <div>
                 <span class="text-text-muted block">Masa Manfaat:</span>
@@ -164,12 +187,16 @@
         <h3 class="text-sm font-black text-navy">Simulasi Pembukuan Internal</h3>
         <div class="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-1.5 text-xs text-blue-950">
           <div class="flex justify-between">
-            <span>Total Biaya Perolehan:</span>
+            <span>Total Biaya Perolehan Terdata:</span>
             <b>{{ formatCurrency(totalCost) }}</b>
           </div>
           <div class="flex justify-between">
             <span>Metode Penyusutan:</span>
             <span class="font-bold">{{ asset.kategori_aset === 'tanah' ? 'Tidak Disusutkan' : 'Garis Lurus' }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span>Nilai Buku:</span>
+            <span class="font-bold text-amber-800">Belum dihitung (Fase 3)</span>
           </div>
           <div class="flex justify-between pt-1 border-t border-blue-200 font-extrabold text-navy">
             <span>Status Pencatatan:</span>
@@ -181,8 +208,8 @@
         </p>
       </div>
 
-      <!-- Tombol Hapus Draf -->
-      <div v-if="asset.status_pencatatan === 'draft'" class="pt-2">
+      <!-- Tombol Hapus Draf (Hanya Admin / Owner) -->
+      <div v-if="canManageAssets && asset.status_pencatatan === 'draft'" class="pt-2">
         <button
           type="button"
           @click="deleteDraftAsset"
@@ -273,7 +300,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '../supabase.js'
 import BaseModal from '../components/BaseModal.vue'
-import { getAssetCategoryLabel, getAssetCategoryIcon, inspectAssetCompleteness } from '../lib/aset.js'
+import { getAssetCategoryLabel, getAssetCategoryIcon, inspectAssetCompleteness, getCurrentUserRole } from '../lib/aset.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -281,10 +308,16 @@ const router = useRouter()
 const isLoading = ref(true)
 const isDeleting = ref(false)
 const isSavingComp = ref(false)
+const errorMessage = ref('')
+const currentUserRole = ref(null)
 const showAddComponentModal = ref(false)
 
 const asset = ref(null)
 const componentsList = ref([])
+
+const canManageAssets = computed(() => {
+  return currentUserRole.value === 'admin' || currentUserRole.value === 'owner'
+})
 
 const newComp = reactive({
   nama_komponen: '',
@@ -297,7 +330,10 @@ const newComp = reactive({
 
 async function loadAssetDetail() {
   isLoading.value = true
+  errorMessage.value = ''
   try {
+    currentUserRole.value = await getCurrentUserRole(supabase)
+
     const { data, error } = await supabase
       .from('assets')
       .select(`
@@ -309,7 +345,8 @@ async function loadAssetDetail() {
       .eq('id', route.params.id)
       .single()
 
-    if (error || !data) {
+    if (error) throw error
+    if (!data) {
       asset.value = null
     } else {
       asset.value = data
@@ -317,6 +354,7 @@ async function loadAssetDetail() {
     }
   } catch (err) {
     console.error('[SimKos] Error load detail aset:', err)
+    errorMessage.value = err.message || 'Gagal memuat detail aset.'
   } finally {
     isLoading.value = false
   }
@@ -332,6 +370,10 @@ const totalCost = computed(() => {
 })
 
 async function saveNewComponent() {
+  if (!canManageAssets.value) {
+    alert('Hanya admin atau owner yang dapat menambah komponen.')
+    return
+  }
   if (!newComp.nama_komponen.trim()) {
     alert('Nama pekerjaan komponen wajib diisi.')
     return
@@ -366,6 +408,10 @@ async function saveNewComponent() {
 }
 
 async function deleteDraftAsset() {
+  if (!canManageAssets.value) {
+    alert('Hanya admin atau owner yang berwenang menghapus draf aset.')
+    return
+  }
   if (!confirm(`Hapus draf aset "${asset.value.nama_aset}"? Aksi ini tidak dapat dibatalkan.`)) return
 
   isDeleting.value = true
