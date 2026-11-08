@@ -153,8 +153,21 @@ db-pool = 10
     gotrueProcess,
     userMap,
     stop: async () => {
+      try {
+        if (typeof server.closeAllConnections === 'function') {
+          server.closeAllConnections()
+        }
+      } catch {}
       await new Promise(resolve => server.close(resolve))
       try {
+        if (pgrstProcess) {
+          try { pgrstProcess.kill('SIGKILL') } catch {}
+          try { pgrstProcess.unref() } catch {}
+        }
+        if (gotrueProcess) {
+          try { gotrueProcess.kill('SIGKILL') } catch {}
+          try { gotrueProcess.unref() } catch {}
+        }
         if (process.platform === 'win32') {
           execSync('wsl bash -c "pkill -9 -f postgrest; pkill -9 -f gotrue; pkill -9 -f \'auth serve\'"', { stdio: 'ignore' })
         } else {

@@ -143,9 +143,22 @@ test('Verifikasi Supabase Auth Resmi (GoTrue v2.197.0) & API Terproteksi Token N
 
     // 6. Tambah/edit draf serta penolakan akses lintas organisasi via API dengan token dari Supabase Auth
     await t.test('6. Tambah/Edit Draf Aset dan Penolakan Lintas-Organisasi Menggunakan Token Resmi', async () => {
-      // 6.1 Owner dapat menambah dan mengedit aset
+      // 6.0 Login ulang owner setelah logout di subtes 5 untuk mendapatkan sesi aktif baru
+      const reloginRes = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: ANON_KEY,
+        },
+        body: JSON.stringify({ email: 'owner@simkos.test', password: 'testpass123' }),
+      })
+      assert.equal(reloginRes.status, 200, 'Login ulang owner setelah logout harus berhasil 200')
+      const reloginOwnerSession = await reloginRes.json()
+      assert.ok(reloginOwnerSession.access_token, 'Owner harus menerima access token baru setelah login ulang')
+
+      // 6.1 Owner menggunakan sesi miliknya sendiri (bukan token admin) untuk menambah dan mengedit aset
       const clientOwner = createClient(SUPABASE_URL, ANON_KEY, {
-        global: { headers: { Authorization: `Bearer ${adminSession.access_token}` } },
+        global: { headers: { Authorization: `Bearer ${reloginOwnerSession.access_token}` } },
       })
 
       const { data: newAsset, error: insertErr } = await clientOwner
