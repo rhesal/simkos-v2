@@ -15,8 +15,10 @@ function findTestFiles(dir) {
     if (entry.isDirectory()) {
       files = files.concat(findTestFiles(fullPath))
     } else if (entry.isFile() && (entry.name.endsWith('.test.mjs') || entry.name.endsWith('.test.js'))) {
-      const relPath = path.relative(ROOT, fullPath).replace(/\\/g, '/')
-      files.push(relPath)
+      if (entry.name !== 'aset_browser_e2e.test.mjs') {
+        const relPath = path.relative(ROOT, fullPath).replace(/\\/g, '/')
+        files.push(relPath)
+      }
     }
   }
   return files
@@ -28,7 +30,7 @@ console.log(`[TEST-RUNNER] Menemukan ${testFiles.length} file tes:`)
 testFiles.forEach((f, i) => console.log(`  ${i + 1}. ${f}`))
 console.log(`------------------------------------------------------------\n`)
 
-const child = spawn(process.execPath, ['--test', ...testFiles], {
+const child = spawn(process.execPath, ['--test', '--test-concurrency=1', ...testFiles], {
   cwd: ROOT,
   stdio: 'inherit',
   env: { ...process.env }

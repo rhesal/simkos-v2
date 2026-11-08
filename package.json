@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node scripts/run_all_tests.mjs"
+    "test": "node scripts/run_all_tests.mjs",
+    "test:e2e": "node --test qa/aset/aset_browser_e2e.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",
@@ -19,6 +20,7 @@
     "@tailwindcss/vite": "^4.3.2",
     "@vitejs/plugin-vue": "^6.0.7",
     "pg": "^8.23.1",
+    "puppeteer-core": "^25.16.0",
     "sharp": "^0.35.3",
     "tailwindcss": "^4.3.2",
     "vite": "^8.1.1",
