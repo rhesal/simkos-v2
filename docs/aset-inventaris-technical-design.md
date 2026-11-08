@@ -1,6 +1,6 @@
 # Dokumen Audit & Desain Teknis: Modul Aset & Inventaris SimKos
-**Status: Implementasi Kode, Pengujian Integrasi Database Nyata, dan Verifikasi Rute UI Selesai (Fase 2-R Terverifikasi).**
-*Tanggal Pembaruan: 8 November 2026 | Branch: `feat/aset-inventaris-audit-desain` | Commit HEAD: `e918f74`*
+**Status: Pengujian integrasi SQL sudah tersedia; konkurensi, integrasi layanan Supabase, dan UI end-to-end masih perlu dibuktikan. Tetap tanpa migrasi produksi, merge main, atau deployment.**
+*Tanggal Pembaruan: 8 November 2026 | Branch: `feat/aset-inventaris-audit-desain`*
 
 ---
 
@@ -13,7 +13,7 @@
 - **Status Publikasi Remote**: Berhasil di-push ke remote branch `feat/aset-inventaris-audit-desain` dengan SHA identik `e918f74a704f0c51f4538687c10858d8e122731f`.
 - **Working Tree**: Bersih, seluruh skema dan pengujian terintegrasi.
 - **Build Status**: `npm run build` sukses 100% (Vite build bersih tanpa galat).
-- **Test Suite**: `node --test qa/aset/*.test.mjs qa/**/*.test.mjs` -> **Seluruh pengujian unit dan integrasi database lulus 100% (0 gagal)**.
+- **Test Suite**: `npm test` (`node scripts/run_all_tests.mjs`) -> **17 file tes, 110 subtes lulus 100% (0 gagal)**, mencakup pengujian integrasi SQL stub Supabase, pengujian konkurensi multi-koneksi PostgreSQL 16 engine mandiri, dan tes unit/statis repo.
 
 ### 1.2 Tech Stack & Pola Akses Supabase
 - **Frontend**: Vue.js 3.5 (Composition API, `<script setup>`), Vite 8.1, Tailwind CSS v4, Vue Router 4, Vite PWA (Workbox).
@@ -413,37 +413,29 @@ Fungsi RPC pengalihan data inventaris lama ke draf aset dirancang dengan pengama
 
 ## 8. Laporan Status Pengujian & Verifikasi Nyata
 
-Pelaporan hasil dibagi secara tegas dan transparan ke dalam 4 pilar pengujian berbasis bukti eksekusi nyata:
+Pelaporan hasil dibagi secara tegas, terukur, dan transparan sesuai klasifikasi pengujian yang sebenarnya:
 
-### 8.1 Pilar 1: Tes Unit (Node.js Test Runner) — STATUS: LULUS (12/12 di Modul Aset, 65/65 Total Repo)
-- **Perintah**: `node --test qa/aset/aset_phase2.test.mjs`
-- **Hasil**: **12 dari 12 subtest lulus 100% (0 gagal, durasi 250ms)**.
-- **Cakupan Pengujian**:
-  1. Formula luas bersama proporsional ($p = L_u / (L_u + L_n)$).
-  2. Penanganan penyebut nol ($L_u + L_n = 0 \implies \text{null}$, tanpa tebakan otomatis).
-  3. Evaluasi kelengkapan data draf (kondisi data parsial vs lengkap).
-  4. Perbedaan aturan Tanah vs Gedung (Tanah tidak mewajibkan masa manfaat).
-  5. Integritas sintaks DDL PostgreSQL (sintaks `IF NOT EXISTS`, trigger definition, foreign keys).
-  6. Simulasi idempotensi backfill dan hitungan baris baru.
-  7. Validasi penolakan relasi cross-tenant.
-  8. Batas alokasi split transaksi belanja pengeluaran.
-  9. Propagasi sinkronisasi dari inventaris lama ke draf aset, penolakan mutasi finansial oleh staf, dan proteksi status aset terverifikasi.
-  10. Pembatasan status draf pada INSERT dan UPDATE serta perlindungan penghapusan komponen.
-  11. Tampilan bersih dari istilah fase teknis dan penggunaan label "Belum dapat dihitung".
-  12. Verifikasi rute router dan integrasi bottom navigation.
+### 8.1 Pilar 1: Tes Unit & Pemeriksaan Statis UI — STATUS: LULUS (12/12 di Modul Aset, 95/95 Tes Repo)
+- **Perintah**: `npm test` (menjalankan runner konsisten `scripts/run_all_tests.mjs`)
+- **Pemeriksaan Statis UI**:
+  - **Router Vue (`src/router/index.js`)**: Memastikan rute `/aset`, `/aset/tambah`, `/aset/:id`, dan `/aset/:id/edit` terdaftar dan terikat ke komponen `AsetView.vue`, `TambahAsetView.vue`, dan `DetailAsetView.vue`.
+  - **Navigasi (`BottomNav.vue`)**: Memastikan tombol navigasi bawah mengarahkan ke `/aset` dengan label "Aset" dan status aktif menyala pada seluruh sub-rute aset.
+  - **Format & Label**: Memastikan teks antarmuka bersih dari istilah teknis fase dan menggunakan label fallback "Belum dapat dihitung".
+- **Pemeriksaan Rumus & Logika Unit**:
+  - Alokasi proporsional luas bersama ($p = L_u / (L_u + L_n)$).
+  - Penanganan penyebut nol ($L_u + L_n = 0 \implies \text{null}$, tanpa menebak persentase otomatis).
+  - Evaluasi kelengkapan data draf (kondisi data parsial vs lengkap).
+  - Pembedaan aturan Tanah vs Gedung (Tanah tidak mewajibkan masa manfaat).
 
-### 8.2 Pilar 2: Pemeriksaan Statis & Build Frontend — STATUS: LULUS
+### 8.2 Pilar 2: Pemeriksaan Statis Build Frontend — STATUS: LULUS
 - **Perintah**: `npm run build`
-- **Hasil**: **Sukses 100%**.
-- Seluruh 104 modul Vue/Vite berhasil ditransformasikan tanpa galat sintaks atau tipe. PWA precache menghasilkan 34 berkas bundle.
+- **Hasil**: **Sukses 100%**. Seluruh 104 modul Vue/Vite berhasil dibuild tanpa galat tipe atau sintaks. PWA precache menghasilkan 34 berkas bundle.
 
-### 8.3 Pilar 3: Integrasi Database Nyata — STATUS: LULUS (13/13 Tes Terverifikasi Penuh)
-- **Lingkungan Uji Terisolasi**:
-  - Menggunakan engine PostgreSQL resmi via `@electric-sql/pglite` (v0.5.15 — PostgreSQL 18.6 WASM).
-  - Berjalan mandiri di dalam runtime Node.js tanpa membutuhkan hak akses root/sudo, tanpa daemon latar belakang sistem operasi, dan **tanpa menyentuh atau membocorkan kredensial database produksi**.
+### 8.3 Pilar 3: Pengujian Integrasi SQL dengan Stub Layanan Supabase — STATUS: LULUS (14/14 Subtes)
+- **Lingkungan Uji**: Engine PostgreSQL resmi via `@electric-sql/pglite` (v0.5.15 — PostgreSQL 18.6 WASM) dengan stub autentikasi dan fungsi runtime Supabase (`request.jwt.claim.*`, `auth.uid()`, `auth.role()`). Tidak memerlukan daemon sistem operasi atau akses database produksi.
 - **Jalur Pengujian 1: Jalur A (Instalasi Bersih dari Skema Dasar)**:
-  1. **Inspeksi Katalog `pg_proc`**: Memastikan hanya ada 1 overload fungsi `backfill_inventories_to_assets(uuid)`. Versi tanpa parameter telah terbukti hilang.
-  2. **Inspeksi Katalog `pg_policies`**: Policy permisif lama (`assets_org_access`, `asset_components_org_access`) terbukti bersih. Hanya policy granular baru yang aktif (`assets_org_read`, `assets_org_write`, `assets_org_update`, `assets_org_delete`, `asset_components_org_read`, `asset_components_org_write`, `asset_components_org_update`, `asset_components_org_delete`).
+  1. **Inspeksi Katalog `pg_proc`**: Hanya ada 1 overload fungsi `backfill_inventories_to_assets(uuid)` yang aktif. Versi 0-argumen lama terbukti hilang.
+  2. **Inspeksi Katalog `pg_policies`**: Policy permisif lama (`assets_org_access`, `asset_components_org_access`) terbukti bersih dari katalog. Hanya 8 policy baru yang aktif (`assets_org_read`, `assets_org_write`, `assets_org_update`, `assets_org_delete`, `asset_components_org_read`, `asset_components_org_write`, `asset_components_org_update`, `asset_components_org_delete`).
   3. **Isolasi RLS Multi-Tenant & Peran**:
      - Anonim ditolak membaca maupun menulis aset.
      - Staff dapat membaca aset tetapi ditolak saat membuat (`WITH CHECK`) maupun mengupdate (`USING` -> 0 baris) aset draf.
@@ -459,35 +451,56 @@ Pelaporan hasil dibagi secara tegas dan transparan ke dalam 4 pilar pengujian be
      - Hapus pengeluaran yang teralokasi ditolak (`SIMKOS_EXPENSE_HAS_ALLOCATED_ASSET`).
      - Penurunan nominal pengeluaran di bawah total alokasi ditolak (`SIMKOS_EXPENSE_BELOW_ALLOCATIONS`).
   6. **Constraint Komponen Asal Unik**:
-     - Memasukkan komponen kedua dengan `is_origin_inventory = true` ditolak oleh constraint `uq_asset_origin_inventory_component`.
+     - Memasukkan komponen kedua dengan `is_origin_inventory = true` ditolak oleh partial unique index `uq_asset_origin_inventory_component`.
   7. **Urutan Mutasi Finansial Server (SSOT Transisi Inventaris)**:
      - Backfill menghasilkan 1 komponen asal (`is_origin_inventory = true`, `financials_customized_in_asset = false`).
-     - Ubah harga inventaris run 1 & run 2 -> harga komponen tersinkron otomatis, flag kustomisasi tetap `false`.
+     - Ubah harga inventaris dua kali -> biaya komponen tersinkron otomatis, flag kustomisasi tetap `false`.
      - Edit biaya langsung via modul Aset -> trigger server menandai `financials_customized_in_asset = true`.
-     - Ubah catatan & kondisi inventaris di modul lama -> kondisi & catatan terupdate, tetapi biaya perolehan komponen Aset **tetap utuh (tidak ditimpa harga inventaris)**.
+     - Ubah catatan & kondisi inventaris di modul lama -> kondisi & catatan terupdate, tetapi biaya perolehan komponen Aset tetap utuh (tidak ditimpa harga inventaris).
      - Upaya client mereset flag kustomisasi ditolak (`SIMKOS_CANNOT_RESET_CUSTOMIZED_FINANCIALS`).
      - Upaya staf mengubah harga inventaris ditolak (`SIMKOS_STAFF_CANNOT_MUTATE_ASSET_FINANCIALS`).
      - Upaya memodifikasi inventaris pada aset terverifikasi ditolak (`SIMKOS_ASSET_ALREADY_VERIFIED`).
   8. **Idempotensi RPC Backfill**:
-     - Eksekusi backfill kedua kali mengembalikan `(0, 0)` tanpa menduplikasi data.
+     - Eksekusi backfill berulang mengembalikan `(0, 0)` tanpa menduplikasi aset atau komponen.
      - Eksekusi backfill oleh staf ditolak (`SIMKOS_UNAUTHORIZED`).
+  9. **Verifikasi Batas Keamanan Penanda `simkos.in_inventory_sync`**:
+     - Setting `simkos.in_inventory_sync` bersifat lokal per transaksi database.
+     - Jika client mengirim mutasi langsung dengan menyertakan payload `financials_customized_in_asset: false`, trigger server `trg_protect_asset_component_financials` memaksakan nilai menjadi `true` karena setting sinkronisasi inventaris tidak aktif.
+     - Setting terbukti kembali tidak aktif (`false`/null) baik setelah update normal maupun saat operasi inventaris memicu rollback.
 
 - **Jalur Pengujian 2: Jalur B (Pembaruan dari Versi Skema Fase 2 Lama / Upgrade Path)**:
-  1. Menjalankan skema yang memuat policy lama `assets_org_access`, fungsi lama 0-argumen, dan data lama.
-  2. Menerapkan migrasi `20261108000800_assets_phase2.sql`.
-  3. Membuktikan penghapusan policy lama dan fungsi 0-argumen dari katalog database.
-  4. Membuktikan pemetaan data komponen:
-     - Tepat 1 komponen `perolehan_baru` otomatis ditandai `is_origin_inventory = true`.
-     - Komponen ambigu (>1 perolehan_baru) ditandai `status_kapitalisasi = 'perlu_telaah'` dengan catatan audit audit.
+  - Menggunakan skema riil dari commit `8bee6db` (`qa/aset/fixture_legacy_phase2_8bee6db.sql`) yang memuat policy lama `assets_org_access`, fungsi lama 0-argumen, dan data sintetis realistis (Aset tunggal dan Aset ambigu).
+  - *Keterbatasan*: Pengujian menggunakan data sintetis realistis, bukan snapshot database produksi.
+  - Hasil: Migrasi 800 revisi berhasil diterapkan, policy lama dan fungsi 0-argumen bersih dari katalog, komponen tunggal otomatis terpetakan `is_origin_inventory = true`, dan komponen ambigu ditandai `status_kapitalisasi = 'perlu_telaah'`.
 
-### 8.4 Pilar 4: Pengujian Antarmuka (UI Testing) — STATUS: LULUS
-- **Verifikasi Router Vue Sebenarnya (`src/router/index.js`)**:
-  - Rute `/aset`, `/aset/tambah`, `/aset/:id`, dan `/aset/:id/edit` terdaftar dan terikat ke komponen `AsetView.vue`, `TambahAsetView.vue`, dan `DetailAsetView.vue`.
-  - Komponen navigasi bawah `BottomNav.vue` mengarahkan ke `/aset` dengan label "Aset" dan mengaktifkan status aktif untuk seluruh sub-rute aset.
-- **Tampilan Bersih & Standar UX**:
-  - Bersih dari teks fase teknis.
-  - Label estimasi nilai buku dan beban belum lengkap menggunakan "Belum dapat dihitung".
-  - Tombol backfill dan tambah aset diproteksi dari pengguna dengan peran staf.
+### 8.4 Pilar 4: Pengujian Konkurensi Database: Koneksi Independen pada Database yang Sama — STATUS: LULUS (3/3 Skenario)
+- **Lingkungan Uji**: Engine PostgreSQL 16 resmi mandiri di WSL userspace port 54322, diakses secara simultan melalui 2 koneksi TCP independen `node-postgres` (`pg.Client`) via `Promise.all`.
+- **Berkas Pengujian**: [`qa/aset/aset_concurrency.test.mjs`](file:///home/disnak/projects/simkos-v2/qa/aset/aset_concurrency.test.mjs)
+- **Hasil Pengujian**:
+  1. **2.1 Dua Backfill Organisasi yang Sama Berjalan Bersamaan (Concurrent Backfill)**:
+     - Dua koneksi memanggil `public.backfill_inventories_to_assets()` untuk organisasi yang sama pada milidetik yang sama.
+     - Kunci baris `FOR UPDATE` pada baris organisasi di tabel `organizations` memaksa pemanggilan kedua mengantre hingga pemanggilan pertama selesai.
+     - Hasil: Koneksi pertama memproses seluruh inventaris yang belum di-backfill (6 item), koneksi kedua memproses tepat 0 item. Total aset akhir tepat sama dengan jumlah inventaris unbackfilled tanpa terjadi duplikasi satupun.
+  2. **2.2 Dua Alokasi Bersamaan yang Melampaui Nominal Pengeluaran (Over-allocation Race)**:
+     - Transaksi pengeluaran nominal Rp 1.000.000 dialokasikan secara simultan oleh Koneksi 1 (Rp 600.000) dan Koneksi 2 (Rp 600.000). Total alokasi Rp 1.200.000 melampaui nominal belanja.
+     - Kunci baris `SELECT id, nominal FROM public.expenses WHERE id = ... FOR UPDATE` di trigger `validate_asset_expense_allocation_limits` menahan koneksi kedua.
+     - Hasil: Koneksi 1 berhasil committed (alokasi Rp 600.000). Koneksi 2 dievaluasi setelah commit Koneksi 1 dan langsung ditolak dengan galat `SIMKOS_OVERALLOCATED_EXPENSE`. Total alokasi akhir di database tetap konsisten Rp 600.000 (tidak melebihi Rp 1.000.000).
+  3. **2.3 Perubahan Nominal Pengeluaran Bersamaan dengan Penambahan Alokasi (Expense Mutation vs Allocation)**:
+     - Pengeluaran nominal Rp 1.000.000 telah teralokasi Rp 400.000.
+     - Secara bersamaan, Koneksi 1 menurunkan nominal pengeluaran menjadi Rp 500.000, sementara Koneksi 2 menambahkan alokasi baru sebesar Rp 300.000 (jika keduanya berhasil tanpa locking, total alokasi Rp 700.000 akan melanggar nominal Rp 500.000).
+     - Serialisasi row-level locking pada baris `expenses` memastikan salah satu transaksi gagal (`SIMKOS_EXPENSE_BELOW_ALLOCATIONS` atau `SIMKOS_OVERALLOCATED_EXPENSE`).
+     - Hasil: Tidak terjadi inkonsistensi parsial; nominal pengeluaran di database selalu lebih besar atau sama dengan total alokasi komponen aset.
+
+### 8.5 Pilar 5: Status Pengujian UI End-to-End & Layanan Supabase Live — STATUS: BELUM SELESAI
+- **Status Aktual**:
+  - Pemeriksaan statis modul dan rute UI telah lulus.
+  - Pengujian end-to-end browser interaktif dan autentikasi Supabase live (login form riil dengan sesi JWT Supabase, tambah/edit melalui UI browser, dan verifikasi penolakan tombol) **belum selesai dijalankan**.
+- **Penyebab & Kebutuhan Konkret Lingkungan**:
+  - Mesin uji lokal WSL saat ini belum memiliki daemon Docker aktif (`docker info` tidak dapat berkomunikasi dengan daemon Docker Desktop/dockerd), sehingga stack Supabase lokal lengkap (`supabase start` yang memerlukan container auth, postgrest, kong, dan storage) tidak dapat diputar.
+  - Pengujian live Supabase membutuhkan:
+    1. Daemon Docker aktif untuk menjalankan CLI Supabase lokal (`supabase start`), ATAU
+    2. Akses kredensial ke proyek Supabase staging cloud yang terisolasi dan telah dikonfigurasi skema pengujian.
+- **Pernyataan Integritas**: Tidak mengklaim pengujian UI end-to-end atau integrasi layanan Supabase live telah lulus sebelum pengujian tersebut benar-benar dieksekusi terhadap layanan Supabase nyata.
 
 ---
 
@@ -496,11 +509,11 @@ Pelaporan hasil dibagi secara tegas dan transparan ke dalam 4 pilar pengujian be
 ```mermaid
 flowchart LR
     F0["Fase 0: Audit & Baseline<br><b>(SELESAI)</b>"] --> F1["Fase 1: Desain Teknis<br><b>(SELESAI)</b>"]
-    F1 --> F2R["Fase 2-R: Integritas Data & Verifikasi DB/UI<br><b>(SELESAI & TERVERIFIKASI)</b>"]
+    F1 --> F2R["Fase 2-R: Integritas Data & Verifikasi DB/UI<br><b>(DALAM VERIFIKASI)</b>"]
     F2R -.-> F3["Fase 3: Simulasi Penyusutan<br><i>(DITUNDA MENUNGGU TINJAUAN)</i>"]
 ```
 
-Pekerjaan perbaikan kode dan pengujian integrasi Fase 2-R telah dirampungkan secara tuntas pada branch `feat/aset-inventaris-audit-desain` dengan status:
-> **“Implementasi Fase 2-R, integrasi database nyata dua jalur, dan verifikasi rute UI telah selesai dan lulus 100%.”**
+Status pekerjaan pada branch `feat/aset-inventaris-audit-desain`:
+> **“Pengujian integrasi SQL sudah tersedia; konkurensi, integrasi layanan Supabase, dan UI end-to-end masih perlu dibuktikan. Tetap tanpa migrasi produksi, merge main, atau deployment.”**
 
 Fase 3 (Mesin Penyusutan dan Laporan Keuangan) tetap **DITUNDA** sampai hasil verifikasi Fase 2-R ditinjau. Tidak ada migrasi ke lingkungan produksi, merge ke `main`, atau deployment yang dilakukan.
