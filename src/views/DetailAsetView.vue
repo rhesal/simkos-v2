@@ -341,13 +341,19 @@
 
                 <!-- Pengaturan Porsi Usaha -->
                 <div class="space-y-1.5 pt-1 border-t border-border/60">
-                  <div class="flex items-center justify-between">
-                    <label class="block font-bold text-text-secondary text-xs">Porsi Usaha (%)</label>
-                    <div class="flex items-center gap-1">
+                  <div class="flex items-center justify-between flex-wrap gap-1">
+                    <label class="block font-bold text-text-secondary text-xs">
+                      Porsi Usaha (%)
+                      <span v-if="simParams.porsi_usaha_persen === null" class="text-amber-700 font-semibold text-[11px] ml-1">
+                        (Belum Ditentukan)
+                      </span>
+                    </label>
+                    <div class="flex items-center gap-1 flex-wrap">
                       <button
                         type="button"
                         @click="simParams.porsi_usaha_persen = 100"
                         class="px-2 py-0.5 rounded text-[10px] font-bold border border-border bg-white hover:bg-gray-100"
+                        :class="simParams.porsi_usaha_persen === 100 ? 'bg-navy text-white border-navy' : ''"
                       >
                         100% Usaha
                       </button>
@@ -355,6 +361,7 @@
                         type="button"
                         @click="simParams.porsi_usaha_persen = 50"
                         class="px-2 py-0.5 rounded text-[10px] font-bold border border-border bg-white hover:bg-gray-100"
+                        :class="simParams.porsi_usaha_persen === 50 ? 'bg-navy text-white border-navy' : ''"
                       >
                         50% Sebagian
                       </button>
@@ -362,8 +369,17 @@
                         type="button"
                         @click="simParams.porsi_usaha_persen = 0"
                         class="px-2 py-0.5 rounded text-[10px] font-bold border border-border bg-white hover:bg-gray-100"
+                        :class="simParams.porsi_usaha_persen === 0 ? 'bg-navy text-white border-navy' : ''"
                       >
                         0% Non-Usaha
+                      </button>
+                      <button
+                        type="button"
+                        @click="simParams.porsi_usaha_persen = null"
+                        class="px-2 py-0.5 rounded text-[10px] font-bold border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                        :class="simParams.porsi_usaha_persen === null ? 'ring-2 ring-amber-400' : ''"
+                      >
+                        Kosongkan
                       </button>
                     </div>
                   </div>
@@ -372,9 +388,22 @@
                     type="number"
                     min="0"
                     max="100"
-                    placeholder="100"
+                    placeholder="Belum ditentukan..."
                     class="w-full border-2 border-border bg-white rounded-xl p-2 font-bold text-text-primary focus:border-navy outline-none text-xs"
                   />
+                </div>
+
+                <!-- Pengaturan Metode Penyusutan -->
+                <div class="space-y-1 pt-1 border-t border-border/60">
+                  <label class="block font-bold text-text-secondary text-xs">Metode Penyusutan</label>
+                  <select
+                    v-model="simParams.metode_penyusutan"
+                    class="w-full border-2 border-border bg-white rounded-xl p-2 font-bold text-text-primary focus:border-navy outline-none text-xs"
+                  >
+                    <option value="garis_lurus">Garis Lurus (Straight Line)</option>
+                    <option value="belum_ditentukan">Belum Ditentukan</option>
+                    <option value="tidak_disusutkan">Tidak Disusutkan</option>
+                  </select>
                 </div>
 
                 <!-- Indikator Perubahan In-Memory -->
@@ -441,7 +470,12 @@
                   </div>
                   <div class="bg-gray-50 border border-border p-3 rounded-xl">
                     <span class="text-text-muted text-[10px] block">Beban Usaha / Bulan:</span>
-                    <strong class="text-emerald-700 text-sm font-black">{{ formatCurrency(selectedComponentCalc.bebanUsahaBulanPenuh) }}</strong>
+                    <strong v-if="selectedComponentCalc.bebanUsahaBulanPenuh !== null" class="text-emerald-700 text-sm font-black">
+                      {{ formatCurrency(selectedComponentCalc.bebanUsahaBulanPenuh) }}
+                    </strong>
+                    <strong v-else class="text-amber-800 text-xs font-bold italic">
+                      Belum ditentukan
+                    </strong>
                   </div>
                   <div class="bg-gray-50 border border-border p-3 rounded-xl">
                     <span class="text-text-muted text-[10px] block">Dasar Penyusutan:</span>
@@ -449,7 +483,12 @@
                   </div>
                   <div class="bg-gray-50 border border-border p-3 rounded-xl">
                     <span class="text-text-muted text-[10px] block">Total Beban Usaha:</span>
-                    <strong class="text-emerald-700 text-sm font-black">{{ formatCurrency(selectedComponentCalc.totalPenyusutanUsaha) }}</strong>
+                    <strong v-if="selectedComponentCalc.totalPenyusutanUsaha !== null" class="text-emerald-700 text-sm font-black">
+                      {{ formatCurrency(selectedComponentCalc.totalPenyusutanUsaha) }}
+                    </strong>
+                    <strong v-else class="text-amber-800 text-xs font-bold italic">
+                      Belum ditentukan
+                    </strong>
                   </div>
                   <div class="bg-gray-50 border border-border p-3 rounded-xl">
                     <span class="text-text-muted text-[10px] block">Nilai Buku Akhir:</span>
@@ -496,7 +535,9 @@
                           <tr>
                             <th class="py-2.5 px-3">Periode</th>
                             <th class="py-2.5 px-3 text-right">Beban Penyusutan</th>
-                            <th class="py-2.5 px-3 text-right">Porsi Usaha ({{ selectedComponentCalc.porsiUsahaPersen }}%)</th>
+                            <th class="py-2.5 px-3 text-right">
+                              Porsi Usaha {{ selectedComponentCalc.porsiUsahaPersen !== null ? '(' + selectedComponentCalc.porsiUsahaPersen + '%)' : '(Belum Ditentukan)' }}
+                            </th>
                             <th class="py-2.5 px-3 text-right">Akumulasi</th>
                             <th class="py-2.5 px-3 text-right">Nilai Buku</th>
                           </tr>
@@ -520,7 +561,7 @@
                               {{ formatCurrency(row.bebanPenyusutan) }}
                             </td>
                             <td class="py-2 px-3 text-right font-bold text-emerald-700">
-                              {{ formatCurrency(row.bebanUsaha) }}
+                              {{ row.bebanUsaha !== null ? formatCurrency(row.bebanUsaha) : 'Belum ditentukan' }}
                             </td>
                             <td class="py-2 px-3 text-right text-text-muted">
                               {{ formatCurrency(row.akumulasiPenyusutan) }}
@@ -571,7 +612,7 @@
                             {{ formatCurrency(row.bebanTahunan) }}
                           </td>
                           <td class="py-2 px-3 text-right font-bold text-emerald-700">
-                            {{ formatCurrency(row.bebanUsahaTahunan) }}
+                            {{ row.bebanUsahaTahunan !== null ? formatCurrency(row.bebanUsahaTahunan) : 'Belum ditentukan' }}
                           </td>
                           <td class="py-2 px-3 text-right text-text-muted">
                             {{ formatCurrency(row.akumulasiAkhirTahun) }}
@@ -590,6 +631,18 @@
 
           <!-- TAMPILAN 2: RINGKASAN GABUNGAN ASET (MULTI-KOMPONEN) -->
           <div v-else-if="activeSimTab === 'all' && assetSimResult" class="space-y-4">
+            <!-- Alert jika aset tidak disusutkan (misal tanah) -->
+            <div
+              v-if="assetSimResult.status === 'TIDAK_DISUSUTKAN'"
+              class="p-4 rounded-xl bg-gray-50 border border-gray-200 text-xs text-text-secondary space-y-1"
+            >
+              <div class="font-bold text-text-primary flex items-center gap-1.5">
+                <span>ℹ️</span>
+                <span>Aset Tidak Disusutkan</span>
+              </div>
+              <p>{{ assetSimResult.alasan }}</p>
+            </div>
+
             <!-- Alert jika hasil parsial -->
             <div
               v-if="assetSimResult.isPartial"
@@ -625,7 +678,12 @@
               </div>
               <div class="bg-gray-50 border border-border p-3 rounded-xl">
                 <span class="text-text-muted text-[10px] block">Total Beban Usaha:</span>
-                <strong class="text-emerald-700 text-sm font-black">{{ formatCurrency(assetSimResult.totalPenyusutanUsaha) }}</strong>
+                <strong v-if="assetSimResult.totalPenyusutanUsaha !== null" class="text-emerald-700 text-sm font-black">
+                  {{ formatCurrency(assetSimResult.totalPenyusutanUsaha) }}
+                </strong>
+                <strong v-else class="text-amber-800 text-xs font-bold italic">
+                  Belum ditentukan
+                </strong>
               </div>
               <div class="bg-gray-50 border border-border p-3 rounded-xl">
                 <span class="text-text-muted text-[10px] block">Komponen Terhitung:</span>
@@ -690,7 +748,7 @@
                           {{ formatCurrency(row.bebanPenyusutan) }}
                         </td>
                         <td class="py-2 px-3 text-right font-bold text-emerald-700">
-                          {{ formatCurrency(row.bebanUsaha) }}
+                          {{ row.bebanUsaha !== null ? formatCurrency(row.bebanUsaha) : 'Belum ditentukan' }}
                         </td>
                         <td class="py-2 px-3 text-right text-text-muted">
                           {{ formatCurrency(row.akumulasiPenyusutan) }}
@@ -740,7 +798,7 @@
                         {{ formatCurrency(row.bebanTahunan) }}
                       </td>
                       <td class="py-2 px-3 text-right font-bold text-emerald-700">
-                        {{ formatCurrency(row.bebanUsahaTahunan) }}
+                        {{ row.bebanUsahaTahunan !== null ? formatCurrency(row.bebanUsahaTahunan) : 'Belum ditentukan' }}
                       </td>
                       <td class="py-2 px-3 text-right text-text-muted">
                         {{ formatCurrency(row.akumulasiAkhirTahun) }}
@@ -886,7 +944,8 @@ const simParams = reactive({
   nilai_sisa: 0,
   masa_manfaat_bulan: null,
   tanggal_siap_guna: '',
-  porsi_usaha_persen: 100,
+  porsi_usaha_persen: null,
+  metode_penyusutan: 'garis_lurus',
 })
 
 const canManageAssets = computed(() => {
@@ -913,7 +972,8 @@ function resetSimParamsToCurrentComponent(compToUse = null) {
   simParams.tanggal_siap_guna = comp.tanggal_siap_guna || ''
   simParams.porsi_usaha_persen = comp.porsi_usaha_persen !== null && comp.porsi_usaha_persen !== undefined
     ? Number(comp.porsi_usaha_persen)
-    : 100
+    : null
+  simParams.metode_penyusutan = comp.metode_penyusutan || 'belum_ditentukan'
 }
 
 function selectSimTab(tabId) {
@@ -942,14 +1002,16 @@ const isSimModified = computed(() => {
   const origTanggal = comp.tanggal_siap_guna || ''
   const origPorsi = comp.porsi_usaha_persen !== null && comp.porsi_usaha_persen !== undefined
     ? Number(comp.porsi_usaha_persen)
-    : 100
+    : null
+  const origMetode = comp.metode_penyusutan || 'belum_ditentukan'
 
   return (
     simParams.biaya_perolehan !== origBiaya ||
     simParams.nilai_sisa !== origNilaiSisa ||
     simParams.masa_manfaat_bulan !== origMasa ||
     simParams.tanggal_siap_guna !== origTanggal ||
-    simParams.porsi_usaha_persen !== origPorsi
+    simParams.porsi_usaha_persen !== origPorsi ||
+    simParams.metode_penyusutan !== origMetode
   )
 })
 
@@ -965,18 +1027,15 @@ const selectedComponentCalc = computed(() => {
     masa_manfaat_bulan: simParams.masa_manfaat_bulan,
     tanggal_siap_guna: simParams.tanggal_siap_guna,
     porsi_usaha_persen: simParams.porsi_usaha_persen,
+    metode_penyusutan: simParams.metode_penyusutan,
   }
 
-  return calculateComponentDepreciation(compForCalc, {
-    assetCategory: asset.value?.kategori_aset,
-  })
+  return calculateComponentDepreciation(compForCalc, asset.value?.kategori_aset)
 })
 
 const assetSimResult = computed(() => {
   if (!componentsList.value || componentsList.value.length === 0) return null
-  return calculateAssetDepreciation(componentsList.value, {
-    assetCategory: asset.value?.kategori_aset,
-  })
+  return calculateAssetDepreciation(componentsList.value, asset.value?.kategori_aset)
 })
 
 const activeJadwalBulanan = computed(() => {

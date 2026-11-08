@@ -1,13 +1,28 @@
 /**
- * SimKos — Mesin Perhitungan dan Simulasi Penyusutan Garis Lurus (Fase 3)
+ * SimKos — Mesin Perhitungan dan Simulasi Penyusutan Garis Lurus (Fase 3-R)
  * 
  * Prinsip & Kebijakan:
  * 1. Murni kalkulasi & pratinjau in-memory (tanpa efek samping ke database/pembukuan).
  * 2. Konvensi: Alokasi bulanan dengan prorata hari pada bulan pertama dan sisa fraksi
- *    pada bulan terakhir.
- * 3. Presisi: Aritmetika integer rupiah dengan rekonsiliasi selisih pembulatan total
- *    dan porsi usaha pada periode akhir penyusutan.
- * 4. Penanganan kalender: Perhitungan hari kabisat (Februari 28/29 hari) tanpa pergeseran timezone.
+ *    pada bulan terakhir (tepat M periode jika siap guna tgl 1, atau M+1 periode jika siap guna > tgl 1).
+ *    Periode ke-(M+1) berakhir tepat pada bulan yang sama dengan bulan mulai (mis. 16 Juni 2026
+ *    selama 60 bulan berakhir pada Juni 2031, bukan Juli 2031).
+ * 3. Pembagian Pembulatan Kumulatif (Cumulative Target Distribution):
+ *    - Beban bulanan dihitung dari selisih target akumulasi teoritis:
+ *      A(i) = round(Dasar * W(i) / M), beban[i] = A(i) - A(i - 1).
+ *    - Menjamin beban selalu >= 0 (tidak pernah negatif).
+ *    - Akumulasi tidak pernah melebihi dasar penyusutan.
+ *    - Total akumulasi tepat 100% sama dengan dasar penyusutan tanpa menutupi kesalahan dengan Math.max().
+ *    - Beban usaha dihitung proporsional terhadap akumulasi penyusutan aktual:
+ *      AU(i) = round(TargetUsaha * A(i) / Dasar), bebanUsaha[i] = AU(i) - AU(i - 1).
+ *      Menjamin bebanUsaha[i] <= beban[i] dan total beban usaha tepat sama dengan target porsinya.
+ * 4. Pertahanan Ketidakpastian Input:
+ *    - Porsi usaha kosong/null tetap null; perhitungan beban usaha menghasilkan "Belum ditentukan".
+ *    - Metode penyusutan kosong/belum ditentukan tidak otomatis menjadi garis lurus (status BELUM_DAPAT_DIHITUNG).
+ *    - Nominal pecahan (desimal) pada biaya/nilai sisa ditolak dengan pesan jelas; hanya integer rupiah yang diterima.
+ *    - Nilai non-finite dan di atas MAX_SAFE_INTEGER ditolak.
+ * 5. Nilai Buku Gabungan Berbasis Waktu (Time-based Capitalization):
+ *    - Biaya setiap komponen baru masuk ke nilai buku gabungan pada bulan tanggal siap guna komponen tersebut.
  */
 
 export const STATUS_PERHITUNGAN = {
@@ -37,6 +52,21 @@ export const NAMA_BULAN = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
 ]
+
+/**
+ * Menormalkan argumen kategori aset induk baik yang diberikan berupa string maupun objek opsi.
+ * @param {string|Object} arg
+ * @returns {string|null}
+ */
+export function normalizeAssetCategory(arg) {
+  if (!arg) return null
+  if (typeof arg === 'string') return arg.trim().toLowerCase()
+  if (typeof arg === 'object') {
+    const raw = arg.assetCategory || arg.kategori_aset || arg.category || ''
+    return typeof raw === 'string' && raw.trim() !== '' ? raw.trim().toLowerCase() : null
+  }
+  return null
+}
 
 /**
  * Menghitung jumlah hari kalender dalam bulan tertentu (menangani kabisat).
@@ -91,15 +121,16 @@ export function addMonths(year, month, delta) {
 /**
  * Memvalidasi kelayakan input penyusutan komponen aset.
  */
-export function validateDepreciationInput(component, assetCategory = null) {
+export function validateDepreciationInput(component, assetCategoryArg = null) {
   const missing = []
   const errors = []
+  const assetCategory = normalizeAssetCategory(assetCategoryArg)
 
   // 1. Pengecekan Tanah
   if (assetCategory === 'tanah' || component?.kategori === 'tanah' || component?.jenis_pekerjaan === 'tanah') {
     return {
       status: STATUS_PERHITUNGAN.TIDAK_DISUSUTKAN,
-      alasan: 'Tanah memiliki masa manfaat tidak terbatas dan tidak mengalami depresiasi fisik.',
+      alasan: 'Tanah memiliki masa manfaat tidak terbatas dan tidak mengalami penyusutan.',
       canCalculate: false,
       missingFields: [],
       errors: [],
@@ -128,9 +159,9 @@ export function validateDepreciationInput(component, assetCategory = null) {
     }
   }
 
-  // 4. Pengecekan Metode Penyusutan (Default: garis_lurus)
-  const metode = component?.metode_penyusutan || 'garis_lurus'
-  if (metode === 'belum_ditentukan') {
+  // 4. Pengecekan Metode Penyusutan (TIDAK otomatis menjadi garis_lurus jika kosong/belum ditentukan)
+  const metode = component?.metode_penyusutan
+  if (!metode || metode === 'belum_ditentukan') {
     missing.push('Metode penyusutan belum ditentukan')
   } else if (metode !== 'garis_lurus') {
     errors.push(`Metode penyusutan '${metode}' tidak didukung (hanya garis_lurus).`)
@@ -144,8 +175,14 @@ export function validateDepreciationInput(component, assetCategory = null) {
     missing.push('Biaya perolehan')
   } else {
     const numBiaya = Number(biaya)
-    if (isNaN(numBiaya) || numBiaya < 0) {
+    if (!Number.isFinite(numBiaya)) {
+      errors.push('Biaya perolehan harus berupa angka berhingga (finite).')
+    } else if (numBiaya < 0) {
       errors.push('Biaya perolehan harus berupa angka nonnegatif.')
+    } else if (numBiaya > Number.MAX_SAFE_INTEGER) {
+      errors.push('Biaya perolehan melebihi batas angka aman sistem.')
+    } else if (!Number.isInteger(numBiaya)) {
+      errors.push('Biaya perolehan harus berupa bilangan bulat rupiah tanpa pecahan desimal.')
     }
   }
 
@@ -166,8 +203,12 @@ export function validateDepreciationInput(component, assetCategory = null) {
     missing.push('Masa manfaat (bulan)')
   } else {
     const numMasa = Number(masaManfaat)
-    if (!Number.isInteger(numMasa) || numMasa <= 0) {
+    if (!Number.isFinite(numMasa)) {
+      errors.push('Masa manfaat harus berupa angka berhingga.')
+    } else if (!Number.isInteger(numMasa) || numMasa <= 0) {
       errors.push('Masa manfaat harus berupa bilangan bulat positif dalam bulan.')
+    } else if (numMasa > 1200) {
+      errors.push('Masa manfaat melebihi batas maksimal yang didukung (1200 bulan / 100 tahun).')
     }
   }
 
@@ -175,9 +216,15 @@ export function validateDepreciationInput(component, assetCategory = null) {
   const nilaiSisa = component?.nilai_sisa
   if (nilaiSisa !== null && nilaiSisa !== undefined && nilaiSisa !== '') {
     const numSisa = Number(nilaiSisa)
-    if (isNaN(numSisa) || numSisa < 0) {
+    if (!Number.isFinite(numSisa)) {
+      errors.push('Nilai sisa harus berupa angka berhingga (finite).')
+    } else if (numSisa < 0) {
       errors.push('Nilai sisa harus berupa angka nonnegatif.')
-    } else if (biaya !== null && biaya !== undefined && Number(biaya) >= 0 && numSisa > Number(biaya)) {
+    } else if (numSisa > Number.MAX_SAFE_INTEGER) {
+      errors.push('Nilai sisa melebihi batas angka aman sistem.')
+    } else if (!Number.isInteger(numSisa)) {
+      errors.push('Nilai sisa harus berupa bilangan bulat rupiah tanpa pecahan desimal.')
+    } else if (biaya !== null && biaya !== undefined && Number.isFinite(Number(biaya)) && numSisa > Number(biaya)) {
       errors.push('Nilai sisa tidak boleh melebihi biaya perolehan.')
     }
   }
@@ -186,7 +233,7 @@ export function validateDepreciationInput(component, assetCategory = null) {
   const porsiUsaha = component?.porsi_usaha_persen
   if (porsiUsaha !== null && porsiUsaha !== undefined && porsiUsaha !== '') {
     const numPorsi = Number(porsiUsaha)
-    if (isNaN(numPorsi) || numPorsi < 0 || numPorsi > 100) {
+    if (!Number.isFinite(numPorsi) || numPorsi < 0 || numPorsi > 100) {
       errors.push('Porsi usaha harus berupa angka antara 0% dan 100%.')
     }
   }
@@ -222,10 +269,11 @@ export function validateDepreciationInput(component, assetCategory = null) {
  * Menghitung jadwal penyusutan garis lurus untuk satu komponen aset.
  * 
  * @param {Object} component - Data komponen aset
- * @param {string} [assetCategory] - Kategori aset induk ('gedung', 'barang', 'tanah')
+ * @param {string|Object} [assetCategoryArg] - Kategori aset induk ('gedung', 'barang', 'tanah') atau opsi
  * @returns {Object} Hasil perhitungan dan jadwal periode
  */
-export function calculateComponentDepreciation(component, assetCategory = null) {
+export function calculateComponentDepreciation(component, assetCategoryArg = null) {
+  const assetCategory = normalizeAssetCategory(assetCategoryArg)
   const validation = validateDepreciationInput(component, assetCategory)
 
   if (!validation.canCalculate) {
@@ -233,14 +281,21 @@ export function calculateComponentDepreciation(component, assetCategory = null) 
       ...validation,
       komponenId: component?.id || null,
       namaKomponen: component?.nama_komponen || 'Komponen',
-      biayaPerolehan: component?.biaya_perolehan ?? null,
-      nilaiSisa: component?.nilai_sisa ?? null,
+      biayaPerolehan: component?.biaya_perolehan !== null && component?.biaya_perolehan !== undefined
+        ? Number(component.biaya_perolehan)
+        : null,
+      nilaiSisa: component?.nilai_sisa !== null && component?.nilai_sisa !== undefined
+        ? Number(component.nilai_sisa)
+        : null,
       dasarPenyusutan: null,
-      masaManfaatBulan: component?.masa_manfaat_bulan ?? null,
+      masaManfaatBulan: component?.masa_manfaat_bulan ? Number(component.masa_manfaat_bulan) : null,
       bebanBulanPenuh: null,
       bebanBulanPertama: null,
+      bebanUsahaBulanPenuh: null,
       totalPenyusutanUsaha: null,
-      porsiUsahaPersen: component?.porsi_usaha_persen ?? null,
+      porsiUsahaPersen: (component?.porsi_usaha_persen !== null && component?.porsi_usaha_persen !== undefined && component?.porsi_usaha_persen !== '')
+        ? Number(component.porsi_usaha_persen)
+        : null,
       periodeAwal: null,
       periodeAkhir: null,
       isPerluTelaah: component?.status_kapitalisasi === 'perlu_telaah',
@@ -254,7 +309,7 @@ export function calculateComponentDepreciation(component, assetCategory = null) 
 
   const biaya = Number(component.biaya_perolehan)
   const nilaiSisa = Number(component.nilai_sisa || 0)
-  const dasarPenyusutan = Math.max(0, biaya - nilaiSisa)
+  const dasarPenyusutan = biaya - nilaiSisa
   const M = Number(component.masa_manfaat_bulan)
   const dateParts = parseDateParts(String(component.tanggal_siap_guna))
   const { year: startYear, month: startMonth, day: startDay } = dateParts
@@ -277,6 +332,7 @@ export function calculateComponentDepreciation(component, assetCategory = null) 
       masaManfaatBulan: M,
       bebanBulanPenuh: 0,
       bebanBulanPertama: 0,
+      bebanUsahaBulanPenuh: hasPorsiUsaha ? 0 : null,
       totalPenyusutanUsaha: hasPorsiUsaha ? 0 : null,
       porsiUsahaPersen: porsiUsaha,
       periodeAwal: formatPeriodLabel(startYear, startMonth),
@@ -290,80 +346,74 @@ export function calculateComponentDepreciation(component, assetCategory = null) 
     }
   }
 
-  const bebanBulanPenuhTeoritis = dasarPenyusutan / M
-  const bebanBulanPenuhBulat = Math.round(bebanBulanPenuhTeoritis)
-
+  // Konvensi Periode & Prorata
   const daysInFirstMonth = getDaysInMonth(startYear, startMonth)
   const daysActiveFirstMonth = daysInFirstMonth - startDay + 1
   const fraksiBulanPertama = daysActiveFirstMonth / daysInFirstMonth
 
-  // Jumlah Periode: Tepat M jika hari = 1, atau M + 1 jika hari > 1
+  // Total periode bulanan kalender:
+  // - Jika siap guna tgl 1: tepat M periode
+  // - Jika siap guna > tgl 1: tepat M + 1 periode (periode ke-(M+1) jatuh di bulan yang sama dengan bulan mulai)
   const totalPeriods = startDay === 1 ? M : M + 1
   const jadwalBulanan = []
 
-  // Alokasi Beban Total & Porsi Usaha
+  // Target Beban Usaha Total
   const totalBebanUsahaTarget = hasPorsiUsaha
     ? Math.round(dasarPenyusutan * (porsiUsaha / 100))
     : null
 
-  let akumulasiPenyusutan = 0
-  let akumulasiBebanUsaha = 0
+  let prevAkumulasi = 0
+  let prevAkumulasiUsaha = 0
 
-  for (let i = 0; i < totalPeriods; i++) {
-    const periodIndex = i + 1
-    const { year: curYear, month: curMonth } = addMonths(startYear, startMonth, i)
+  for (let i = 1; i <= totalPeriods; i++) {
+    const deltaBulan = i - 1
+    const { year: curYear, month: curMonth } = addMonths(startYear, startMonth, deltaBulan)
     const periodeKey = formatPeriodKey(curYear, curMonth)
     const periodeLabel = formatPeriodLabel(curYear, curMonth)
 
-    let bebanPeriode = 0
-
+    // Bobot kumulatif W(i)
+    let W
     if (startDay === 1) {
-      // Siap guna tanggal 1: M periode penuh
-      if (periodIndex < totalPeriods) {
-        bebanPeriode = bebanBulanPenuhBulat
-      } else {
-        // Periode terakhir (M) menyelesaikan sisa pembulatan
-        bebanPeriode = dasarPenyusutan - akumulasiPenyusutan
-      }
+      W = i
     } else {
-      // Siap guna setelah tanggal 1: M + 1 periode
-      if (periodIndex === 1) {
-        // Periode 1: Memakai fraksi prorata hari pertama
-        bebanPeriode = Math.round(bebanBulanPenuhTeoritis * fraksiBulanPertama)
-      } else if (periodIndex < totalPeriods) {
-        // Periode 2 s/d M: Beban bulan penuh
-        bebanPeriode = bebanBulanPenuhBulat
+      if (i === 1) {
+        W = fraksiBulanPertama
+      } else if (i <= M) {
+        W = fraksiBulanPertama + (i - 1)
       } else {
-        // Periode M + 1: Sisa fraksi dan rekonsiliasi pembulatan akhir
-        bebanPeriode = dasarPenyusutan - akumulasiPenyusutan
+        // Periode M + 1: Menyelesaikan fraksi sisa (fraksiBulanPertama + (M - 1) + (1 - fraksiBulanPertama) = M)
+        W = M
       }
     }
 
-    // Pastikan beban tidak negatif dan tidak melebihi sisa dasar penyusutan
-    bebanPeriode = Math.max(0, bebanPeriode)
-    akumulasiPenyusutan += bebanPeriode
-    const nilaiBukuAkhir = Math.max(nilaiSisa, biaya - akumulasiPenyusutan)
+    // Target akumulasi teoritis pada periode i (Bresenham Cumulative Target)
+    const targetAkumulasi = Math.round(dasarPenyusutan * (W / M))
+    const bebanPeriode = targetAkumulasi - prevAkumulasi
+    prevAkumulasi = targetAkumulasi
+
+    const akumulasiPenyusutan = targetAkumulasi
+    const nilaiBukuAkhir = biaya - akumulasiPenyusutan
 
     // Beban Porsi Usaha
     let bebanUsahaPeriode = null
     if (hasPorsiUsaha) {
-      if (porsiUsaha === 0) {
+      if (totalBebanUsahaTarget === 0) {
         bebanUsahaPeriode = 0
-      } else if (periodIndex < totalPeriods) {
-        bebanUsahaPeriode = Math.round(bebanPeriode * (porsiUsaha / 100))
-        akumulasiBebanUsaha += bebanUsahaPeriode
       } else {
-        // Rekonsiliasi selisih pembulatan usaha pada periode akhir
-        bebanUsahaPeriode = totalBebanUsahaTarget - akumulasiBebanUsaha
-        akumulasiBebanUsaha += bebanUsahaPeriode
+        // AU(i) = round(TargetUsaha * A(i) / Dasar)
+        // Sifat matematis: menjamin bebanUsaha >= 0, bebanUsaha <= bebanPeriode,
+        // jika bebanPeriode == 0 maka bebanUsaha == 0, dan total akumulasi tepat = totalBebanUsahaTarget
+        const targetAkumulasiUsaha = Math.round(totalBebanUsahaTarget * (targetAkumulasi / dasarPenyusutan))
+        bebanUsahaPeriode = targetAkumulasiUsaha - prevAkumulasiUsaha
+        prevAkumulasiUsaha = targetAkumulasiUsaha
       }
     }
 
-    const isProrata = (startDay > 1) && (periodIndex === 1)
-    const isFractionalFinal = (startDay > 1) && (periodIndex === totalPeriods)
+    const isProrata = (startDay > 1) && (i === 1)
+    const isFractionalFinal = (startDay > 1) && (i === totalPeriods)
 
     jadwalBulanan.push({
-      periodeIndex: periodIndex,
+      periodeIndex: i,
       periodeKey,
       periodeLabel,
       tahun: curYear,
@@ -373,8 +423,8 @@ export function calculateComponentDepreciation(component, assetCategory = null) 
       akumulasiPenyusutan,
       nilaiBukuAkhir,
       isProrata,
-      hariProrata: isProrata ? daysActiveFirstMonth : null,
-      totalHariBulan: isProrata ? daysInFirstMonth : null,
+      hariProrata: isProrata ? daysActiveFirstMonth : (isFractionalFinal ? (startDay - 1) : null),
+      totalHariBulan: isProrata ? daysInFirstMonth : (isFractionalFinal ? getDaysInMonth(curYear, curMonth) : null),
       isFractionalFinal,
     })
   }
@@ -382,6 +432,32 @@ export function calculateComponentDepreciation(component, assetCategory = null) 
   const firstPeriod = jadwalBulanan[0]
   const lastPeriod = jadwalBulanan[jadwalBulanan.length - 1]
   const ringkasanTahunan = generateAnnualSummary(jadwalBulanan)
+
+  // Estimasi beban bulan penuh untuk kartu ringkasan
+  const bebanBulanPenuhBulat = Math.round(dasarPenyusutan / M)
+  const bebanUsahaBulanPenuh = hasPorsiUsaha
+    ? Math.round((dasarPenyusutan / M) * (porsiUsaha / 100))
+    : null
+
+  // Indikator Posisi Bulan Berjalan (jika tanggal mulai di masa lalu)
+  const now = new Date()
+  const currentKey = formatPeriodKey(now.getFullYear(), now.getMonth() + 1)
+  let posisiBulanIni = null
+
+  if (firstPeriod && firstPeriod.periodeKey <= currentKey) {
+    const currentRow = [...jadwalBulanan].reverse().find(r => r.periodeKey <= currentKey)
+    if (currentRow) {
+      const isDone = currentKey >= lastPeriod.periodeKey
+      posisiBulanIni = {
+        currentPeriodKey: currentKey,
+        currentPeriodLabel: formatPeriodLabel(now.getFullYear(), now.getMonth() + 1),
+        akumulasiPenyusutan: isDone ? dasarPenyusutan : currentRow.akumulasiPenyusutan,
+        nilaiBuku: isDone ? nilaiSisa : currentRow.nilaiBukuAkhir,
+        sisaBulan: isDone ? 0 : Math.max(0, totalPeriods - currentRow.periodeIndex),
+        isFullyDepreciated: isDone,
+      }
+    }
+  }
 
   return {
     status: STATUS_PERHITUNGAN.DAPAT_DIHITUNG,
@@ -394,10 +470,14 @@ export function calculateComponentDepreciation(component, assetCategory = null) 
     masaManfaatBulan: M,
     bebanBulanPenuh: bebanBulanPenuhBulat,
     bebanBulanPertama: firstPeriod ? firstPeriod.bebanPenyusutan : 0,
+    bebanUsahaBulanPenuh,
     totalPenyusutanUsaha: totalBebanUsahaTarget,
     porsiUsahaPersen: porsiUsaha,
     periodeAwal: firstPeriod ? firstPeriod.periodeLabel : null,
     periodeAkhir: lastPeriod ? lastPeriod.periodeLabel : null,
+    tanggalSelesai: lastPeriod ? lastPeriod.periodeLabel : null,
+    totalPeriods,
+    posisiBulanIni,
     isPerluTelaah: component?.status_kapitalisasi === 'perlu_telaah',
     catatanSimulasi: component?.status_kapitalisasi === 'perlu_telaah'
       ? 'Simulasi dengan asumsi dikapitalisasi'
@@ -419,20 +499,22 @@ export function generateAnnualSummary(monthlySchedule = []) {
     if (!groups[yr]) {
       groups[yr] = {
         tahun: yr,
-        jumlahBulan: 0,
-        bebanPenyusutan: 0,
-        bebanUsaha: item.bebanUsaha !== null ? 0 : null,
-        akumulasiPenyusutan: 0,
-        nilaiBukuAkhir: 0,
+        bulanCount: 0,
+        bebanTahunan: 0,
+        bebanUsahaTahunan: item.bebanUsaha !== null ? 0 : null,
+        akumulasiAkhirTahun: 0,
+        nilaiBukuAkhirTahun: 0,
       }
     }
-    groups[yr].jumlahBulan += 1
-    groups[yr].bebanPenyusutan += item.bebanPenyusutan
-    if (item.bebanUsaha !== null && groups[yr].bebanUsaha !== null) {
-      groups[yr].bebanUsaha += item.bebanUsaha
+    groups[yr].bulanCount += 1
+    groups[yr].bebanTahunan += item.bebanPenyusutan
+    if (item.bebanUsaha !== null && groups[yr].bebanUsahaTahunan !== null) {
+      groups[yr].bebanUsahaTahunan += item.bebanUsaha
+    } else if (item.bebanUsaha === null) {
+      groups[yr].bebanUsahaTahunan = null
     }
-    groups[yr].akumulasiPenyusutan = item.akumulasiPenyusutan
-    groups[yr].nilaiBukuAkhir = item.nilaiBukuAkhir
+    groups[yr].akumulasiAkhirTahun = item.akumulasiPenyusutan
+    groups[yr].nilaiBukuAkhirTahun = item.nilaiBukuAkhir
   }
 
   return Object.values(groups).sort((a, b) => a.tahun - b.tahun)
@@ -440,13 +522,16 @@ export function generateAnnualSummary(monthlySchedule = []) {
 
 /**
  * Menghitung penyusutan gabungan untuk seluruh komponen aset.
- * Memisahkan komponen yang dapat dihitung dari komponen yang belum/tidak dapat dihitung.
+ * Menerapkan nilai buku berbasis waktu (biaya setiap komponen masuk ke nilai buku
+ * pada bulan tanggal siap guna / perolehan masing-masing komponen).
  * 
  * @param {Array} components - Daftar komponen aset
- * @param {string} [assetCategory] - Kategori aset induk
+ * @param {string|Object} [assetCategoryArg] - Kategori aset induk
  * @returns {Object} Hasil agregasi jadwal dan status parsial/lengkap
  */
-export function calculateAssetDepreciation(components = [], assetCategory = null) {
+export function calculateAssetDepreciation(components = [], assetCategoryArg = null) {
+  const assetCategory = normalizeAssetCategory(assetCategoryArg)
+
   if (assetCategory === 'tanah') {
     return {
       status: STATUS_PERHITUNGAN.TIDAK_DISUSUTKAN,
@@ -555,58 +640,89 @@ export function calculateAssetDepreciation(components = [], assetCategory = null
     ? calculable.reduce((acc, r) => acc + (r.result.totalPenyusutanUsaha || 0), 0)
     : null
 
-  // Gabungkan jadwal bulanan per periode kalender (YYYY-MM)
-  const monthMap = {}
-
+  // Kumpulkan seluruh periode bulan kalender unik yang ada di komponen-komponen terhitung
+  const allPeriodKeysSet = new Set()
   for (const item of calculable) {
     for (const entry of item.result.jadwalBulanan) {
-      const key = entry.periodeKey
-      if (!monthMap[key]) {
-        monthMap[key] = {
-          periodeKey: key,
-          periodeLabel: entry.periodeLabel,
-          tahun: entry.tahun,
-          bulan: entry.bulan,
-          bebanPenyusutan: 0,
-          bebanUsaha: allHaveBusinessPortion ? 0 : null,
-          komponenBreakdown: [],
-        }
-      }
-      monthMap[key].bebanPenyusutan += entry.bebanPenyusutan
-      if (allHaveBusinessPortion && entry.bebanUsaha !== null) {
-        monthMap[key].bebanUsaha += entry.bebanUsaha
-      }
-      monthMap[key].komponenBreakdown.push({
-        komponenId: item.result.komponenId,
-        namaKomponen: item.result.namaKomponen,
-        beban: entry.bebanPenyusutan,
-        bebanUsaha: entry.bebanUsaha,
-      })
+      allPeriodKeysSet.add(entry.periodeKey)
     }
   }
+  const sortedMonthKeys = Array.from(allPeriodKeysSet).sort()
 
-  // Urutkan periode secara kronologis
-  const sortedMonthKeys = Object.keys(monthMap).sort()
+  // Bangun lookup cepat entry per komponen: map[komponenId][periodeKey]
+  const compScheduleMap = new Map()
+  for (const item of calculable) {
+    const m = new Map()
+    for (const entry of item.result.jadwalBulanan) {
+      m.set(entry.periodeKey, entry)
+    }
+    compScheduleMap.set(item.result.komponenId || item.komponen.id, {
+      result: item.result,
+      komponen: item.komponen,
+      map: m,
+      startKey: item.result.jadwalBulanan[0]?.periodeKey || '',
+      endKey: item.result.jadwalBulanan[item.result.jadwalBulanan.length - 1]?.periodeKey || '',
+    })
+  }
+
+  // Bangun jadwal bulanan gabungan berbasis waktu kapitalisasi
   const jadwalBulanan = []
-  let akumulasiPenyusutan = 0
+  let akumulasiPenyusutanBerjalan = 0
 
   for (let i = 0; i < sortedMonthKeys.length; i++) {
     const key = sortedMonthKeys[i]
-    const m = monthMap[key]
-    akumulasiPenyusutan += m.bebanPenyusutan
-    const nilaiBukuAkhir = Math.max(nilaiSisaTotal, biayaTotal - akumulasiPenyusutan)
+    const [yearStr, monthStr] = key.split('-')
+    const curYear = parseInt(yearStr, 10)
+    const curMonth = parseInt(monthStr, 10)
+    const periodeLabel = formatPeriodLabel(curYear, curMonth)
+
+    let bebanBulanIni = 0
+    let bebanUsahaBulanIni = allHaveBusinessPortion ? 0 : null
+    let biayaAktifBulanIni = 0
+    let nilaiBukuAkhirBulanIni = 0
+    const breakdown = []
+
+    for (const [compId, compInfo] of compScheduleMap.entries()) {
+      // Komponen baru masuk ke nilai buku jika bulan ini >= tanggal siap guna / periode awal komponen
+      if (key >= compInfo.startKey) {
+        biayaAktifBulanIni += compInfo.result.biayaPerolehan
+
+        const entry = compInfo.map.get(key)
+        if (entry) {
+          // Komponen sedang dalam masa penyusutan aktif di bulan ini
+          bebanBulanIni += entry.bebanPenyusutan
+          if (allHaveBusinessPortion && entry.bebanUsaha !== null) {
+            bebanUsahaBulanIni += entry.bebanUsaha
+          }
+          nilaiBukuAkhirBulanIni += entry.nilaiBukuAkhir
+          breakdown.push({
+            komponenId: compId,
+            namaKomponen: compInfo.result.namaKomponen,
+            beban: entry.bebanPenyusutan,
+            bebanUsaha: entry.bebanUsaha,
+            nilaiBuku: entry.nilaiBukuAkhir,
+          })
+        } else if (key > compInfo.endKey) {
+          // Komponen sudah selesai disusutkan sebelum bulan ini; nilai bukunya adalah nilai sisa
+          nilaiBukuAkhirBulanIni += compInfo.result.nilaiSisa
+        }
+      }
+    }
+
+    akumulasiPenyusutanBerjalan += bebanBulanIni
 
     jadwalBulanan.push({
       periodeIndex: i + 1,
-      periodeKey: m.periodeKey,
-      periodeLabel: m.periodeLabel,
-      tahun: m.tahun,
-      bulan: m.bulan,
-      bebanPenyusutan: m.bebanPenyusutan,
-      bebanUsaha: m.bebanUsaha,
-      akumulasiPenyusutan,
-      nilaiBukuAkhir,
-      komponenBreakdown: m.komponenBreakdown,
+      periodeKey: key,
+      periodeLabel,
+      tahun: curYear,
+      bulan: curMonth,
+      bebanPenyusutan: bebanBulanIni,
+      bebanUsaha: bebanUsahaBulanIni,
+      akumulasiPenyusutan: akumulasiPenyusutanBerjalan,
+      biayaAktif: biayaAktifBulanIni,
+      nilaiBukuAkhir: nilaiBukuAkhirBulanIni,
+      komponenBreakdown: breakdown,
     })
   }
 

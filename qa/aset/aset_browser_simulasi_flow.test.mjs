@@ -52,15 +52,38 @@ async function clickElementWithText(page, selector, text) {
   )
 }
 
-test('Alur Browser End-to-End Simulasi Penyusutan Aset (Fase 3)', { timeout: 120000 }, async (t) => {
+async function getFullDatabaseSnapshot(client) {
+  const assets = (await client.query('SELECT * FROM public.assets ORDER BY id')).rows
+  const components = (await client.query('SELECT * FROM public.asset_components ORDER BY id')).rows
+  const expenses = (await client.query('SELECT * FROM public.expenses ORDER BY id')).rows
+
+  let journals = []
+  const hasJournals = (await client.query("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'journals')")).rows[0].exists
+  if (hasJournals) {
+    journals = (await client.query('SELECT * FROM public.journals ORDER BY id')).rows
+  }
+
+  let cashFlows = []
+  const hasCashFlows = (await client.query("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'cash_flows')")).rows[0].exists
+  if (hasCashFlows) {
+    cashFlows = (await client.query('SELECT * FROM public.cash_flows ORDER BY id')).rows
+  }
+
+  return { assets, components, expenses, journals, cashFlows }
+}
+
+test('Alur Browser End-to-End Simulasi Penyusutan Aset (Fase 3-R)', { timeout: 150000 }, async (t) => {
   let supabaseStack = null
   let viteProcess = null
   let browser = null
-  let testAssetId = null
+  let assetAcId = null
+  let assetTanahId = null
+  let assetGedungId = null
+  let snapshotBefore = null
 
   try {
     // 1. Jalankan Stack Supabase Resmi
-    console.log('[E2E-SIMULASI] Menyiapkan Supabase stack resmi...')
+    console.log('[E2E-SIMULASI-3R] Menyiapkan Supabase stack resmi...')
     supabaseStack = await startSupabaseStack()
 
     // 2. Siapkan data aset uji deterministik di PostgreSQL
@@ -70,12 +93,13 @@ test('Alur Browser End-to-End Simulasi Penyusutan Aset (Fase 3)', { timeout: 120
       const orgRes = await pgClient.query("SELECT id FROM public.organizations WHERE name = 'SimKos' LIMIT 1")
       const orgId = orgRes.rows[0].id
 
-      const assetRes = await pgClient.query(`
+      // Aset 1: AC Daikin Kamar (Fasilitas Kamar - Garis Lurus standar)
+      const resAc = await pgClient.query(`
         INSERT INTO public.assets (org_id, nama_aset, kategori_aset, status_pencatatan, kondisi_fisik, dasar_penggunaan)
         VALUES ('${orgId}', 'AC Daikin Kamar 01 Simulasi', 'fasilitas_kamar', 'draft', 'baik', 'milik_sendiri')
         RETURNING id;
       `)
-      testAssetId = assetRes.rows[0].id
+      assetAcId = resAc.rows[0].id
 
       await pgClient.query(`
         INSERT INTO public.asset_components (
@@ -83,17 +107,71 @@ test('Alur Browser End-to-End Simulasi Penyusutan Aset (Fase 3)', { timeout: 120
           tanggal_siap_guna, masa_manfaat_bulan, pola_penggunaan, porsi_usaha_persen, status_kapitalisasi
         )
         VALUES (
-          '${testAssetId}', '${orgId}', 'Unit AC Daikin 1/2 PK', 'perolehan_baru', 6000000, 0,
+          '${assetAcId}', '${orgId}', 'Unit AC Daikin 1/2 PK', 'perolehan_baru', 6000000, 0,
           '2026-06-16', 60, 'seluruhnya_usaha', 100, 'kapitalisasi'
         );
       `)
-      console.log(`[E2E-SIMULASI] Aset uji disiapkan dengan ID: ${testAssetId}`)
+
+      // Aset 2: Tanah Kavling SimKos (Kategori Tanah - Tidak Disusutkan)
+      const resTanah = await pgClient.query(`
+        INSERT INTO public.assets (org_id, nama_aset, kategori_aset, status_pencatatan, kondisi_fisik, dasar_penggunaan)
+        VALUES ('${orgId}', 'Tanah Kavling Area Depan SimKos', 'tanah', 'draft', 'baik', 'milik_sendiri')
+        RETURNING id;
+      `)
+      assetTanahId = resTanah.rows[0].id
+
+      await pgClient.query(`
+        INSERT INTO public.asset_components (
+          asset_id, org_id, nama_komponen, jenis_pekerjaan, biaya_perolehan, nilai_sisa,
+          pola_penggunaan, porsi_usaha_persen, status_kapitalisasi
+        )
+        VALUES (
+          '${assetTanahId}', '${orgId}', 'Lahan Utama 300 m2', 'perolehan_baru', 500000000, 0,
+          'seluruhnya_usaha', 100, 'kapitalisasi'
+        );
+      `)
+
+      // Aset 3: Gedung Induk Multi-Komponen dengan Komponen Porsi Usaha NULL
+      const resGedung = await pgClient.query(`
+        INSERT INTO public.assets (org_id, nama_aset, kategori_aset, status_pencatatan, kondisi_fisik, dasar_penggunaan)
+        VALUES ('${orgId}', 'Gedung Induk SimKos 2 Lantai', 'gedung', 'draft', 'baik', 'milik_sendiri')
+        RETURNING id;
+      `)
+      assetGedungId = resGedung.rows[0].id
+
+      // Komponen 1 Gedung: Struktur Bangunan (Porsi usaha NULL/belum ditentukan)
+      await pgClient.query(`
+        INSERT INTO public.asset_components (
+          asset_id, org_id, nama_komponen, jenis_pekerjaan, biaya_perolehan, nilai_sisa,
+          tanggal_siap_guna, masa_manfaat_bulan, pola_penggunaan, porsi_usaha_persen, status_kapitalisasi
+        )
+        VALUES (
+          '${assetGedungId}', '${orgId}', 'Struktur Bangunan Gedung Induk', 'perolehan_baru', 300000000, 0,
+          '2026-01-01', 240, 'campuran', NULL, 'kapitalisasi'
+        );
+      `)
+
+      // Komponen 2 Gedung: Renovasi Lanjutan (Siap guna masa mendatang 2027-01-01, Porsi usaha 80%)
+      await pgClient.query(`
+        INSERT INTO public.asset_components (
+          asset_id, org_id, nama_komponen, jenis_pekerjaan, biaya_perolehan, nilai_sisa,
+          tanggal_siap_guna, masa_manfaat_bulan, pola_penggunaan, porsi_usaha_persen, status_kapitalisasi
+        )
+        VALUES (
+          '${assetGedungId}', '${orgId}', 'Renovasi Penambahan Balkon Lantai 2', 'penambahan_kapasitas', 60000000, 0,
+          '2027-01-01', 120, 'campuran', 80, 'kapitalisasi'
+        );
+      `)
+
+      // Ambil snapshot awal lengkap database sebelum ada aktivitas browser/simulasi
+      snapshotBefore = await getFullDatabaseSnapshot(pgClient)
+      console.log(`[E2E-SIMULASI-3R] Snapshot database awal tersimpan: ${snapshotBefore.assets.length} aset, ${snapshotBefore.components.length} komponen, ${snapshotBefore.expenses.length} expenses.`)
     } finally {
       await pgClient.end()
     }
 
     // 3. Jalankan Vite dev server pada port 5176
-    console.log(`[E2E-SIMULASI] Memulai Vite dev server pada port ${VITE_PORT}...`)
+    console.log(`[E2E-SIMULASI-3R] Memulai Vite dev server pada port ${VITE_PORT}...`)
     viteProcess = process.platform === 'win32'
       ? spawn('wsl', ['bash', '-c', `cd /home/disnak/projects/simkos-v2 && npx vite --mode test --port ${VITE_PORT}`], { stdio: 'pipe' })
       : spawn('npx', ['vite', '--mode', 'test', '--port', String(VITE_PORT)], { cwd: ROOT, stdio: 'pipe' })
@@ -111,7 +189,7 @@ test('Alur Browser End-to-End Simulasi Penyusutan Aset (Fase 3)', { timeout: 120
       viteProcess.stderr.on('data', onData)
     })
 
-    console.log(`[E2E-SIMULASI] Vite dev server siap di ${APP_URL}! Meluncurkan Google Chrome...`)
+    console.log(`[E2E-SIMULASI-3R] Vite dev server siap di ${APP_URL}! Meluncurkan Google Chrome...`)
 
     // 4. Luncurkan Google Chrome headless
     browser = await puppeteer.launch({
@@ -139,12 +217,12 @@ test('Alur Browser End-to-End Simulasi Penyusutan Aset (Fase 3)', { timeout: 120
 
       await page.waitForFunction(() => !window.location.pathname.includes('/login'), { timeout: 15000 })
       assert.ok(!page.url().includes('/login'), 'Login harus berhasil')
-      console.log('[E2E-SIMULASI] Owner berhasil login.')
+      console.log('[E2E-SIMULASI-3R] Owner berhasil login.')
     })
 
-    // --- LANGKAH 2: Buka Halaman Detail Aset Draf ---
-    await t.test('2. Buka Halaman Detail Aset Draf & Bagian Simulasi', async () => {
-      await page.goto(`${APP_URL}/aset/${testAssetId}`, { waitUntil: 'networkidle0' })
+    // --- LANGKAH 2: Buka Halaman Detail Aset AC & Verifikasi Nilai Awal ---
+    await t.test('2. Buka Halaman Detail Aset AC & Verifikasi Presisi Simulasi Garis Lurus', async () => {
+      await page.goto(`${APP_URL}/aset/${assetAcId}`, { waitUntil: 'networkidle0' })
       await page.waitForSelector('h1, h2', { timeout: 10000 })
 
       // Pastikan bagian Simulasi Penyusutan Aset ada
@@ -152,130 +230,198 @@ test('Alur Browser End-to-End Simulasi Penyusutan Aset (Fase 3)', { timeout: 120
         () => document.body.textContent.includes('Simulasi Penyusutan Aset'),
         { timeout: 10000 }
       )
-      console.log('[E2E-SIMULASI] Halaman detail aset dan kartu simulasi terbuka.')
+
+      // Verifikasi badge simulasi
+      const bodyText = await page.evaluate(() => document.body.textContent)
+      assert.ok(bodyText.includes('Simulasi — belum dibukukan'), 'Badge simulasi harus muncul')
+
+      // Verifikasi beban bulan penuh (Rp 100.000) dan prorata Juni 2026 (Rp 50.000)
+      await page.waitForFunction(
+        () => document.body.textContent.includes('100.000') && document.body.textContent.includes('50.000'),
+        { timeout: 10000 }
+      )
+      console.log('[E2E-SIMULASI-3R] Nilai awal simulasi AC terverifikasi akurat.')
     })
 
-    // --- LANGKAH 3: Verifikasi Nilai Awal Simulasi ---
-    await t.test('3. Verifikasi Nilai Awal Terisi Sesuai Komponen Tersimpan', async () => {
-      // Tunggu input masa manfaat terisi dengan nilai 60
-      await page.waitForFunction(
-        () => {
-          const input = document.querySelector('input[type="number"][min="1"]')
-          return input && input.value === '60'
-        },
-        { timeout: 10000 }
-      )
-
-      // Badge simulasi
-      const badgeText = await page.$eval('section', el => el.textContent)
-      assert.ok(badgeText.includes('Simulasi — belum dibukukan'), 'Badge simulasi harus muncul')
-
-      // Cek ringkasan beban bulan penuh (Rp 100.000)
-      await page.waitForFunction(
-        () => document.body.textContent.includes('100.000'),
-        { timeout: 10000 }
-      )
-
-      // Cek prorata bulan pertama Juni 2026 (Rp 50.000)
-      await page.waitForFunction(
-        () => document.body.textContent.includes('50.000') && document.body.textContent.includes('Prorata'),
-        { timeout: 10000 }
-      )
-
-      console.log('[E2E-SIMULASI] Nilai awal simulasi diverifikasi akurat.')
-    })
-
-    // --- LANGKAH 4: Ubah Parameter Simulasi Secara Interaktif ---
-    await t.test('4. Ubah Parameter Simulasi (8 Tahun / 96 Bulan) & Verifikasi Kereaktifan', async () => {
-      // Klik preset "8 Tahun (96 bln)"
+    // --- LANGKAH 3: Ubah Parameter Simulasi In-Memory (Preset, Porsi Usaha Null, Metode Kosong) ---
+    await t.test('3. Ubah Parameter Simulasi: Preset Umur, Kosongkan Porsi Usaha, dan Metode Belum Ditentukan', async () => {
+      // 3.1 Klik preset "8 Tahun (96 bln)"
       await clickElementWithText(page, 'button', '8 Tahun (96 bln)')
 
-      // Tunggu perubahan reaktif pada DOM
+      // Tunggu perubahan reaktif pada DOM ke Rp 62.500 dan prorata Rp 31.250
+      await page.waitForFunction(
+        () => document.body.textContent.includes('62.500') && document.body.textContent.includes('31.250'),
+        { timeout: 5000 }
+      )
+
+      // Indikator perubahan lokal
+      const hasModifiedNotice = await page.evaluate(() => {
+        return document.body.textContent.includes('Nilai simulasi sedang diubah secara lokal (in-memory)')
+      })
+      assert.ok(hasModifiedNotice, 'Harus menampilkan notifikasi modifikasi in-memory')
+
+      // 3.2 Kosongkan Porsi Usaha melalui tombol UI
+      await clickElementWithText(page, 'button', 'Kosongkan')
+
+      // Periksa bahwa label "(Belum Ditentukan)" muncul di input porsi usaha
+      await page.waitForFunction(
+        () => document.body.textContent.includes('(Belum Ditentukan)'),
+        { timeout: 5000 }
+      )
+
+      // Periksa bahwa beban usaha pada tabel bertuliskan "Belum ditentukan", namun beban penyusutan total tetap Rp 62.500
+      const hasBelumDitentukanTable = await page.evaluate(() => {
+        return document.body.textContent.includes('Belum ditentukan')
+      })
+      assert.ok(hasBelumDitentukanTable, 'Kolom beban usaha harus menampilkan "Belum ditentukan" saat porsi null')
+
+      // 3.3 Ubah Metode Penyusutan ke "Belum Ditentukan"
+      await page.$eval('select', el => {
+        el.value = 'belum_ditentukan'
+        el.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+
+      // Verifikasi bahwa status beralih ke "Belum dapat dihitung" dan muncul pesan field belum lengkap
+      await page.waitForFunction(
+        () => document.body.textContent.includes('Belum dapat dihitung') &&
+              document.body.textContent.includes('Metode penyusutan belum ditentukan'),
+        { timeout: 5000 }
+      )
+      console.log('[E2E-SIMULASI-3R] Uji interaktif parameter (preset, porsi null, metode kosong) sukses.')
+
+      // 3.4 Kembalikan metode ke Garis Lurus agar dapat dites reset
+      await page.$eval('select', el => {
+        el.value = 'garis_lurus'
+        el.dispatchEvent(new Event('change', { bubbles: true }))
+      })
       await page.waitForFunction(
         () => document.body.textContent.includes('62.500'),
         { timeout: 5000 }
       )
-
-      // Pastikan indikator in-memory muncul
-      const hasModifiedNotice = await page.evaluate(() => {
-        return document.body.textContent.includes('Nilai simulasi sedang diubah secara lokal (in-memory)')
-      })
-      assert.ok(hasModifiedNotice, 'Harus menampilkan notifikasi bahwa nilai simulasi diubah secara in-memory')
-
-      // Verifikasi beban prorata pertama menjadi Rp 31.250 (15/30 * 62.500)
-      const has31k = await page.evaluate(() => {
-        return document.body.textContent.includes('31.250')
-      })
-      assert.ok(has31k, 'Beban prorata periode pertama harus reaktif berubah ke Rp 31.250')
-      console.log('[E2E-SIMULASI] Parameter berhasil diubah dan tabel bereaksi seketika.')
     })
 
-    // --- LANGKAH 5: Kembalikan ke Data Tersimpan ---
-    await t.test('5. Klik "Kembalikan ke data tersimpan" dan Verifikasi Nilai Semula', async () => {
+    // --- LANGKAH 4: Reset Simulasi ke Data Tersimpan ---
+    await t.test('4. Klik "Kembalikan ke data tersimpan" dan Verifikasi Kembalinya Nilai Asli', async () => {
       await clickElementWithText(page, 'button', 'Kembalikan ke data tersimpan')
 
-      // Tunggu nilai kembali ke 100.000
+      // Tunggu nilai kembali ke 100.000 dan porsi usaha kembali ke 100%
       await page.waitForFunction(
-        () => document.body.textContent.includes('100.000'),
+        () => document.body.textContent.includes('100.000') && !document.body.textContent.includes('(Belum Ditentukan)'),
         { timeout: 5000 }
       )
 
-      const masaInputVal = await page.$eval('input[type="number"][min="1"]', el => el.value)
-      assert.strictEqual(masaInputVal, '60', 'Masa manfaat harus kembali ke 60 bulan')
-
       const hasModifiedNotice = await page.evaluate(() => {
         return document.body.textContent.includes('Nilai simulasi sedang diubah secara lokal (in-memory)')
       })
-      assert.strictEqual(hasModifiedNotice, false, 'Notifikasi modifikasi in-memory harus hilang')
-      console.log('[E2E-SIMULASI] Nilai simulasi berhasil direset ke nilai tersimpan.')
+      assert.strictEqual(hasModifiedNotice, false, 'Notifikasi modifikasi in-memory harus hilang setelah reset')
+      console.log('[E2E-SIMULASI-3R] Reset parameter simulasi sukses.')
     })
 
-    // --- LANGKAH 6: Buktikan Tidak Ada Efek Samping ke Database ---
-    await t.test('6. Verifikasi Integritas Database: Tidak Ada Mutasi Pembukuan & Data Komponen Utuh', async () => {
+    // --- LANGKAH 5: Verifikasi Antarmuka Aset Kategori Tanah ---
+    await t.test('5. Verifikasi UI Aset Tanah: Masa Manfaat Tak Terbatas & Tidak Disusutkan', async () => {
+      await page.goto(`${APP_URL}/aset/${assetTanahId}`, { waitUntil: 'networkidle0' })
+      await page.waitForSelector('h1, h2', { timeout: 10000 })
+
+      // Verifikasi teks penanganan tanah muncul di UI
+      await page.waitForFunction(
+        () => document.body.textContent.includes('Tanah memiliki masa manfaat tidak terbatas dan tidak mengalami penyusutan'),
+        { timeout: 10000 }
+      )
+
+      // Pastikan tabel jadwal bulanan tidak dirender untuk tanah
+      const hasTabelBeban = await page.evaluate(() => {
+        return document.querySelector('table tbody tr') !== null
+      })
+      assert.strictEqual(hasTabelBeban, false, 'Tabel jadwal penyusutan tidak boleh dirender untuk aset tanah')
+      console.log('[E2E-SIMULASI-3R] Antarmuka aset tanah diverifikasi akurat.')
+    })
+
+    // --- LANGKAH 6: Verifikasi Aset Multi-Komponen, Porsi NULL, Ganti Tab, dan Reload ---
+    await t.test('6. Verifikasi Multi-Komponen: Porsi Usaha NULL di DB, Tab Switching, dan Reload', async () => {
+      await page.goto(`${APP_URL}/aset/${assetGedungId}`, { waitUntil: 'networkidle0' })
+      await page.waitForSelector('h1, h2', { timeout: 10000 })
+
+      // Tunggu tabs multi-komponen muncul
+      await page.waitForFunction(
+        () => document.body.textContent.includes('Ringkasan Gabungan Aset') &&
+              document.body.textContent.includes('Struktur Bangunan Gedung Induk') &&
+              document.body.textContent.includes('Renovasi Penambahan Balkon Lantai 2'),
+        { timeout: 10000 }
+      )
+
+      // 6.1 Pada tab ringkasan gabungan, periksa bahwa total biaya terkapitalisasi = Rp 360.000.000
+      await page.waitForFunction(
+        () => document.body.textContent.includes('360.000.000'),
+        { timeout: 5000 }
+      )
+
+      // 6.2 Buka tab komponen pertama (Struktur Bangunan - porsi usaha NULL)
+      await clickElementWithText(page, 'button', 'Struktur Bangunan Gedung Induk')
+      await page.waitForFunction(
+        () => document.body.textContent.includes('(Belum Ditentukan)') &&
+              document.body.textContent.includes('300.000.000'),
+        { timeout: 5000 }
+      )
+
+      // Verifikasi di tabel bahwa porsi usaha tertulis "Belum ditentukan"
+      const hasBelumDitentukanComp1 = await page.evaluate(() => {
+        return document.body.textContent.includes('Belum ditentukan')
+      })
+      assert.ok(hasBelumDitentukanComp1, 'Komponen dengan porsi NULL di DB harus menampilkan "Belum ditentukan"')
+
+      // 6.3 Pindah ke tab komponen kedua (Renovasi - porsi usaha 80%)
+      await clickElementWithText(page, 'button', 'Renovasi Penambahan Balkon Lantai 2')
+      await page.waitForFunction(
+        () => document.body.textContent.includes('60.000.000') &&
+              !document.body.textContent.includes('(Belum Ditentukan)'),
+        { timeout: 5000 }
+      )
+
+      // Ubah parameter in-memory di tab ini
+      await clickElementWithText(page, 'button', '4 Tahun (48 bln)')
+      const isModifiedBeforeReload = await page.evaluate(() => {
+        return document.body.textContent.includes('Nilai simulasi sedang diubah secara lokal (in-memory)')
+      })
+      assert.ok(isModifiedBeforeReload, 'Parameter tab harus termodifikasi in-memory')
+
+      // 6.4 Reload Halaman
+      await page.reload({ waitUntil: 'networkidle0' })
+      await page.waitForSelector('h1, h2', { timeout: 10000 })
+
+      // Setelah reload, parameter lokal harus kembali bersih sesuai data server
+      const isModifiedAfterReload = await page.evaluate(() => {
+        return document.body.textContent.includes('Nilai simulasi sedang diubah secara lokal (in-memory)')
+      })
+      assert.strictEqual(isModifiedAfterReload, false, 'Setelah reload, state lokal in-memory harus bersih')
+      console.log('[E2E-SIMULASI-3R] Verifikasi multi-komponen, porsi null, tab switching, dan reload sukses.')
+    })
+
+    // --- LANGKAH 7: Buktikan Secara Komparatif Tidak Ada Perubahan 1 Byte Pun di Database ---
+    await t.test('7. Verifikasi Snapshot Komparatif: Database Tetap Utuh 100% Tanpa Mutasi', async () => {
       const pgClient = new pg.Client({ host: 'localhost', port: DB_PORT, user: DB_USER, database: DB_NAME })
       await pgClient.connect()
       try {
-        // Cek asset_components
-        const compRes = await pgClient.query(`
-          SELECT masa_manfaat_bulan, biaya_perolehan, nilai_sisa 
-          FROM public.asset_components 
-          WHERE asset_id = '${testAssetId}'
-        `)
-        assert.strictEqual(compRes.rows.length, 1, 'Komponen harus tetap ada 1 baris')
-        assert.strictEqual(Number(compRes.rows[0].masa_manfaat_bulan), 60, 'Masa manfaat di DB harus tetap 60 bulan')
-        assert.strictEqual(Number(compRes.rows[0].biaya_perolehan), 6000000, 'Biaya perolehan di DB harus tetap 6.000.000')
+        const snapshotAfter = await getFullDatabaseSnapshot(pgClient)
 
-        // Cek status aset
-        const assetCheck = await pgClient.query(`SELECT status_pencatatan FROM public.assets WHERE id = '${testAssetId}'`)
-        assert.strictEqual(assetCheck.rows[0].status_pencatatan, 'draft', 'Status aset harus tetap draft')
+        // Periksa kesetaraan komparatif utuh (deepStrictEqual)
+        assert.deepStrictEqual(snapshotAfter.assets, snapshotBefore.assets, 'Tabel assets harus identik sebelum dan sesudah simulasi')
+        assert.deepStrictEqual(snapshotAfter.components, snapshotBefore.components, 'Tabel asset_components harus identik sebelum dan sesudah simulasi')
+        assert.deepStrictEqual(snapshotAfter.expenses, snapshotBefore.expenses, 'Tabel expenses harus identik sebelum dan sesudah simulasi')
+        assert.deepStrictEqual(snapshotAfter.journals, snapshotBefore.journals, 'Tabel journals harus identik sebelum dan sesudah simulasi')
+        assert.deepStrictEqual(snapshotAfter.cashFlows, snapshotBefore.cashFlows, 'Tabel cash_flows harus identik sebelum dan sesudah simulasi')
 
-        // Cek tabel pengeluaran / expenses
-        const expCheck = await pgClient.query("SELECT COUNT(*) FROM public.expenses WHERE keterangan ILIKE '%penyusutan%'")
-        assert.strictEqual(Number(expCheck.rows[0].count), 0, 'Tidak boleh ada catatan beban pengeluaran penyusutan yang terbuat')
-
-        // Cek tabel journal jika ada
-        const tableCheck = await pgClient.query(`
-          SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'public' AND table_name = 'journals'
-          );
-        `)
-        if (tableCheck.rows[0].exists) {
-          const journalCount = await pgClient.query("SELECT COUNT(*) FROM public.journals")
-          assert.strictEqual(Number(journalCount.rows[0].count), 0, 'Tabel journals harus tetap kosong')
-        }
-
-        console.log('[E2E-SIMULASI] Database bersih: Terbukti tidak ada mutasi server atau efek samping pembukuan.')
+        console.log('[E2E-SIMULASI-3R] Snapshot database SEBELUM vs SESUDAH simulasi terbukti IDENTIK 100%!')
       } finally {
         await pgClient.end()
       }
     })
 
-    // --- LANGKAH 7: Tangkap Screenshot Desktop dan Mobile ---
-    await t.test('7. Tangkap Bukti Visual Desktop dan Mobile', async () => {
-      // 7.1 Screenshot Desktop
+    // --- LANGKAH 8: Tangkap Screenshot Desktop dan Mobile ---
+    await t.test('8. Tangkap Bukti Visual Desktop dan Mobile Resolusi Tinggi', async () => {
+      // 8.1 Screenshot Desktop
       await page.setViewport({ width: 1280, height: 900 })
-      await new Promise(r => setTimeout(r, 500))
+      await page.goto(`${APP_URL}/aset/${assetAcId}`, { waitUntil: 'networkidle0' })
+      await new Promise(r => setTimeout(r, 800))
       const desktopShotPath = path.join(ROOT, 'docs/screenshots/qa_fase3_desktop_simulasi_penyusutan.png')
       await page.screenshot({ path: desktopShotPath, fullPage: true })
 
@@ -285,9 +431,9 @@ test('Alur Browser End-to-End Simulasi Penyusutan Aset (Fase 3)', { timeout: 120
         fs.copyFileSync(desktopShotPath, artifactDesktop)
       } catch {}
 
-      // 7.2 Screenshot Mobile
+      // 8.2 Screenshot Mobile
       await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true })
-      await new Promise(r => setTimeout(r, 500))
+      await new Promise(r => setTimeout(r, 800))
       const mobileShotPath = path.join(ROOT, 'docs/screenshots/qa_fase3_mobile_simulasi_penyusutan.png')
       await page.screenshot({ path: mobileShotPath, fullPage: true })
 
@@ -296,24 +442,24 @@ test('Alur Browser End-to-End Simulasi Penyusutan Aset (Fase 3)', { timeout: 120
         fs.copyFileSync(mobileShotPath, artifactMobile)
       } catch {}
 
-      console.log('[E2E-SIMULASI] Screenshot desktop dan mobile berhasil disimpan.')
+      console.log('[E2E-SIMULASI-3R] Screenshot desktop dan mobile berhasil disimpan.')
     })
 
     await context.close()
   } finally {
     if (browser) {
       try { await browser.close() } catch {}
-      console.log('[E2E-SIMULASI] Browser ditutup.')
+      console.log('[E2E-SIMULASI-3R] Browser ditutup.')
     }
     if (viteProcess && !viteProcess.killed) {
       try {
         viteProcess.kill('SIGKILL')
       } catch {}
-      console.log('[E2E-SIMULASI] Vite dev server dihentikan.')
+      console.log('[E2E-SIMULASI-3R] Vite dev server dihentikan.')
     }
     if (supabaseStack) {
       try { await supabaseStack.stop() } catch {}
-      console.log('[E2E-SIMULASI] Supabase stack dihentikan.')
+      console.log('[E2E-SIMULASI-3R] Supabase stack dihentikan.')
     }
   }
 })
