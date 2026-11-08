@@ -318,34 +318,6 @@ export function calculateComponentDepreciation(component, assetCategoryArg = nul
   const hasPorsiUsaha = porsiUsahaRaw !== null && porsiUsahaRaw !== undefined && porsiUsahaRaw !== ''
   const porsiUsaha = hasPorsiUsaha ? Number(porsiUsahaRaw) : null
 
-  // Kasus Khusus: Biaya sama dengan Nilai Sisa (Dasar Penyusutan Nol)
-  if (dasarPenyusutan === 0) {
-    const endPeriodDate = addMonths(startYear, startMonth, startDay === 1 ? M - 1 : M)
-    return {
-      status: STATUS_PERHITUNGAN.DAPAT_DIHITUNG,
-      canCalculate: true,
-      komponenId: component?.id || null,
-      namaKomponen: component?.nama_komponen || 'Komponen',
-      biayaPerolehan: biaya,
-      nilaiSisa,
-      dasarPenyusutan: 0,
-      masaManfaatBulan: M,
-      bebanBulanPenuh: 0,
-      bebanBulanPertama: 0,
-      bebanUsahaBulanPenuh: hasPorsiUsaha ? 0 : null,
-      totalPenyusutanUsaha: hasPorsiUsaha ? 0 : null,
-      porsiUsahaPersen: porsiUsaha,
-      periodeAwal: formatPeriodLabel(startYear, startMonth),
-      periodeAkhir: formatPeriodLabel(endPeriodDate.year, endPeriodDate.month),
-      isPerluTelaah: component?.status_kapitalisasi === 'perlu_telaah',
-      catatanSimulasi: component?.status_kapitalisasi === 'perlu_telaah'
-        ? 'Simulasi dengan asumsi dikapitalisasi'
-        : null,
-      jadwalBulanan: [],
-      ringkasanTahunan: [],
-    }
-  }
-
   // Konvensi Periode & Prorata
   const daysInFirstMonth = getDaysInMonth(startYear, startMonth)
   const daysActiveFirstMonth = daysInFirstMonth - startDay + 1
@@ -381,13 +353,13 @@ export function calculateComponentDepreciation(component, assetCategoryArg = nul
       } else if (i <= M) {
         W = fraksiBulanPertama + (i - 1)
       } else {
-        // Periode M + 1: Menyelesaikan fraksi sisa (fraksiBulanPertama + (M - 1) + (1 - fraksiBulanPertama) = M)
+        // Periode M + 1: Menyelesaikan fraksi sisa
         W = M
       }
     }
 
     // Target akumulasi teoritis pada periode i (Bresenham Cumulative Target)
-    const targetAkumulasi = Math.round(dasarPenyusutan * (W / M))
+    const targetAkumulasi = dasarPenyusutan === 0 ? 0 : Math.round(dasarPenyusutan * (W / M))
     const bebanPeriode = targetAkumulasi - prevAkumulasi
     prevAkumulasi = targetAkumulasi
 
@@ -397,7 +369,7 @@ export function calculateComponentDepreciation(component, assetCategoryArg = nul
     // Beban Porsi Usaha
     let bebanUsahaPeriode = null
     if (hasPorsiUsaha) {
-      if (totalBebanUsahaTarget === 0) {
+      if (totalBebanUsahaTarget === 0 || dasarPenyusutan === 0) {
         bebanUsahaPeriode = 0
       } else {
         // AU(i) = round(TargetUsaha * A(i) / Dasar)
@@ -423,8 +395,8 @@ export function calculateComponentDepreciation(component, assetCategoryArg = nul
       akumulasiPenyusutan,
       nilaiBukuAkhir,
       isProrata,
-      hariProrata: isProrata ? daysActiveFirstMonth : (isFractionalFinal ? (startDay - 1) : null),
-      totalHariBulan: isProrata ? daysInFirstMonth : (isFractionalFinal ? getDaysInMonth(curYear, curMonth) : null),
+      hariProrata: isProrata ? daysActiveFirstMonth : null,
+      totalHariBulan: isProrata ? daysInFirstMonth : null,
       isFractionalFinal,
     })
   }
@@ -434,9 +406,9 @@ export function calculateComponentDepreciation(component, assetCategoryArg = nul
   const ringkasanTahunan = generateAnnualSummary(jadwalBulanan)
 
   // Estimasi beban bulan penuh untuk kartu ringkasan
-  const bebanBulanPenuhBulat = Math.round(dasarPenyusutan / M)
+  const bebanBulanPenuhBulat = dasarPenyusutan === 0 ? 0 : Math.round(dasarPenyusutan / M)
   const bebanUsahaBulanPenuh = hasPorsiUsaha
-    ? Math.round((dasarPenyusutan / M) * (porsiUsaha / 100))
+    ? (dasarPenyusutan === 0 ? 0 : Math.round((dasarPenyusutan / M) * (porsiUsaha / 100)))
     : null
 
   // Indikator Posisi Bulan Berjalan (jika tanggal mulai di masa lalu)
@@ -473,7 +445,9 @@ export function calculateComponentDepreciation(component, assetCategoryArg = nul
     bebanUsahaBulanPenuh,
     totalPenyusutanUsaha: totalBebanUsahaTarget,
     porsiUsahaPersen: porsiUsaha,
-    periodeAwal: firstPeriod ? firstPeriod.periodeLabel : null,
+    startPeriodKey: firstPeriod ? firstPeriod.periodeKey : formatPeriodKey(startYear, startMonth),
+    endPeriodKey: lastPeriod ? lastPeriod.periodeKey : null,
+    periodeAwal: firstPeriod ? firstPeriod.periodeLabel : formatPeriodLabel(startYear, startMonth),
     periodeAkhir: lastPeriod ? lastPeriod.periodeLabel : null,
     tanggalSelesai: lastPeriod ? lastPeriod.periodeLabel : null,
     totalPeriods,
@@ -640,30 +614,73 @@ export function calculateAssetDepreciation(components = [], assetCategoryArg = n
     ? calculable.reduce((acc, r) => acc + (r.result.totalPenyusutanUsaha || 0), 0)
     : null
 
-  // Kumpulkan seluruh periode bulan kalender unik yang ada di komponen-komponen terhitung
-  const allPeriodKeysSet = new Set()
-  for (const item of calculable) {
-    for (const entry of item.result.jadwalBulanan) {
-      allPeriodKeysSet.add(entry.periodeKey)
+  // Helper untuk mendapatkan seluruh periode antara dua kunci periode YYYY-MM
+  function getPeriodKeysBetween(startKey, endKey) {
+    if (!startKey) return []
+    if (!endKey || startKey > endKey) return [startKey]
+    const keys = []
+    const [sY, sM] = startKey.split('-').map(Number)
+    const [eY, eM] = endKey.split('-').map(Number)
+    let curY = sY
+    let curM = sM
+    while (curY < eY || (curY === eY && curM <= eM)) {
+      keys.push(formatPeriodKey(curY, curM))
+      const next = addMonths(curY, curM, 1)
+      curY = next.year
+      curM = next.month
     }
+    return keys
   }
-  const sortedMonthKeys = Array.from(allPeriodKeysSet).sort()
 
   // Bangun lookup cepat entry per komponen: map[komponenId][periodeKey]
   const compScheduleMap = new Map()
   for (const item of calculable) {
     const m = new Map()
-    for (const entry of item.result.jadwalBulanan) {
+    for (const entry of (item.result.jadwalBulanan || [])) {
       m.set(entry.periodeKey, entry)
     }
+
+    const compDateParts = item.komponen?.tanggal_siap_guna
+      ? parseDateParts(String(item.komponen.tanggal_siap_guna))
+      : null
+
+    const fallbackStartKey = compDateParts
+      ? formatPeriodKey(compDateParts.year, compDateParts.month)
+      : ''
+
+    const startKey = item.result.startPeriodKey ||
+      (item.result.jadwalBulanan && item.result.jadwalBulanan[0]?.periodeKey) ||
+      fallbackStartKey
+
+    const endKey = item.result.endPeriodKey ||
+      (item.result.jadwalBulanan && item.result.jadwalBulanan[item.result.jadwalBulanan.length - 1]?.periodeKey) ||
+      startKey
+
     compScheduleMap.set(item.result.komponenId || item.komponen.id, {
       result: item.result,
       komponen: item.komponen,
       map: m,
-      startKey: item.result.jadwalBulanan[0]?.periodeKey || '',
-      endKey: item.result.jadwalBulanan[item.result.jadwalBulanan.length - 1]?.periodeKey || '',
+      startKey,
+      endKey,
     })
   }
+
+  // Kumpulkan seluruh periode bulan kalender unik yang ada di komponen-komponen terhitung
+  // Memastikan aktivasi seluruh komponen tercakup meskipun jadwal komponen tertentu kosong
+  const allPeriodKeysSet = new Set()
+  for (const [compId, compInfo] of compScheduleMap.entries()) {
+    for (const entry of (compInfo.result.jadwalBulanan || [])) {
+      allPeriodKeysSet.add(entry.periodeKey)
+    }
+    if (compInfo.startKey && compInfo.endKey) {
+      for (const k of getPeriodKeysBetween(compInfo.startKey, compInfo.endKey)) {
+        allPeriodKeysSet.add(k)
+      }
+    } else if (compInfo.startKey) {
+      allPeriodKeysSet.add(compInfo.startKey)
+    }
+  }
+  const sortedMonthKeys = Array.from(allPeriodKeysSet).sort()
 
   // Bangun jadwal bulanan gabungan berbasis waktu kapitalisasi
   const jadwalBulanan = []
@@ -684,7 +701,7 @@ export function calculateAssetDepreciation(components = [], assetCategoryArg = n
 
     for (const [compId, compInfo] of compScheduleMap.entries()) {
       // Komponen baru masuk ke nilai buku jika bulan ini >= tanggal siap guna / periode awal komponen
-      if (key >= compInfo.startKey) {
+      if (compInfo.startKey && key >= compInfo.startKey) {
         biayaAktifBulanIni += compInfo.result.biayaPerolehan
 
         const entry = compInfo.map.get(key)
@@ -702,9 +719,19 @@ export function calculateAssetDepreciation(components = [], assetCategoryArg = n
             bebanUsaha: entry.bebanUsaha,
             nilaiBuku: entry.nilaiBukuAkhir,
           })
-        } else if (key > compInfo.endKey) {
+        } else if (compInfo.endKey && key > compInfo.endKey) {
           // Komponen sudah selesai disusutkan sebelum bulan ini; nilai bukunya adalah nilai sisa
           nilaiBukuAkhirBulanIni += compInfo.result.nilaiSisa
+        } else if (compInfo.result.dasarPenyusutan === 0) {
+          // Komponen dasar penyusutan 0 di masa aktif tanpa entry khusus
+          nilaiBukuAkhirBulanIni += compInfo.result.nilaiSisa
+          breakdown.push({
+            komponenId: compId,
+            namaKomponen: compInfo.result.namaKomponen,
+            beban: 0,
+            bebanUsaha: allHaveBusinessPortion ? 0 : null,
+            nilaiBuku: compInfo.result.nilaiSisa,
+          })
         }
       }
     }

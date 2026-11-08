@@ -396,21 +396,21 @@ test('Alur Browser End-to-End Simulasi Penyusutan Aset (Fase 3-R)', { timeout: 1
       console.log('[E2E-SIMULASI-3R] Verifikasi multi-komponen, porsi null, tab switching, dan reload sukses.')
     })
 
-    // --- LANGKAH 7: Buktikan Secara Komparatif Tidak Ada Perubahan 1 Byte Pun di Database ---
-    await t.test('7. Verifikasi Snapshot Komparatif: Database Tetap Utuh 100% Tanpa Mutasi', async () => {
+    // --- LANGKAH 7: Verifikasi Snapshot Komparatif Data Baris Tabel ---
+    await t.test('7. Verifikasi Snapshot Komparatif: Data Baris pada Tabel yang Diperiksa Identik Sebelum dan Sesudah Skenario', async () => {
       const pgClient = new pg.Client({ host: 'localhost', port: DB_PORT, user: DB_USER, database: DB_NAME })
       await pgClient.connect()
       try {
         const snapshotAfter = await getFullDatabaseSnapshot(pgClient)
 
-        // Periksa kesetaraan komparatif utuh (deepStrictEqual)
-        assert.deepStrictEqual(snapshotAfter.assets, snapshotBefore.assets, 'Tabel assets harus identik sebelum dan sesudah simulasi')
-        assert.deepStrictEqual(snapshotAfter.components, snapshotBefore.components, 'Tabel asset_components harus identik sebelum dan sesudah simulasi')
-        assert.deepStrictEqual(snapshotAfter.expenses, snapshotBefore.expenses, 'Tabel expenses harus identik sebelum dan sesudah simulasi')
-        assert.deepStrictEqual(snapshotAfter.journals, snapshotBefore.journals, 'Tabel journals harus identik sebelum dan sesudah simulasi')
-        assert.deepStrictEqual(snapshotAfter.cashFlows, snapshotBefore.cashFlows, 'Tabel cash_flows harus identik sebelum dan sesudah simulasi')
+        // Periksa kesetaraan komparatif data baris pada tabel-tabel data aplikasi
+        assert.deepStrictEqual(snapshotAfter.assets, snapshotBefore.assets, 'Data baris tabel assets harus identik sebelum dan sesudah skenario')
+        assert.deepStrictEqual(snapshotAfter.components, snapshotBefore.components, 'Data baris tabel asset_components harus identik sebelum dan sesudah skenario')
+        assert.deepStrictEqual(snapshotAfter.expenses, snapshotBefore.expenses, 'Data baris tabel expenses harus identik sebelum dan sesudah skenario')
+        assert.deepStrictEqual(snapshotAfter.journals, snapshotBefore.journals, 'Data baris tabel journals (jika tersedia) harus identik sebelum dan sesudah skenario')
+        assert.deepStrictEqual(snapshotAfter.cashFlows, snapshotBefore.cashFlows, 'Data baris tabel cash_flows (jika tersedia) harus identik sebelum dan sesudah skenario')
 
-        console.log('[E2E-SIMULASI-3R] Snapshot database SEBELUM vs SESUDAH simulasi terbukti IDENTIK 100%!')
+        console.log('[E2E-SIMULASI-3R] Data baris pada tabel yang diperiksa terbukti identik sebelum dan sesudah skenario!')
       } finally {
         await pgClient.end()
       }

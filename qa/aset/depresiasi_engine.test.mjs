@@ -440,4 +440,115 @@ test('Mesin Penyusutan Garis Lurus (Fase 3-R): Kontrak, Pembulatan, & Rekonsilia
     const nbRenovSolo = resRenovSolo.jadwalBulanan.find(r => r.periodeKey === '2024-01').nilaiBukuAkhir
     assert.strictEqual(row2024_01.nilaiBukuAkhir, nbAwalSolo + nbRenovSolo, 'Nilai buku gabungan aditif linear dengan komponen')
   })
+
+  // ---------------------------------------------------------------------------
+  // 11. Butir 1 & 2: Komponen Dasar Nol & Kalender Gabungan Termasuk Aktivasi Komponen
+  // ---------------------------------------------------------------------------
+  await t.test('11. Butir 1 & 2: Komponen Dasar Nol & Kalender Gabungan Termasuk Aktivasi Komponen', () => {
+    // 11.1 Komponen tunggal dengan biaya == nilai sisa (dasar 0)
+    const compNol = {
+      id: 'comp-nol-1',
+      nama_komponen: 'Partisi Knockdown Khusus',
+      biaya_perolehan: 15000000,
+      nilai_sisa: 15000000,
+      masa_manfaat_bulan: 36,
+      tanggal_siap_guna: '2026-06-16',
+      metode_penyusutan: 'garis_lurus',
+      porsi_usaha_persen: 100,
+    }
+    const resNol = calculateComponentDepreciation(compNol)
+    assert.strictEqual(resNol.status, STATUS_PERHITUNGAN.DAPAT_DIHITUNG)
+    assert.strictEqual(resNol.dasarPenyusutan, 0)
+    assert.strictEqual(resNol.bebanBulanPenuh, 0)
+    assert.strictEqual(resNol.totalPeriods, 37, 'Prorata 16 Juni 2026 selama 36 bln -> 37 periode')
+    assert.strictEqual(resNol.periodeAwal, 'Juni 2026')
+    assert.strictEqual(resNol.periodeAkhir, 'Juni 2029')
+    assert.strictEqual(resNol.jadwalBulanan.length, 37)
+    assert.ok(resNol.jadwalBulanan.every(r => r.bebanPenyusutan === 0 && r.nilaiBukuAkhir === 15000000))
+
+    // 11.2 Regresi Contoh A/B:
+    // Komponen A (dasar > 0) aktif 2026-06-01 (60 bln -> selesai Mei 2031)
+    // Komponen B (dasar == 0) aktif 2027-01-01 (60 bln -> selesai Desember 2031)
+    const compA = {
+      id: 'comp-a',
+      nama_komponen: 'AC Sentral Utama',
+      biaya_perolehan: 120000000,
+      nilai_sisa: 0,
+      masa_manfaat_bulan: 60,
+      tanggal_siap_guna: '2026-06-01',
+      metode_penyusutan: 'garis_lurus',
+      porsi_usaha_persen: 100,
+    }
+    const compB = {
+      id: 'comp-b',
+      nama_komponen: 'Jaminan / Perlengkapan Khusus',
+      biaya_perolehan: 30000000,
+      nilai_sisa: 30000000,
+      masa_manfaat_bulan: 60,
+      tanggal_siap_guna: '2027-01-01',
+      metode_penyusutan: 'garis_lurus',
+      porsi_usaha_persen: 100,
+    }
+
+    const resAB = calculateAssetDepreciation([compA, compB], 'barang')
+    assert.strictEqual(resAB.status, STATUS_PERHITUNGAN.DAPAT_DIHITUNG)
+    assert.strictEqual(resAB.biayaTotal, 150000000)
+    assert.strictEqual(resAB.dasarPenyusutanTotal, 120000000)
+
+    // Kalender gabungan harus membentang dari Juni 2026 sampai Desember 2031 (mencakup aktivasi Komponen B)
+    assert.strictEqual(resAB.jadwalBulanan[0].periodeKey, '2026-06')
+    const lastRowAB = resAB.jadwalBulanan[resAB.jadwalBulanan.length - 1]
+    assert.strictEqual(lastRowAB.periodeKey, '2031-12', 'Kalender gabungan harus mencapai Desember 2031')
+
+    // Pada 2026-06, biaya aktif hanya Komponen A (Rp120.000.000)
+    const row2026_06 = resAB.jadwalBulanan.find(r => r.periodeKey === '2026-06')
+    assert.strictEqual(row2026_06.biayaAktif, 120000000)
+
+    // Pada 2027-01, Komponen B aktif sehingga biaya aktif menjadi Rp150.000.000
+    const row2027_01 = resAB.jadwalBulanan.find(r => r.periodeKey === '2027-01')
+    assert.strictEqual(row2027_01.biayaAktif, 150000000)
+    assert.strictEqual(row2027_01.bebanPenyusutan, 2000000, 'Beban penyusutan hanya dari Komponen A (120M / 60 bln)')
+
+    // Pada 2031-06 (setelah Komponen A selesai di Mei 2031):
+    // Komponen A telah habis disusutkan (nilai sisa 0), Komponen B masih aktif dengan nilai buku Rp30M
+    const row2031_06 = resAB.jadwalBulanan.find(r => r.periodeKey === '2031-06')
+    assert.ok(row2031_06, 'Periode 2031-06 harus ada di kalender gabungan')
+    assert.strictEqual(row2031_06.bebanPenyusutan, 0, 'Komponen A sudah selesai, Komponen B beban 0')
+    assert.strictEqual(row2031_06.nilaiBukuAkhir, 30000000, 'Nilai buku akhir mencerminkan Komponen B yang masih aktif')
+
+    // 11.3 Aset yang seluruh komponennya memiliki biaya sama dengan nilai sisa (dasar 0)
+    const compAllZero1 = {
+      id: 'comp-z1',
+      nama_komponen: 'Perlengkapan Awal',
+      biaya_perolehan: 20000000,
+      nilai_sisa: 20000000,
+      masa_manfaat_bulan: 24,
+      tanggal_siap_guna: '2026-01-01',
+      metode_penyusutan: 'garis_lurus',
+      porsi_usaha_persen: 100,
+    }
+    const compAllZero2 = {
+      id: 'comp-z2',
+      nama_komponen: 'Perlengkapan Tambahan',
+      biaya_perolehan: 10000000,
+      nilai_sisa: 10000000,
+      masa_manfaat_bulan: 24,
+      tanggal_siap_guna: '2026-07-01',
+      metode_penyusutan: 'garis_lurus',
+      porsi_usaha_persen: 100,
+    }
+
+    const resAllZero = calculateAssetDepreciation([compAllZero1, compAllZero2], 'barang')
+    assert.strictEqual(resAllZero.status, STATUS_PERHITUNGAN.DAPAT_DIHITUNG)
+    assert.strictEqual(resAllZero.biayaTotal, 30000000)
+    assert.strictEqual(resAllZero.dasarPenyusutanTotal, 0)
+    assert.strictEqual(resAllZero.totalPenyusutanUsaha, 0)
+    assert.ok(resAllZero.jadwalBulanan.length > 0, 'Jadwal bulanan gabungan harus terbentuk')
+    assert.strictEqual(resAllZero.jadwalBulanan[0].periodeKey, '2026-01')
+    assert.strictEqual(resAllZero.jadwalBulanan[resAllZero.jadwalBulanan.length - 1].periodeKey, '2028-06')
+    assert.ok(resAllZero.jadwalBulanan.every(r => r.bebanPenyusutan === 0 && r.akumulasiPenyusutan === 0))
+    // Cek bahwa pada 2026-01 nilai buku = 20M, dan pada 2026-07 naik jadi 30M
+    assert.strictEqual(resAllZero.jadwalBulanan.find(r => r.periodeKey === '2026-01').nilaiBukuAkhir, 20000000)
+    assert.strictEqual(resAllZero.jadwalBulanan.find(r => r.periodeKey === '2026-07').nilaiBukuAkhir, 30000000)
+  })
 })
