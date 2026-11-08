@@ -15,7 +15,7 @@ function findTestFiles(dir) {
     if (entry.isDirectory()) {
       files = files.concat(findTestFiles(fullPath))
     } else if (entry.isFile() && (entry.name.endsWith('.test.mjs') || entry.name.endsWith('.test.js'))) {
-      if (entry.name !== 'aset_browser_e2e.test.mjs' && entry.name !== 'aset_browser_gotrue_flow.test.mjs') {
+      if (!entry.name.includes('browser')) {
         const relPath = path.relative(ROOT, fullPath).replace(/\\/g, '/')
         files.push(relPath)
       }

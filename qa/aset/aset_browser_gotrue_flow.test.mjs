@@ -55,15 +55,7 @@ test('Alur Browser End-to-End dengan GoTrue Resmi (Router & Guard Asli)', { time
     console.log('[E2E-GOTRUE] Menyiapkan Supabase stack resmi...')
     supabaseStack = await startSupabaseStack()
 
-    // 2. Bersihkan proses Vite lama dan jalankan Vite dev server pada port 5175
-    try {
-      if (process.platform === 'win32') {
-        execSync('wsl bash -c "pkill -9 -f vite"', { stdio: 'ignore' })
-      } else {
-        execSync('pkill -9 -f vite', { shell: '/bin/bash', stdio: 'ignore' })
-      }
-    } catch {}
-
+    // 2. Jalankan Vite dev server pada port 5175
     console.log(`[E2E-GOTRUE] Memulai Vite dev server pada port ${VITE_PORT}...`)
     viteProcess = process.platform === 'win32'
       ? spawn('wsl', ['bash', '-c', `cd /home/disnak/projects/simkos-v2 && npx vite --mode test --port ${VITE_PORT}`], { stdio: 'pipe' })
@@ -206,13 +198,8 @@ test('Alur Browser End-to-End dengan GoTrue Resmi (Router & Guard Asli)', { time
       try { await browser.close() } catch {}
       console.log('[E2E-GOTRUE] Browser ditutup.')
     }
-    if (viteProcess) {
+    if (viteProcess && !viteProcess.killed) {
       try {
-        if (process.platform === 'win32') {
-          execSync('wsl bash -c "pkill -9 -f vite"', { stdio: 'ignore' })
-        } else {
-          execSync('pkill -9 -f vite', { shell: '/bin/bash', stdio: 'ignore' })
-        }
         viteProcess.kill('SIGKILL')
       } catch {}
       console.log('[E2E-GOTRUE] Vite dev server dihentikan.')

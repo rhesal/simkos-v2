@@ -17,9 +17,9 @@ export async function startSupabaseStack() {
   // Pastikan proses lama dibersihkan
   try {
     if (process.platform === 'win32') {
-      execSync('wsl bash -c "pkill -9 -f postgrest; pkill -9 -f gotrue; pkill -9 -f \'auth serve\'"', { stdio: 'ignore' })
+      execSync('wsl bash -c "fuser -k 8432/tcp 8433/tcp 9999/tcp 2>/dev/null || true; pkill -9 -f postgrest; pkill -9 -f gotrue; pkill -9 -f \'auth serve\'"', { stdio: 'ignore' })
     } else {
-      execSync('pkill -9 -f postgrest; pkill -9 -f gotrue; pkill -9 -f "auth serve"', { shell: '/bin/bash', stdio: 'ignore' })
+      execSync('fuser -k 8432/tcp 8433/tcp 9999/tcp 2>/dev/null || true; pkill -9 -f postgrest; pkill -9 -f gotrue; pkill -9 -f "auth serve"', { shell: '/bin/bash', stdio: 'ignore' })
     }
   } catch {}
 
