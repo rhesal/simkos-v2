@@ -607,45 +607,55 @@ prevAkumulasiUsaha = targetAkumulasiUsaha;
 
 ---
 
-## 11. Desain Teknis & Kontrak Pembukuan Penyusutan (Fase 4A)
+## 11. Desain Teknis & Kontrak Pembukuan Penyusutan (Revisi Terbatas Fase 4A)
 
 ### 11.1 Prinsip Desain dan Batasan Integritas
-1. **Pemisahan Tegas Simulasi vs Pembukuan Resmi**:
-   - Simulasi di antarmuka adalah pratinjau kalkulasi in-memory, tidak pernah otomatis menjadi catatan resmi.
-   - Pembukuan resmi memerlukan aktivasi aset eksplisit, pengesahan saldo awal, dan eksekusi batch posting bulanan via RPC PostgreSQL berizin khusus.
-2. **Tanpa Transaksi Kas**:
-   - Pembukuan beban penyusutan dan saldo awal **TIDAK membuat pengeluaran kas (`expenses`)**.
-   - Integritas kas kos tetap terjaga 100%.
-3. **Immutability & Jejak Audit (Audit Trail)**:
-   - Baris pembukuan yang telah disahkan dilarang di-UPDATE atau di-DELETE langsung.
-   - Koreksi dilakukan menggunakan transaksi pembatalan (*storno/reversal*) yang menautkan ID transaksi awal, diikuti pencatatan pengganti jika diperlukan.
-4. **Buku Pembantu Penyusutan (*Sub-Ledger*) vs Jurnal Umum**:
-   - Operasional aset dicatat terperinci pada **Buku Pembantu Penyusutan (`public.asset_depreciation_ledger`)** per komponen per periode.
-   - Posting batch secara atomik menerbitkan pasangan entri pada jurnal umum (`journal_entries` & `journal_lines`):
-     * **Debit:** Beban Penyusutan Usaha (porsi operasional kos)
-     * **Debit:** Beban Penyusutan Non-Usaha / Prive Pemilik (porsi pribadi/non-usaha)
-     * **Kredit:** Akumulasi Penyusutan Aset
-   - *Batasan:* Buku pembantu penyusutan adalah sub-ledger rincian aset tetap dan bukan buku besar umum (General Ledger) lengkap.
+1. **Fokus Tunggal: Buku Pembantu Penyusutan (*Sub-Ledger*)**:
+   - Fase 4 disederhanakan secara terfokus pada **Buku Pembantu Penyusutan Aset (`public.asset_depreciation_ledger`)** dan **Batch Posting (`public.asset_depreciation_batches`)**.
+   - Setiap baris ledger mencatat tiga komponen nominal secara terpisah dan eksplisit:
+     * `depreciation_amount numeric not null`: total beban penyusutan komponen periode tersebut.
+     * `business_portion_amount numeric not null`: beban penyusutan porsi usaha kos ($\text{depreciation\_amount} \times \text{porsi\_usaha\_persen} / 100$).
+     * `non_business_portion_amount numeric not null`: beban penyusutan porsi non-usaha / pribadi ($\text{depreciation\_amount} - \text{business\_portion\_amount}$).
+   - **Penundaan Jurnal Umum:** Tabel jurnal umum (`journal_entries`, `journal_lines`) dan pemetaan akun prive ditunda ke Fase 5 (Integrasi Laporan Keuangan).
+2. **Pemisahan Tegas Simulasi vs Pembukuan Resmi**:
+   - Simulasi di antarmuka hanyalah kalkulasi *in-memory* dan usulan nilai, tidak pernah otomatis menjadi catatan pembukuan resmi.
+   - Pembukuan resmi mewajibkan konfigurasi tanggal mulai pembukuan, aktivasi aset eksplisit, pengesahan saldo awal, dan posting bulanan via RPC PostgreSQL berizin khusus.
+3. **Integritas Kas Terjaga 100%**:
+   - Pembukuan penyusutan dan pengesahan saldo awal **TIDAK membuat mutasi pengeluaran kas (`public.expenses`)**.
+4. **Immutability & Jejak Audit Peristiwa (*Append-Only Audit Log*)**:
+   - Baris ledger dan batch yang telah diposting dilarang di-UPDATE atau di-DELETE secara langsung.
+   - Disediakan tabel audit log terpisah (`public.asset_accounting_audit_logs`) yang mencatat setiap peristiwa (bukan hanya status terakhir).
+5. **Urutan Posting Kronologis & Pembatalan Bertahap**:
+   - Posting bulanan harus berurutan secara kronologis tanpa celah bulan (*no gaps*).
+   - Pembatalan (*reversal/storno*) dibatasi hanya pada **periode posting aktif terakhir**. Koreksi periode yang lebih lama mewajibkan pembatalan periode-periode berikutnya secara berurutan mundur.
+6. **Perlindungan Terhadap Pratinjau Kedaluwarsa (*Stale Preview Guard*)**:
+   - Penggunaan token pratinjau (`preview_token`) untuk mencegah eksekusi posting jika parameter komponen aset telah berubah di antara waktu pratinjau dibuat dan konfirmasi dikirim.
+7. **Pilihan Dasar Penggunaan Tetap Lengkap**:
+   - Mengakomodasi seluruh 4 pilihan dasar penggunaan eksisting:
+     * `milik_sendiri`
+     * `sewa`
+     * `pinjam_pakai`
+     * `dikelola_pihak_lain`
 
 ---
 
-### 11.2 Skema Tabel & Relasi Baru
+### 11.2 Skema Tabel & Relasi Buku Pembantu Penyusutan
 
 ```mermaid
 erDiagram
     organizations ||--o{ asset_bookkeeping_settings : "konfigurasi"
     organizations ||--o{ asset_accounting_periods : "memiliki"
+    organizations ||--o{ asset_accounting_audit_logs : "audit trail"
     assets ||--o{ asset_activation_snapshots : "jejak aktivasi"
     asset_components ||--o| asset_opening_balances : "saldo awal"
-    asset_accounting_periods ||--o{ asset_depreciation_ledger : "periode posting"
-    asset_components ||--o{ asset_depreciation_ledger : "rincian komponen"
-    asset_depreciation_ledger ||--o| asset_depreciation_ledger : "reversal"
-    asset_depreciation_ledger }o--|| journal_entries : "menghasilkan batch"
-    journal_entries ||--o{ journal_lines : "entri berpasangan"
+    asset_accounting_periods ||--o{ asset_depreciation_batches : "periode batch"
+    asset_depreciation_batches ||--o{ asset_depreciation_ledger : "rincian ledger"
+    asset_components ||--o{ asset_depreciation_ledger : "komponen aset"
+    asset_depreciation_ledger ||--o| asset_depreciation_ledger : "reversal storno"
 ```
 
 #### 1. Tabel `public.asset_bookkeeping_settings`
-Menyimpan tanggal patokan dimulainya pembukuan aset per organisasi.
+Menyimpan patokan tanggal mulai pembukuan aset per organisasi.
 ```sql
 create table if not exists public.asset_bookkeeping_settings (
   id uuid primary key default gen_random_uuid(),
@@ -661,7 +671,7 @@ create table if not exists public.asset_bookkeeping_settings (
 ```
 
 #### 2. Tabel `public.asset_activation_snapshots`
-Menyimpan rekam jejak parameter aset saat statusnya beralih dari `'draft'` menjadi `'aktif'`.
+Merekam parameter lengkap komponen aset saat beralih dari draf ke aktif.
 ```sql
 create table if not exists public.asset_activation_snapshots (
   id uuid primary key default gen_random_uuid(),
@@ -678,7 +688,7 @@ create table if not exists public.asset_activation_snapshots (
 ```
 
 #### 3. Tabel `public.asset_opening_balances`
-Menyimpan saldo awal resmi per komponen aset per tanggal cutoff (hari terakhir sebelum tanggal mulai pembukuan).
+Menyimpan saldo awal resmi per komponen aset per tanggal cutoff.
 ```sql
 create table if not exists public.asset_opening_balances (
   id uuid primary key default gen_random_uuid(),
@@ -698,7 +708,13 @@ create table if not exists public.asset_opening_balances (
   akumulasi_usaha_awal numeric check (
     akumulasi_usaha_awal is null or (akumulasi_usaha_awal >= 0 and akumulasi_usaha_awal <= akumulasi_penyusutan_awal)
   ),
+  akumulasi_non_usaha_awal numeric check (
+    akumulasi_non_usaha_awal is null or (akumulasi_non_usaha_awal >= 0 and akumulasi_non_usaha_awal <= akumulasi_penyusutan_awal)
+  ),
+  sisa_dasar_penyusutan numeric not null check (sisa_dasar_penyusutan >= 0),
+  sisa_target_usaha numeric check (sisa_target_usaha is null or sisa_target_usaha >= 0),
   sisa_masa_manfaat_bulan int check (sisa_masa_manfaat_bulan is null or sisa_masa_manfaat_bulan >= 0),
+  status_estimasi text not null default 'valid' check (status_estimasi in ('valid', 'perlu_tinjauan_estimasi')),
   catatan_sumber text,
   approved_by uuid references auth.users(id),
   approved_at timestamptz not null default now(),
@@ -707,7 +723,7 @@ create table if not exists public.asset_opening_balances (
 ```
 
 #### 4. Tabel `public.asset_accounting_periods`
-Mengatur status periode buku bulanan per organisasi.
+Mengelola siklus periode bulanan pembukuan aset per organisasi.
 ```sql
 create table if not exists public.asset_accounting_periods (
   id uuid primary key default gen_random_uuid(),
@@ -725,12 +741,39 @@ create table if not exists public.asset_accounting_periods (
 );
 ```
 
-#### 5. Tabel `public.asset_depreciation_ledger`
+#### 5. Tabel `public.asset_depreciation_batches`
+Mengelola transaksi batch posting penyusutan per periode secara atomik dan idempoten.
+```sql
+create table if not exists public.asset_depreciation_batches (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  period_id uuid not null references public.asset_accounting_periods(id) on delete restrict,
+  period_key text not null check (period_key ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+  batch_number text not null,
+  idempotency_key text not null unique,
+  batch_status text not null default 'posted' check (batch_status in ('posted', 'reversed')),
+  total_depreciation numeric not null check (total_depreciation >= 0),
+  total_business_portion numeric not null check (total_business_portion >= 0),
+  total_non_business_portion numeric not null check (total_non_business_portion >= 0),
+  component_count int not null check (component_count >= 0),
+  snapshot_version_map jsonb not null default '{}'::jsonb,
+  posted_by uuid references auth.users(id),
+  posted_at timestamptz not null default now(),
+  reversed_by uuid references auth.users(id),
+  reversed_at timestamptz,
+  reversal_reason text,
+  created_at timestamptz not null default now(),
+  constraint uq_org_period_regular_batch unique (org_id, period_key, batch_status)
+);
+```
+
+#### 6. Tabel `public.asset_depreciation_ledger`
 Buku pembantu rincian penyusutan per komponen per periode.
 ```sql
 create table if not exists public.asset_depreciation_ledger (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.organizations(id) on delete cascade,
+  batch_id uuid not null references public.asset_depreciation_batches(id) on delete restrict,
   period_id uuid not null references public.asset_accounting_periods(id) on delete restrict,
   period_key text not null check (period_key ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
   asset_id uuid not null references public.assets(id) on delete restrict,
@@ -738,174 +781,208 @@ create table if not exists public.asset_depreciation_ledger (
   entry_type text not null default 'regular' check (entry_type in ('regular', 'reversal', 'replacement')),
   reversed_ledger_id uuid references public.asset_depreciation_ledger(id),
   depreciation_amount numeric not null,
-  business_expense_amount numeric,
+  business_portion_amount numeric not null,
+  non_business_portion_amount numeric not null,
   porsi_usaha_persen numeric check (porsi_usaha_persen is null or (porsi_usaha_persen >= 0 and porsi_usaha_persen <= 100)),
   cumulative_depreciation numeric not null check (cumulative_depreciation >= 0),
   book_value_ending numeric not null check (book_value_ending >= 0),
-  posting_batch_id uuid not null,
   posted_by uuid references auth.users(id),
   posted_at timestamptz not null default now(),
   notes text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  constraint chk_depreciation_balance check (
+    depreciation_amount = business_portion_amount + non_business_portion_amount
+  )
 );
 
--- Indeks unik parsial: hanya 1 posting reguler per komponen per periode
-create unique index if embryonic_regular_posting on public.asset_depreciation_ledger (component_id, period_key)
+create unique index if not exists uq_regular_ledger_posting on public.asset_depreciation_ledger (component_id, period_key)
 where entry_type = 'regular';
+```
+
+#### 7. Tabel `public.asset_accounting_audit_logs`
+Catatan jejak peristiwa append-only audit untuk seluruh mutasi status dan pembukuan.
+```sql
+create table if not exists public.asset_accounting_audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  event_type text not null check (event_type in (
+    'start_date_configured',
+    'asset_activated',
+    'opening_balance_approved',
+    'opening_balance_cancelled',
+    'batch_posted',
+    'batch_reversed',
+    'period_locked',
+    'period_unlocked'
+  )),
+  entity_type text not null check (entity_type in ('settings', 'asset', 'component', 'batch', 'period')),
+  entity_id uuid not null,
+  actor_id uuid references auth.users(id),
+  actor_role text,
+  notes_reason text,
+  payload_before jsonb,
+  payload_after jsonb,
+  created_at timestamptz not null default now()
+);
 ```
 
 ---
 
-### 11.3 Matriks Wewenang & Hak Akses (RBAC & RLS)
+### 11.3 Algoritma Saldo Awal Komponen
 
-| Operasi Pembukuan | Role `owner` | Role `admin` | Role `staff` | Penegakan Keamanan |
-| :--- | :---: | :---: | :---: | :--- |
-| **Atur Tanggal Mulai Pembukuan** | Ya | Ya | Ditolak | RPC `set_bookkeeping_start_date` + RLS |
-| **Aktivasi Draf Aset (`aktif`)** | Ya | Ya | Ditolak | RPC `activate_asset` + Snapshot Server |
-| **Sahkan Saldo Awal Komponen** | Ya | Ya | Ditolak | RPC `approve_opening_balance` + RLS |
-| **Pratinjau Posting Penyusutan** | Ya | Ya | Ya (Lihat) | RPC `preview_depreciation_posting` |
-| **Posting Penyusutan Bulanan** | Ya | Ya | Ditolak | RPC `post_depreciation_batch` (Atomik) |
-| **Kunci Periode (`locked`)** | Ya | Ya | Ditolak | RPC `lock_accounting_period` |
-| **Buka Kunci Periode (`open`)** | Ya | Ya (Catat Alasan) | Ditolak | RPC `unlock_accounting_period` + Audit Trail |
-| **Batalkan Posting (*Reversal*)** | Ya | Ya | Ditolak | RPC `reverse_depreciation_batch` |
-| **Modifikasi Langsung Tabel Ledger** | Ditolak | Ditolak | Ditolak | Revoke UPDATE & DELETE, hanya via RPC |
+#### A. Jalur 1: Simulasi Historis (`simulasi_historis`)
+- Menggunakan formula pembagian kumulatif integer Fase 3-R secara langsung, **bukan memulai jadwal baru**.
+- Misalkan komponen siap guna pada `2024-06-16` selama $M = 60$ bulan. Tanggal mulai pembukuan organisasi adalah `2027-01-01` (Cutoff per `2026-12-31`).
+- Total periode kalender jadwal adalah 61 periode ($i = 1 \dots 61$).
+- Periode historis sebelum cutoff mencakup indeks $i = 1 \dots 31$ (Juni 2024 s/d Desember 2026 = 31 bulan).
+- Akumulasi penyusutan saldo awal per 31 Desember 2026 adalah tepat akumulasi pada periode ke-31:
+  $$A_{\text{awal}} = \text{TargetAkumulasi}(31) = \text{round}\left( \text{Dasar} \times \frac{W(31)}{M} \right)$$
+  $$AU_{\text{awal}} = \text{TargetAkumulasiUsaha}(31) = \text{round}\left( \text{TargetUsaha} \times \frac{A_{\text{awal}}}{\text{Dasar}} \right)$$
+  $$ANU_{\text{awal}} = A_{\text{awal}} - AU_{\text{awal}}$$
+  $$\text{NilaiBukuAwal} = \text{Biaya} - A_{\text{awal}}$$
+- **Kelanjutan Posting Berjalan:**
+  Saat posting periode pertama (`2027-01`) dieksekusi, sistem menghitung periode ke-32 ($i = 32$):
+  $$A(32) = \text{round}\left( \text{Dasar} \times \frac{W(32)}{M} \right)$$
+  $$\text{beban}_{32} = A(32) - A_{\text{awal}}$$
+  $$\text{bebanUsaha}_{32} = AU(32) - AU_{\text{awal}}$$
+  $$\text{bebanNonUsaha}_{32} = \text{beban}_{32} - \text{bebanUsaha}_{32}$$
+  Kontinuitas matematis terjamin 100%, tanpa lonjakan atau pembulatan ulang.
 
----
-
-### 11.4 Kontrak RPC & Batas Transaksi
-
-#### 1. `set_bookkeeping_start_date(p_org_id uuid, p_start_date date)`
-- **Validasi:**
-  * Pengguna terautentikasi dan memiliki peran `owner` atau `admin` pada `p_org_id`.
-  * `p_start_date` wajib tanggal 1 suatu bulan (`extract(day from p_start_date) = 1`).
-  * Jika organisasi telah memiliki `is_locked = true` (karena telah ada saldo awal atau posting), perubahan ditolak dengan `SIMKOS_BOOKKEEPING_LOCKED`.
-- **Hasil:** Menyimpan baris pada `asset_bookkeeping_settings`.
-
-#### 2. `activate_asset(p_asset_id uuid, p_activation_notes text)`
-- **Validasi:**
-  * Status aset saat ini wajib `'draft'`.
-  * Kepemilikan dan dasar penggunaan aset terisi lengkap.
-  * Setiap komponen kapitalisasi wajib memiliki biaya perolehan, tanggal siap guna, masa manfaat, dan porsi usaha (`porsi_usaha_persen IS NOT NULL`).
-  * Komponen berstatus `'perlu_telaah'` **ditolak**; pengguna harus memutuskan menjadi `'kapitalisasi'` atau `'beban_langsung'`.
-  * Komponen tanah diverifikasi tidak memiliki beban penyusutan.
-- **Hasil:**
-  * Mengubah `assets.status_pencatatan = 'aktif'`.
-  * Merekam parameter komponen ke `asset_activation_snapshots` versi terbaru.
-
-#### 3. `approve_component_opening_balance(p_component_id uuid, p_jalur text, p_manual_akumulasi numeric, p_catatan text)`
-- **Alur Perhitungan:**
-  * Ambil tanggal mulai pembukuan organisasi (`cutoff_date = tanggal_mulai_pembukuan - 1 hari`).
-  * Jika tanggal siap guna komponen $\ge$ tanggal mulai pembukuan (komponen perolehan baru), akumulasi saldo awal otomatis 0.
-  * *Jalur Simulasi Historis (`simulasi_historis`):* Mesin server menghitung akumulasi penyusutan sejak tanggal siap guna sampai dengan bulan cutoff menggunakan algoritma Bresenham target kumulatif.
-  * *Jalur Catatan Terdahulu (`catatan_terdahulu`):* Menggunakan `p_manual_akumulasi` yang diinput pengguna setelah memvalidasi $0 \le \text{akumulasi} \le (\text{biaya} - \text{nilai\_sisa})$.
-  * Menghitung sisa dasar penyusutan ke depan: $\text{SisaDasar} = (\text{Biaya} - \text{Akumulasi}) - \text{NilaiSisa}$.
-  * Menghitung sisa masa manfaat bulan untuk alokasi posting masa depan.
-- **Hasil:** Menyimpan baris pada `asset_opening_balances` dan mengunci `asset_bookkeeping_settings.is_locked = true`.
-
-#### 4. `preview_depreciation_posting(p_org_id uuid, p_period_key text)`
-- **Fungsi:** Menghasilkan tabel pratinjau kalkulasi server tanpa mengubah status database.
-- **Keluaran:**
-  * `eligible_components`: Daftar komponen aktif beserta nilai beban penyusutan total, beban usaha, akumulasi baru, dan nilai buku baru pada periode tersebut.
-  * `ineligible_components`: Daftar komponen yang dilewati beserta alasannya (misal: draf belum aktif, tanah tidak disusutkan, siap guna di masa mendatang, atau sudah habis disusutkan).
-  * `summary`: Total beban penyusutan dan total beban usaha seluruh organisasi.
-
-#### 5. `post_depreciation_batch(p_org_id uuid, p_period_key text, p_notes text)`
-- **Batas Transaksi & Atomisitas:**
-  * Membuka advisory lock transaksi: `PERFORM pg_advisory_xact_lock(hashtext(p_org_id::text || ':' || p_period_key))`.
-  * Validasi periode: Periode harus $\ge$ bulan tanggal mulai pembukuan.
-  * Validasi status: Periode wajib berstatus `'open'`. Jika `'locked'`, gagalkan dengan pesan jelas.
-  * Validasi idempoten: Jika sudah ada posting `entry_type = 'regular'` pada periode tersebut, gagalkan dengan `SIMKOS_PERIOD_ALREADY_POSTED`.
-  * Perhitungan server: Menghitung beban tiap komponen aktif yang konsisten dengan saldo awal dan posting periode sebelumnya.
-  * Penulisan Sub-Ledger: Menyisipkan baris posting ke `asset_depreciation_ledger` dengan batch ID acak yang sama.
-  * Penulisan Jurnal: Menerbitkan entri jurnal berpasangan pada `journal_entries` dan `journal_lines` secara atomik.
-
-#### 6. `reverse_depreciation_batch(p_batch_id uuid, p_reason text)`
-- **Validasi:**
-  * Batch ID valid dan belum pernah di-reverse.
-  * Periode dari batch tersebut wajib berstatus `'open'`. Jika periode sudah `'locked'`, proses ditolak sampai periode dibuka kembali secara eksplisit oleh admin/owner.
-- **Hasil:**
-  * Menyisipkan baris pembalik (`entry_type = 'reversal'`) pada `asset_depreciation_ledger` dengan nominal negatif dari posting awal dan mereferensikan `reversed_ledger_id`.
-  * Menerbitkan jurnal pembalik (*storno*) berpasangan.
-  * Riwayat baris posting awal tetap utuh di database.
+#### B. Jalur 2: Catatan Terdahulu / Manual (`catatan_terdahulu`)
+- Digunakan saat pemilik kos telah memiliki angka saldo akumulasi dari pembukuan terdahulu/SPT/laporan audit.
+- Pengguna memasukkan $A_{\text{manual}}$ dan $AU_{\text{manual}}$ disertai `catatan_sumber`.
+- Perhitungan Sisa Dasar dan Target Usaha Tersisa:
+  $$\text{SisaDasarPenyusutan} = (\text{BiayaPerolehan} - A_{\text{manual}}) - \text{NilaiSisa} = \text{NilaiBukuAwal} - \text{NilaiSisa}$$
+  $$\text{SisaTargetUsaha} = \text{round}\left( \text{SisaDasarPenyusutan} \times \frac{\text{PorsiUsaha}}{100} \right)$$
+- Sisa Masa Manfaat:
+  $$M_{\text{sisa}} = M - k \quad (k = \text{jumlah bulan kalender terlewati dari tanggal siap guna ke cutoff})$$
+- **Edge Case (Sisa Dasar $> 0$ namun Sisa Masa Manfaat $\le 0$):**
+  * Jika aset sudah berumur melewati masa manfaat nominalnya ($k \ge M$) namun nilai buku saldo awal masih di atas nilai sisa ($\text{SisaDasarPenyusutan} > 0$):
+  * **Sistem menolak pembagian nol dan melarang pembebanan sekaligus.**
+  * Komponen ditandai `status_estimasi = 'perlu_tinjauan_estimasi'`. Pengguna wajib memasukkan estimasi masa manfaat sisa baru ($M_{\text{revisi}} > 0$) sebelum saldo awal dapat disahkan.
+- **Posting Masa Depan untuk Jalur Manual:**
+  Posting berjalan menggunakan formula Bresenham atas $\text{SisaDasarPenyusutan}$ sepanjang $M_{\text{sisa}}$ periode tersisa:
+  $$A_{\text{berjalan}}(j) = \text{round}\left( \text{SisaDasarPenyusutan} \times \frac{j}{M_{\text{sisa}}} \right) \quad (j = 1 \dots M_{\text{sisa}})$$
+  Menjamin total akumulasi historis + masa depan tepat sama dengan dasar penyusutan asli.
 
 ---
 
-### 11.5 Contoh Angka Nyata Pembukuan Skenario
+### 11.4 Kontrak RPC & Batas Transaksi Atomik
 
-#### Contoh 1: Aset Lama (AC Kamar) Masuk via Saldo Awal dan Melanjutkan Posting
-- **Data Komponen:** AC Daikin Kamar 01, Biaya Rp6.000.000, Nilai Sisa Rp0, Masa Manfaat 60 bulan, Tanggal Siap Guna 16 Juni 2024, Porsi Usaha 100%.
-- **Pengaturan Organisasi:** Tanggal Mulai Pembukuan: **1 Januari 2027** (*Cutoff per 31 Desember 2026*).
-- **Perhitungan Saldo Awal (Jalur Simulasi Historis per 31 Des 2026):**
-  * Total bulan historis: Juni 2024 s/d Desember 2026 = 31 periode (30 bulan penuh + fraksi Juni 2024).
-  * Akumulasi penyusutan saldo awal: **Rp3.050.000**.
-  * Nilai buku saldo awal: $6.000.000 - 3.050.000 = \textbf{Rp2.950.000}$.
-  * Sisa masa manfaat: 30 periode kalender (Januari 2027 s/d Juni 2029).
-- **Posting Berjalan (Periode Pertama: Januari 2027):**
-  * Beban penyusutan server: **Rp100.000**.
-  * Beban usaha: **Rp100.000**.
-  * Akumulasi penyusutan per akhir Jan 2027: $3.050.000 + 100.000 = \textbf{Rp3.150.000}$.
-  * Nilai buku akhir: $2.950.000 - 100.000 = \textbf{Rp2.850.000}$.
-- **Jurnal Umum yang Terbit:**
-  * Debit: Beban Penyusutan Peralatan Kamar — Rp100.000
-  * Kredit: Akumulasi Penyusutan Peralatan Kamar — Rp100.000
+Seluruh RPC menggunakan dekorasi `SECURITY DEFINER` dengan penguncian transaksi seragam:
+`PERFORM pg_advisory_xact_lock(hashtext('simkos:depreciation:' || p_org_id::text))`
 
-#### Contoh 2: Saldo Awal Menggunakan Jalur Catatan Terdahulu (*Manual/Audited*)
-- **Data Komponen:** Bangunan Induk, Biaya Rp600.000.000, Nilai Sisa Rp60.000.000.
-- **Pengaturan Organisasi:** Mulai Pembukuan: 1 Januari 2027.
-- **Input Pengguna:** Akumulasi terdahulu dicatat manual sebesar **Rp180.000.000** berdasarkan laporan audit pajak/keuangan tahun 2026 dengan catatan sumber *"Laporan Keuangan Kos 2026 audited"*.
-- **Perhitungan Sisa & Proteksi:**
-  * Nilai buku saldo awal = $600.000.000 - 180.000.000 = \textbf{Rp420.000.000}$.
-  * Sisa dasar penyusutan yang akan dibukukan ke depan: $\text{Nilai Buku Awal} - \text{Nilai Sisa} = 420.000.000 - 60.000.000 = \textbf{Rp360.000.000}$.
-  * Sisa penyusutan masa depan hanya menyusutkan Rp360M, sehingga total penyusutan historis (180M) + masa depan (360M) = Rp540.000.000 $\equiv$ Biaya − Nilai Sisa. **Terjamin tidak ada kelebihan beban**.
+1. **`set_bookkeeping_start_date(p_org_id uuid, p_start_date date)`**:
+   - Memvalidasi peran `owner`/`admin`.
+   - Wajib tanggal 1 suatu bulan.
+   - Menolak jika organisasi telah memiliki `is_locked = true`.
+2. **`activate_asset(p_asset_id uuid, p_activation_notes text)`**:
+   - Mengubah status draf menjadi `'aktif'`.
+   - Memvalidasi seluruh komponen kapitalisasi lengkap (biaya, tanggal siap guna, masa manfaat, porsi usaha terisi). Komponen `'perlu_telaah'` ditolak.
+   - Mengambil snapshot parameter komponen ke `asset_activation_snapshots`.
+3. **`approve_component_opening_balance(p_component_id uuid, p_jalur text, p_manual_akumulasi numeric, p_manual_usaha numeric, p_revisi_sisa_bulan int, p_catatan text)`**:
+   - Menghitung/memvalidasi saldo awal, sisa dasar, dan sisa masa manfaat.
+   - Menyimpan ke `asset_opening_balances` dan mengunci `asset_bookkeeping_settings.is_locked = true`.
+   - Mencatat peristiwa ke `asset_accounting_audit_logs`.
+4. **`cancel_component_opening_balance(p_component_id uuid, p_reason text)`**:
+   - Membatalkan pengesahan saldo awal komponen yang belum pernah diposting.
+   - Menolak keras jika posting periode pertama telah dibuat.
+   - Mencatat alasan pembatalan ke audit log.
+5. **`preview_depreciation_posting(p_org_id uuid, p_period_key text)`**:
+   - Pratinjau server *in-memory* tanpa mutasi data.
+   - Mengembalikan daftar komponen eligible, ineligible (dengan alasan), summary total, dan `preview_token` (hash SHA-256 parameter komponen).
+6. **`post_depreciation_batch(p_org_id uuid, p_period_key text, p_idempotency_key text, p_preview_token text, p_notes text)`**:
+   - **Idempotensi:** Jika `p_idempotency_key` atau `(p_org_id, p_period_key, 'posted')` sudah ada, langsung kembalikan batch yang ada tanpa membuat baris baru.
+   - **Stale Preview Guard:** Mengecek kecocokan `p_preview_token` dengan hash parameter komponen saat ini. Jika ada perubahan data sejak pratinjau digenerate, tolak dengan `SIMKOS_STALE_PREVIEW`.
+   - **Kronologis:** Periode harus merupakan periode buku berikutnya yang belum diposting (tanpa melompati bulan).
+   - **Validasi Status:** Periode harus `'open'`.
+   - Eksekusi batch secara atomik: sisipkan baris `asset_depreciation_batches` dan rincian `asset_depreciation_ledger`.
+   - Catat peristiwa ke `asset_accounting_audit_logs`.
+7. **`reverse_depreciation_batch(p_batch_id uuid, p_reason text)`**:
+   - Hanya diizinkan pada **batch posting aktif terakhir** (*most recent active batch*).
+   - Periode wajib berstatus `'open'`.
+   - Mengubah status batch awal menjadi `'reversed'`, menyisipkan baris pembalik storno (nominal negatif) pada ledger dengan referensi `reversed_ledger_id`.
+   - Catat peristiwa ke `asset_accounting_audit_logs`.
+8. **`lock_accounting_period(p_org_id uuid, p_period_key text)` & `unlock_accounting_period(p_org_id uuid, p_period_key text, p_reason text)`**:
+   - Mengunci periode (`locked`) atau membuka kembali (`open`).
+   - Setiap aksi menyimpan baris baru ke `asset_accounting_audit_logs` secara permanen.
 
-#### Contoh 3: Aset Pembelian Baru Setelah Mulai Pembukuan
-- **Data Komponen:** Smart TV Kamar VIP, Biaya Rp4.800.000, Nilai Sisa Rp0, Masa 48 bulan, Tanggal Siap Guna 15 Februari 2027.
-- **Status Saldo Awal:** Karena tanggal siap guna $\ge$ 1 Januari 2027, komponen ini **tidak memperoleh saldo awal historis** (akumulasi saldo awal = 0).
-- **Posting Pertama:** Masuk pada posting periode Februari 2027 secara prorata.
+---
 
-#### Contoh 4: Aset Tanah dan Komponen Dasar Nol
-- **Tanah:** Biaya Rp500.000.000, `metode_penyusutan = 'tidak_disusutkan'`.
-  * Saldo awal: Akumulasi Rp0, Nilai Buku Rp500.000.000.
-  * Pratinjau posting bulanan: Masuk kategori `ineligible_components` dengan alasan *"Aset tanah tidak disusutkan"*. Tidak ada jurnal penyusutan.
-- **Komponen Dasar Nol:** Partisi Khusus, Biaya Rp10.000.000, Nilai Sisa Rp10.000.000.
-  * Saldo awal: Akumulasi Rp0, Nilai Buku Rp10.000.000.
-  * Posting bulanan: Masuk `eligible_components` dengan beban penyusutan Rp0, nilai buku tetap Rp10.000.000.
+### 11.5 Contoh Angka Nyata Skenario Pembukuan
+
+#### Contoh 1: Aset Lama (AC Kamar) Jalur Simulasi Historis
+- **Data Komponen:** AC Daikin Kamar 01, Biaya Rp6.000.000, Nilai Sisa Rp0, Masa 60 bulan, Siap Guna 16 Juni 2024, Porsi Usaha 100%.
+- **Pengaturan Organisasi:** Tanggal Mulai Pembukuan: **1 Januari 2027** (Cutoff per 31 Desember 2026).
+- **Saldo Awal (Melanjutkan Jadwal Bresenham Periode ke-31):**
+  * Terlewati: 31 periode (30 bulan penuh + fraksi Juni 2024).
+  * Akumulasi Saldo Awal: **Rp3.050.000**.
+  * Akumulasi Usaha Saldo Awal: **Rp3.050.000**.
+  * Akumulasi Non-Usaha Saldo Awal: **Rp0**.
+  * Nilai Buku Saldo Awal: $6.000.000 - 3.050.000 = \textbf{Rp2.950.000}$.
+  * Sisa Masa Manfaat: 30 periode kalender.
+- **Posting Periode Pertama (Januari 2027 / Periode ke-32):**
+  * Beban Penyusutan Total: **Rp100.000**.
+  * Bagian Usaha: **Rp100.000**. Bagian Non-Usaha: **Rp0**.
+  * Akumulasi Penyusutan Berjalan: $3.050.000 + 100.000 = \textbf{Rp3.150.000}$.
+  * Nilai Buku Akhir: $2.950.000 - 100.000 = \textbf{Rp2.850.000}$.
+
+#### Contoh 2: Aset Bangunan Campuran Jalur Catatan Terdahulu (Manual)
+- **Data Komponen:** Gedung Kos, Biaya Rp600.000.000, Nilai Sisa Rp60.000.000, Dasar Rp540.000.000. Porsi Usaha 60%.
+- **Saldo Awal Manual:** Pengguna menginput akumulasi terdahulu per 31 Des 2026 sebesar **Rp180.000.000** (Bagian usaha 60% = Rp108.000.000, Non-usaha = Rp72.000.000) berdasarkan laporan keuangan kos tahun 2026 yang telah diaudit.
+- **Sisa Dasar dan Sisa Masa Manfaat:**
+  * Nilai Buku Saldo Awal = $600.000.000 - 180.000.000 = \textbf{Rp420.000.000}$.
+  * Sisa Dasar Penyusutan = $420.000.000 - 60.000.000 = \textbf{Rp360.000.000}$.
+  * Sisa Target Usaha = $\text{round}(360.000.000 \times 60\%) = \textbf{Rp216.000.000}$.
+  * Sisa Target Non-Usaha = $360.000.000 - 216.000.000 = \textbf{Rp144.000.000}$.
+  * Sisa Masa Manfaat: 144 bulan.
+- **Posting Periode Pertama (Januari 2027):**
+  * Beban Penyusutan Total: $360.000.000 / 144 = \textbf{Rp2.500.000}$.
+  * Bagian Usaha (60%): **Rp1.500.000**.
+  * Bagian Non-Usaha (40%): **Rp1.000.000**.
+  * Akumulasi Penyusutan Berjalan: $180.000.000 + 2.500.000 = \textbf{Rp182.500.000}$.
+  * Nilai Buku Akhir: $420.000.000 - 2.500.000 = \textbf{Rp417.500.000}$.
+
+#### Contoh 3: Edge Case Saldo Awal (Dasar Positif namun Masa Manfaat Habis)
+- Komponen Genset Lama: Biaya Rp20.000.000, Nilai Sisa Rp2.000.000, Masa Manfaat 60 bulan. Siap guna Januari 2020.
+- Per 31 Desember 2026 (terlewati 84 bulan $> 60$ bulan), pengguna menginput akumulasi manual Rp15.000.000.
+- Nilai Buku Awal = Rp5.000.000, Nilai Sisa = Rp2.000.000 $\rightarrow$ Sisa Dasar = Rp3.000.000 ($> 0$), namun $M_{\text{sisa}} \le 0$.
+- **Perlakuan Sistem:**
+  * Status ditandai `PERLU_TINJAUAN_ESTIMASI`.
+  * Sistem menolak pengesahan saldo awal sampai pengguna menentukan estimasi sisa masa manfaat baru (misal: 24 bulan).
+  * Setelah estimasi diisi 24 bulan, beban per bulan menjadi Rp125.000. Dilarang membagi nol atau membebankan Rp3.000.000 sekaligus!
 
 ---
 
 ### 11.6 Strategi Migrasi, Rollback, dan Matriks Pengujian
 
 #### A. Strategi Migrasi Database
-- Migrasi diberi nomor urut baru: `supabase/migrations/20261109000900_assets_phase4_bookkeeping.sql`.
-- Menggunakan pendekatan aditif:
-  * Membuat 5 tabel baru (`asset_bookkeeping_settings`, `asset_activation_snapshots`, `asset_opening_balances`, `asset_accounting_periods`, `asset_depreciation_ledger`).
+- Berkas migrasi: `supabase/migrations/20261109000900_assets_phase4_bookkeeping.sql`.
+- Pendekatan aditif:
+  * Membuat 6 tabel baru (`asset_bookkeeping_settings`, `asset_activation_snapshots`, `asset_opening_balances`, `asset_accounting_periods`, `asset_depreciation_batches`, `asset_depreciation_ledger`, `asset_accounting_audit_logs`).
   * Menambahkan status `'aktif'` pada check constraint `assets.status_pencatatan`.
-  * Mendaftarkan seluruh fungsi RPC dengan deklarasi `SECURITY DEFINER` dan `SET search_path = public, auth`.
-  * Menerapkan policy RLS ketat berbasis keanggotaan dan peran organisasi.
+  * Mendaftarkan seluruh fungsi RPC dengan `SECURITY DEFINER` dan `SET search_path = public, auth`.
+  * Mencabut hak write langsung dari `anon` dan `authenticated`.
 
-#### B. Strategi Rollback
-- Berkas rollback: `supabase/rollback/rollback_900_assets_phase4_bookkeeping.sql`.
-- Menghapus RPC baru, menghapus tabel baru dengan urutan dependensi aman (`cascade`), dan mengembalikan constraint status aset ke draf/terverifikasi/dibukukan awal.
+#### B. Pemisahan Rollback Pengembangan vs Pemulihan Operasional
+1. **Rollback Pengembangan (Destruktif / Dev Staging):**
+   - Berkas: `supabase/rollback/rollback_900_assets_phase4_bookkeeping.sql`.
+   - Menggunakan `DROP TABLE ... CASCADE` untuk membersihkan struktur skema saat siklus build/test QA.
+2. **Pemulihan Operasional (Non-Destruktif / Production):**
+   - Menggunakan RPC `reverse_depreciation_batch` (storno pembalik dengan referensi posting awal).
+   - Pembukaan periode dengan alasan audit tertulis.
+   - Penyesuaian estimasi prospektif pada periode masa depan tanpa menghapus data fisik.
 
 #### C. Matriks Pengujian Mandatori Fase 4B
 
-| Kategori Pengujian | Berkas Pengujian Target | Skenario Validasi Kunci |
+| Kategori Pengujian | Berkas Pengujian Target | Skenario Validasi Utama |
 | :--- | :--- | :--- |
-| **Unit Test Kontrak Server** | `qa/aset/fase4_opening_balance.test.mjs` | Formula sisa dasar penyusutan, validasi batas nilai buku $\ge$ nilai sisa, penolakan input manual > dasar. |
+| **Unit Test Kontrak Saldo Awal** | `qa/aset/fase4_opening_balance.test.mjs` | Kontinuitas jadwal Bresenham jalur historis, sisa dasar & target usaha jalur manual, penolakan pembagian nol pada edge case masa habis. |
 | **Integrasi Database SQL** | `qa/aset/fase4_db_integration.test.mjs` | Eksekusi RPC aktivasi, pengesahan saldo awal, transaksi atomik posting batch, dan isolasi tenant RLS. |
-| **Pengujian Konkurensi** | `qa/aset/fase4_concurrency.test.mjs` | Dua posting bersamaan pada periode yang sama (advisory lock), posting bersamaan dengan penguncian periode. |
+| **Pengujian Konkurensi & Locking** | `qa/aset/fase4_concurrency.test.mjs` | Dua posting bersamaan pada periode yang sama (advisory lock), posting bersamaan dengan penguncian periode. |
+| **Pengujian Idempotensi & Reversal** | `qa/aset/fase4_idempotency_reversal.test.mjs` | Pemanggilan ulang dengan idempotency_key mengembalikan hasil tanpa baris baru, pembatalan storno periode terakhir aktif, penolakan pembatalan non-kronologis. |
 | **Integrasi API Auth Resmi** | `qa/aset/fase4_auth_api.test.mjs` | Penolakan eksekusi RPC oleh role staf, penolakan akses token lintas organisasi. |
 | **Snapshot Kas Komparatif** | `qa/aset/fase4_cash_snapshot.test.mjs` | Membuktikan tabel `expenses` dan `incomes` identik 100% sebelum dan sesudah pembukuan penyusutan. |
-| **Browser E2E Puppeteer** | `qa/aset/fase4_browser_flow.test.mjs` | Alur UI nyata owner/admin: set tanggal mulai $\rightarrow$ aktivasi aset $\rightarrow$ sahkan saldo awal $\rightarrow$ pratinjau $\rightarrow$ posting $\rightarrow$ pembatalan (*storno*). |
+| **Browser E2E Puppeteer** | `qa/aset/fase4_browser_flow.test.mjs` | Alur UI: set tanggal mulai $\rightarrow$ aktivasi aset $\rightarrow$ sahkan saldo awal $\rightarrow$ pratinjau $\rightarrow$ posting $\rightarrow$ pembatalan (*storno*). |
 
----
-
-### 11.7 Keputusan Desain Terbuka untuk Ditinjau Pengguna
-
-1. **Format Pencatatan Operasional vs Jurnal Umum**:
-   - *Rekomendasi:* Menggunakan **Buku Pembantu Penyusutan (`asset_depreciation_ledger`)** sebagai pencatatan rincian aset operasional utama yang ditautkan ke pasangan entri jurnal umum (`journal_entries`). Buku pembantu ini ditegaskan sebagai sub-ledger rincian aset dan bukan buku besar lengkap.
-2. **Kebijakan Perubahan Estimasi Aset Pasca-Pembukuan**:
-   - *Rekomendasi:* Pada Fase 4, perubahan parameter aset yang telah memiliki posting penyusutan **dilarang/dikunci**. Perubahan estimasi (seperti revisi masa manfaat atau nilai sisa) diperlakukan secara prospektif pada periode masa depan yang belum dibukukan, tanpa menghitung ulang catatan sejarah yang telah disahkan.
-3. **Penyusutan Non-Usaha pada Aset Penggunaan Campuran**:
-   - *Rekomendasi:* Sistem menghitung total beban penyusutan aset dan memisahkannya secara tegas dengan bagian beban usaha (`porsi_usaha_persen`). Bagian penyusutan non-usaha dialokasikan ke akun prive pemilik atau beban non-operasional pada jurnal berpasangan, sehingga laba-rugi operasional kos hanya dibebani porsi usaha yang sah.
 
