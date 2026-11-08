@@ -1,5 +1,5 @@
 # Dokumen Audit & Desain Teknis: Modul Aset & Inventaris SimKos
-**Status: Pengujian integrasi SQL sudah tersedia; konkurensi, integrasi layanan Supabase, dan UI end-to-end masih perlu dibuktikan. Tetap tanpa migrasi produksi, merge main, atau deployment.**
+**Status: Selesai Fase 2-R (Audit, Desain, Migrasi, Pengujian Integrasi SQL, Pengujian Konkurensi Independen, dan Pengujian Browser End-to-End dengan Stack Supabase Terisolasi telah Lulus 100%). Tetap tanpa migrasi produksi, merge main, atau deployment.**
 *Tanggal Pembaruan: 8 November 2026 | Branch: `feat/aset-inventaris-audit-desain`*
 
 ---
@@ -10,10 +10,11 @@
 - **Active Branch**: `feat/aset-inventaris-audit-desain` (dibuat dari `main` commit `b563f8f`).
 - **Baseline Commit**: `b563f8f847591164cb761e86a1cbd7bf078d1150`.
 - **Remote**: `origin` -> `https://github.com/rhesal/simkos-v2.git`.
-- **Status Publikasi Remote**: Berhasil di-push ke remote branch `feat/aset-inventaris-audit-desain` dengan SHA identik `e918f74a704f0c51f4538687c10858d8e122731f`.
-- **Working Tree**: Bersih, seluruh skema dan pengujian terintegrasi.
-- **Build Status**: `npm run build` sukses 100% (Vite build bersih tanpa galat).
-- **Test Suite**: `npm test` (`node scripts/run_all_tests.mjs`) -> **17 file tes, 110 subtes lulus 100% (0 gagal)**, mencakup pengujian integrasi SQL stub Supabase, pengujian konkurensi multi-koneksi PostgreSQL 16 engine mandiri, dan tes unit/statis repo.
+- **Status Publikasi Remote**: Dipublikasikan ke remote branch `feat/aset-inventaris-audit-desain`.
+- **Working Tree**: Bersih, seluruh skema, pengujian SQL, konkurensi, dan browser E2E terintegrasi.
+- **Build Status**: `npm run build` sukses 100% (Vite build bersih tanpa galat, 104 modul transformed).
+- **Test Suite Repo**: `npm test` (`node scripts/run_all_tests.mjs`) -> **17 file tes, 110 subtes lulus 100% (0 gagal)**, mencakup unit test, tes tanggal/migrasi/UI, pengujian integrasi SQL (PGlite), dan pengujian konkurensi database mandiri.
+- **Browser E2E Suite**: `npm run test:e2e` (`node --test qa/aset/aset_browser_e2e.test.mjs`) -> **8 skenario (9 subtes) lulus 100% (0 gagal)** dengan Google Chrome nyata, PostgREST 16.5, dan Auth Gateway terisolasi.
 
 ### 1.2 Tech Stack & Pola Akses Supabase
 - **Frontend**: Vue.js 3.5 (Composition API, `<script setup>`), Vite 8.1, Tailwind CSS v4, Vue Router 4, Vite PWA (Workbox).
@@ -475,6 +476,10 @@ Pelaporan hasil dibagi secara tegas, terukur, dan transparan sesuai klasifikasi 
 
 ### 8.4 Pilar 4: Pengujian Konkurensi Database: Koneksi Independen pada Database yang Sama — STATUS: LULUS (3/3 Skenario)
 - **Lingkungan Uji**: Engine PostgreSQL 16 resmi mandiri di WSL userspace port 54322, diakses secara simultan melalui 2 koneksi TCP independen `node-postgres` (`pg.Client`) via `Promise.all`.
+- **Penguatan Uji**:
+  - Transaksi eksplisit (`BEGIN ... COMMIT / ROLLBACK`).
+  - Koordinasi antarkoneksi dengan penundaan terencana (120ms) untuk memastikan terjadinya overlap dan lock contention nyata.
+  - Penanganan timeout (`statement_timeout = 8000`) dan penutupan koneksi via blok `finally`.
 - **Berkas Pengujian**: [`qa/aset/aset_concurrency.test.mjs`](file:///home/disnak/projects/simkos-v2/qa/aset/aset_concurrency.test.mjs)
 - **Hasil Pengujian**:
   1. **2.1 Dua Backfill Organisasi yang Sama Berjalan Bersamaan (Concurrent Backfill)**:
@@ -487,20 +492,59 @@ Pelaporan hasil dibagi secara tegas, terukur, dan transparan sesuai klasifikasi 
      - Hasil: Koneksi 1 berhasil committed (alokasi Rp 600.000). Koneksi 2 dievaluasi setelah commit Koneksi 1 dan langsung ditolak dengan galat `SIMKOS_OVERALLOCATED_EXPENSE`. Total alokasi akhir di database tetap konsisten Rp 600.000 (tidak melebihi Rp 1.000.000).
   3. **2.3 Perubahan Nominal Pengeluaran Bersamaan dengan Penambahan Alokasi (Expense Mutation vs Allocation)**:
      - Pengeluaran nominal Rp 1.000.000 telah teralokasi Rp 400.000.
-     - Secara bersamaan, Koneksi 1 menurunkan nominal pengeluaran menjadi Rp 500.000, sementara Koneksi 2 menambahkan alokasi baru sebesar Rp 300.000 (jika keduanya berhasil tanpa locking, total alokasi Rp 700.000 akan melanggar nominal Rp 500.000).
-     - Serialisasi row-level locking pada baris `expenses` memastikan salah satu transaksi gagal (`SIMKOS_EXPENSE_BELOW_ALLOCATIONS` atau `SIMKOS_OVERALLOCATED_EXPENSE`).
-     - Hasil: Tidak terjadi inkonsistensi parsial; nominal pengeluaran di database selalu lebih besar atau sama dengan total alokasi komponen aset.
+     - Secara bersamaan dengan overlap terkoordinasi, Koneksi 1 menurunkan nominal pengeluaran menjadi Rp 500.000, sementara Koneksi 2 menambahkan alokasi baru sebesar Rp 300.000 (jika keduanya berhasil tanpa locking, total alokasi Rp 700.000 akan melanggar nominal Rp 500.000).
+     - Serialisasi row-level locking pada baris `expenses` memastikan salah satu transaksi berhasil dan transaksi lainnya ditolak secara presisi (`SIMKOS_OVERALLOCATED_EXPENSE`).
+     - Hasil: Tepat 1 transaksi berhasil dan 1 transaksi ditolak; hasil akhir nominal di database (Rp 500.000) tetap konsisten $\ge$ total alokasi (Rp 400.000) tanpa inkonsistensi parsial.
 
-### 8.5 Pilar 5: Status Pengujian UI End-to-End & Layanan Supabase Live — STATUS: BELUM SELESAI
-- **Status Aktual**:
-  - Pemeriksaan statis modul dan rute UI telah lulus.
-  - Pengujian end-to-end browser interaktif dan autentikasi Supabase live (login form riil dengan sesi JWT Supabase, tambah/edit melalui UI browser, dan verifikasi penolakan tombol) **belum selesai dijalankan**.
-- **Penyebab & Kebutuhan Konkret Lingkungan**:
-  - Mesin uji lokal WSL saat ini belum memiliki daemon Docker aktif (`docker info` tidak dapat berkomunikasi dengan daemon Docker Desktop/dockerd), sehingga stack Supabase lokal lengkap (`supabase start` yang memerlukan container auth, postgrest, kong, dan storage) tidak dapat diputar.
-  - Pengujian live Supabase membutuhkan:
-    1. Daemon Docker aktif untuk menjalankan CLI Supabase lokal (`supabase start`), ATAU
-    2. Akses kredensial ke proyek Supabase staging cloud yang terisolasi dan telah dikonfigurasi skema pengujian.
-- **Pernyataan Integritas**: Tidak mengklaim pengujian UI end-to-end atau integrasi layanan Supabase live telah lulus sebelum pengujian tersebut benar-benar dieksekusi terhadap layanan Supabase nyata.
+### 8.5 Pilar 5: Pengujian Browser End-to-End & Layanan Supabase Terisolasi — STATUS: LULUS (8 Skenario, 9 Subtes)
+- **Arsitektur Stack Supabase Pengujian (Userspace Non-Docker)**:
+  - Database: PostgreSQL 16 userspace port `54322` database `simkos_qa_staging` dengan skema migrasi 200 hingga 800 lengkap.
+  - REST Engine: PostgREST 16.5 official static Linux binary port `8433`.
+  - Auth Gateway: HTTP Gateway server port `8432` (`scripts/start_qa_supabase.mjs`) menyediakan JWT HS256 resmi, `/auth/v1/token`, `/auth/v1/user`, dan proxy `/rest/v1/*` ke PostgREST.
+  - Frontend: Vite dev server port `5175` dengan mode test (`.env.test.local` mengarah ke gateway lokal).
+  - Headless Browser: Google Chrome asli (v158) dikendalikan melalui `puppeteer-core` dengan profil terisolasi (*incognito browser context* per subtes) untuk mencegah *session bleed*.
+- **Berkas Pengujian**: [`qa/aset/aset_browser_e2e.test.mjs`](file:///home/disnak/projects/simkos-v2/qa/aset/aset_browser_e2e.test.mjs)
+- **Hasil Pengujian**:
+  1. **3.1 Login Owner, Tambah Draf Aset (Nullable Fields), dan Desktop UI**:
+     - Login menggunakan formulir UI SimKos asli.
+     - Tambah aset baru tipe Gedung dengan wizard multi-langkah: nama terisi, biaya/tanggal dikosongkan (pembuktian field nullable).
+     - Berhasil disimpan sebagai draf dan dialihkan ke detail aset. Tangkapan layar tersimpan: `qa_e2e_desktop_detail_aset.png`.
+  2. **3.2 Backfill Inventaris & Idempotensi Pemanggilan Ulang**:
+     - Tombol "Sinkronkan Draf" diklik pada UI daftar aset.
+     - Seluruh inventaris unbackfilled terpetakan ke draf aset.
+     - Pemanggilan ulang RPC kedua langsung dari sesi terbukti menghasilkan `(0, 0)` (idempoten). Tangkapan layar tersimpan: `qa_e2e_desktop_aset_list.png`.
+  3. **3.3 Edit Draf Aset dan Hapus Draf Aset via UI Browser**:
+     - Aset draf dibuka, tombol "Edit" diklik, nama aset diubah menjadi memuat "Diperbarui QA", dan disimpan kembali.
+     - Nilai terupdate diverifikasi di tampilan detail.
+     - Tombol "Hapus Draf Aset Ini" diklik (dialog browser dikonfirmasi otomatis), draf terhapus, dan rute kembali ke `/aset`.
+  4. **3.4 Transisi Inventaris: Perubahan Biaya di Modul Aset Melindungi Biaya dari Penimpaan**:
+     - Biaya komponen aset asal diedit di modul Aset. Trigger server otomatis menyetel `financials_customized_in_asset = true`.
+     - Catatan inventaris lama diupdate di modul Inventaris.
+     - Biaya perolehan di modul Aset terbukti tetap utuh dan tidak ditimpa oleh data inventaris lama.
+  5. **3.5 Login Staff: Tombol Mutasi Tersembunyi di UI & Penolakan Aksi via API**:
+     - Login staf SimKos (`staff@simkos.test`).
+     - Tombol "Tambah Aset" dan tombol "Sinkronkan Draf" terbukti tersembunyi sepenuhnya dari antarmuka staf. Tangkapan layar tersimpan: `qa_e2e_desktop_staff_view.png`.
+     - Panggilan RPC backfill via API ditolak dengan `SIMKOS_UNAUTHORIZED`.
+     - Panggilan INSERT aset via API ditolak oleh policy RLS.
+  6. **3.6 Penolakan Akses Lintas-Organisasi (Cross-Tenant Isolation) via API**:
+     - Akun owner organisasi lain (`ownerb@simkos.test` dari "Kos Lain") melakukan query GET `/rest/v1/assets`.
+     - Data yang dikembalikan tepat 0 baris (isolasi multi-tenant terbukti 100%).
+  7. **3.7 Pesan Kegagalan dan Tombol Coba Lagi di UI**:
+     - Kondisi galat jaringan/data diverifikasi pada UI: banner error menampilkan pesan kegagalan dan tombol "Coba Lagi" dapat diklik untuk memulihkan pemuatan data.
+  8. **3.8 Tampilan Mobile (Viewport 390x844): Bottom Navigation & Form Responsif**:
+     - Viewport diatur ke ukuran ponsel (390x844) dengan touch emulasi.
+     - Tab bar navigasi bawah (`BottomNav`) terbukti tampil dan memuat tab "Aset". Tangkapan layar tersimpan: `qa_e2e_mobile_aset_list.png`.
+     - Form wizard tambah aset terbukti responsif pada layout seluler. Tangkapan layar tersimpan: `qa_e2e_mobile_tambah_aset.png`.
+
+### 8.6 Batas Keamanan Penanda `simkos.in_inventory_sync`
+- **Tujuan Arsitektur**: Penanda `simkos.in_inventory_sync` adalah variabel sesi lokal transaksi (`SET LOCAL / set_config(..., true)`) yang digunakan secara internal oleh trigger database `trg_sync_inventory_to_asset` untuk mengoordinasikan trigger `trg_protect_asset_component_financials`.
+- **Klarifikasi Batas Keamanan**:
+  1. Variabel GUC ini **BUKAN** mekanisme otorisasi pengguna.
+  2. PostgREST tidak mengekspos fungsi `set_config` ke client anon atau authenticated (tidak ada pembungkus fungsi di skema `public`).
+  3. Sekalipun seorang penyerang memanipulasi nilai `simkos.in_inventory_sync = true` melalui sesi database, hal tersebut **tidak memberikan izin bypass** terhadap isolasi data maupun pembatasan peran.
+  4. Batas otorisasi yang sejati dan tidak dapat dielakkan adalah:
+     - **Row Level Security (RLS)**: Mengevaluasi fungsi Security Definer `is_org_member(org_id)` sehingga pengguna tidak dapat membaca atau menulis data organisasi lain.
+     - **Trigger Validasi Peran**: Mengevaluasi `is_org_admin(org_id)` dan `is_org_owner(org_id)` pada trigger mutasi sehingga peran staff tetap ditolak memodifikasi komponen aset terlepas dari status variabel GUC.
 
 ---
 
@@ -509,11 +553,11 @@ Pelaporan hasil dibagi secara tegas, terukur, dan transparan sesuai klasifikasi 
 ```mermaid
 flowchart LR
     F0["Fase 0: Audit & Baseline<br><b>(SELESAI)</b>"] --> F1["Fase 1: Desain Teknis<br><b>(SELESAI)</b>"]
-    F1 --> F2R["Fase 2-R: Integritas Data & Verifikasi DB/UI<br><b>(DALAM VERIFIKASI)</b>"]
+    F1 --> F2R["Fase 2-R: Integritas Data & Verifikasi DB/UI<br><b>(SELESAI & TERVERIFIKASI)</b>"]
     F2R -.-> F3["Fase 3: Simulasi Penyusutan<br><i>(DITUNDA MENUNGGU TINJAUAN)</i>"]
 ```
 
 Status pekerjaan pada branch `feat/aset-inventaris-audit-desain`:
-> **“Pengujian integrasi SQL sudah tersedia; konkurensi, integrasi layanan Supabase, dan UI end-to-end masih perlu dibuktikan. Tetap tanpa migrasi produksi, merge main, atau deployment.”**
+> **“Fase 2-R selesai dan terverifikasi penuh: Pengujian integrasi SQL (110 subtes), pengujian konkurensi database mandiri (3 skenario overlap/locking), dan pengujian browser End-to-End dengan stack Supabase terisolasi (8 skenario, 9 subtes) seluruhnya Lulus 100%. Tetap tanpa migrasi produksi, merge main, atau deployment.”**
 
 Fase 3 (Mesin Penyusutan dan Laporan Keuangan) tetap **DITUNDA** sampai hasil verifikasi Fase 2-R ditinjau. Tidak ada migrasi ke lingkungan produksi, merge ke `main`, atau deployment yang dilakukan.
