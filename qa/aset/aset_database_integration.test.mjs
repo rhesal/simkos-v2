@@ -42,7 +42,7 @@ async function setSuperuser(db) {
   `)
 }
 
-test('Jalur A: Instalasi Bersih dari Skema Dasar & Verifikasi Integrasi Database Nyata', async (t) => {
+test('Jalur A: Instalasi Bersih dari Skema Dasar & Verifikasi Integrasi SQL dengan Stub Supabase', async (t) => {
   const db = new PGlite()
 
   // 1. Eksekusi rantai migrasi dasar
@@ -444,12 +444,72 @@ test('Jalur A: Instalasi Bersih dari Skema Dasar & Verifikasi Integrasi Database
       'Staff dilarang menjalankan fungsi backfill inventaris'
     )
   })
+
+  await t.test('1.9 Verifikasi Batas Keamanan Penanda simkos.in_inventory_sync & Proteksi Bypass', async () => {
+    await setSuperuser(db)
+    // 1.9.1 Nilai awal setting simkos.in_inventory_sync adalah false, kosong, atau null
+    const initialRes = await db.query("SELECT current_setting('simkos.in_inventory_sync', true) as val;")
+    const initialSetting = initialRes.rows[0].val
+    assert.ok(
+      initialSetting === 'false' || initialSetting === '' || initialSetting === null,
+      'Setting awal harus bernilai false, kosong, atau tidak ter-set'
+    )
+
+    // 1.9.2 Client mencoba memanipulasi update komponen dengan menyertakan financials_customized_in_asset = false
+    await setAuthContext(db, { userId: ownerA, role: 'authenticated' })
+    const assetNewRes = await db.query(`
+      INSERT INTO public.assets (org_id, nama_aset, kategori_aset, status_pencatatan)
+      VALUES ('${orgA}', 'Aset Pengujian Spoofing', 'elektronik_kantor', 'draft') RETURNING id;
+    `)
+    const aNewId = assetNewRes.rows[0].id
+
+    const compNewRes = await db.query(`
+      INSERT INTO public.asset_components (org_id, asset_id, nama_komponen, jenis_pekerjaan, biaya_perolehan, financials_customized_in_asset)
+      VALUES ('${orgA}', '${aNewId}', 'Komponen Uji Spoofing', 'perolehan_baru', 500000, false) RETURNING id;
+    `)
+    const cNewId = compNewRes.rows[0].id
+
+    // Client memodifikasi biaya menjadi 800.000 dan secara eksplisit menyertakan financials_customized_in_asset = false dalam payload
+    await db.query(`
+      UPDATE public.asset_components
+      SET biaya_perolehan = 800000, financials_customized_in_asset = false
+      WHERE id = '${cNewId}';
+    `)
+    const compAfterSpoof = (await db.query(`SELECT financials_customized_in_asset, biaya_perolehan FROM public.asset_components WHERE id = '${cNewId}'`)).rows[0]
+    assert.equal(compAfterSpoof.financials_customized_in_asset, true, 'Trigger server WAJIB memaksakan true bila perubahan biaya tidak melalui sinkronisasi server')
+    assert.equal(Number(compAfterSpoof.biaya_perolehan), 800000)
+
+    // 1.9.3 Setelah operasi selesai, setting simkos.in_inventory_sync tidak aktif (false/kosong/null)
+    const afterUpdateSetting = (await db.query("SELECT current_setting('simkos.in_inventory_sync', true) as val;")).rows[0].val
+    assert.ok(
+      afterUpdateSetting === 'false' || afterUpdateSetting === '' || afterUpdateSetting === null,
+      'Setting harus tidak aktif (false/kosong/null) setelah update client'
+    )
+
+    // 1.9.4 Jika terjadi error/exception saat sinkronisasi inventaris, transaksi rollback dan setting tetap aman
+    await assert.rejects(
+      async () => {
+        // Memicu error dengan memberikan nilai harga negatif yang melanggar check constraint
+        await db.query(`
+          UPDATE public.inventories SET harga = -1000 WHERE id = '${testInvId}';
+        `)
+      },
+      /violates check constraint/i,
+      'Operasi inventaris invalid harus gagal'
+    )
+
+    const afterRollbackSetting = (await db.query("SELECT current_setting('simkos.in_inventory_sync', true) as val;")).rows[0].val
+    assert.ok(
+      afterRollbackSetting === 'false' || afterRollbackSetting === '' || afterRollbackSetting === null,
+      'Setting harus tidak aktif (false/kosong/null) bahkan setelah transaksi gagal/rollback'
+    )
+  })
 })
 
 test('Jalur B: Pembaruan Skema dari Versi Lama (Upgrade Path & Pembersihan Objek Legacy)', async (t) => {
   const db = new PGlite()
 
-  // 1. Eksekusi skema sampai migration 700
+  // 1. Eksekusi skema baseline sampai migration 700
   await execSqlFile(db, 'qa/independent/00_stub.sql')
   await execSqlFile(db, 'docs/reference/live_schema_public.sql')
   await execSqlFile(db, 'qa/independent/05_live_state.sql')
@@ -467,80 +527,87 @@ test('Jalur B: Pembaruan Skema dari Versi Lama (Upgrade Path & Pembersihan Objek
   const orgARes = await db.query("SELECT id FROM public.organizations WHERE name = 'SimKos'")
   const orgA = orgARes.rows[0].id
 
-  // Simulasikan struktur skema lama (sebelum migrasi 800) yang memuat policy lama dan fungsi 0-argumen
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS public.assets (
-      id uuid PRIMARY KEY DEFAULT extensions.uuid_generate_v4(),
-      org_id uuid NOT NULL REFERENCES public.organizations(id),
-      nama_aset text NOT NULL,
-      kategori_aset text NOT NULL,
-      legacy_inventory_id uuid,
-      status_pencatatan text DEFAULT 'draft',
-      created_at timestamptz DEFAULT now()
-    );
-    ALTER TABLE public.assets ENABLE ROW LEVEL SECURITY;
-    CREATE POLICY assets_org_access ON public.assets FOR ALL TO authenticated USING (org_id = '${orgA}');
+  // 2. Pasang skema versi terdahulu yang pernah diterapkan (commit 8bee6db)
+  await execSqlFile(db, 'qa/aset/fixture_legacy_phase2_8bee6db.sql')
 
-    CREATE TABLE IF NOT EXISTS public.asset_components (
-      id uuid PRIMARY KEY DEFAULT extensions.uuid_generate_v4(),
-      org_id uuid NOT NULL REFERENCES public.organizations(id),
-      asset_id uuid NOT NULL REFERENCES public.assets(id),
-      nama_komponen text NOT NULL,
-      jenis_pekerjaan text DEFAULT 'perolehan_baru',
-      biaya_perolehan numeric,
-      status_kapitalisasi text DEFAULT 'kapitalisasi',
-      catatan_telaah text,
-      created_at timestamptz DEFAULT now()
-    );
-    ALTER TABLE public.asset_components ENABLE ROW LEVEL SECURITY;
-    CREATE POLICY asset_components_org_access ON public.asset_components FOR ALL TO authenticated USING (org_id = '${orgA}');
-
-    -- Fungsi 0-argumen lama
-    CREATE OR REPLACE FUNCTION public.backfill_inventories_to_assets()
-    RETURNS void LANGUAGE plpgsql AS $$
-    BEGIN
-      NULL;
-    END $$;
+  // 3. Masukkan data sintetis realistis pada skema terdahulu:
+  const locARes = await db.query(`SELECT id FROM public.locations WHERE org_id = '${orgA}' LIMIT 1`)
+  const locA = locARes.rows[0].id
+  const inv1Res = await db.query(`
+    INSERT INTO public.inventories (org_id, location_id, nama_barang, kondisi)
+    VALUES ('${orgA}', '${locA}', 'Barang Legacy 1', 'Baik') RETURNING id;
   `)
+  const inv1Id = inv1Res.rows[0].id
 
-  // Siapkan data simulasi lama:
-  // Kasus 1: Tepat 1 komponen perolehan_baru (harus ditandai is_origin_inventory = true)
-  const a1 = (await db.query(`INSERT INTO public.assets (org_id, nama_aset, kategori_aset, legacy_inventory_id) VALUES ('${orgA}', 'Aset Legacy Tunggal', 'elektronik_kantor', gen_random_uuid()) RETURNING id`)).rows[0].id
-  const c1 = (await db.query(`INSERT INTO public.asset_components (org_id, asset_id, nama_komponen, jenis_pekerjaan, biaya_perolehan) VALUES ('${orgA}', '${a1}', 'Komponen Tunggal', 'perolehan_baru', 200000) RETURNING id`)).rows[0].id
+  const inv2Res = await db.query(`
+    INSERT INTO public.inventories (org_id, location_id, nama_barang, kondisi)
+    VALUES ('${orgA}', '${locA}', 'Barang Legacy 2', 'Baik') RETURNING id;
+  `)
+  const inv2Id = inv2Res.rows[0].id
 
-  // Kasus 2: Ambigu (>1 komponen perolehan_baru) (harus ditandai status_kapitalisasi = 'perlu_telaah')
-  const a2 = (await db.query(`INSERT INTO public.assets (org_id, nama_aset, kategori_aset, legacy_inventory_id) VALUES ('${orgA}', 'Aset Legacy Ambigu', 'elektronik_kantor', gen_random_uuid()) RETURNING id`)).rows[0].id
-  const c2a = (await db.query(`INSERT INTO public.asset_components (org_id, asset_id, nama_komponen, jenis_pekerjaan, biaya_perolehan) VALUES ('${orgA}', '${a2}', 'Komponen Ambigu 1', 'perolehan_baru', 300000) RETURNING id`)).rows[0].id
-  const c2b = (await db.query(`INSERT INTO public.asset_components (org_id, asset_id, nama_komponen, jenis_pekerjaan, biaya_perolehan) VALUES ('${orgA}', '${a2}', 'Komponen Ambigu 2', 'perolehan_baru', 400000) RETURNING id`)).rows[0].id
+  // Data Aset 1: Tepat 1 komponen perolehan_baru (harus otomatis menjadi is_origin_inventory = true)
+  const a1 = (await db.query(`
+    INSERT INTO public.assets (org_id, nama_aset, kategori_aset, legacy_inventory_id, status_pencatatan)
+    VALUES ('${orgA}', 'Aset Legacy Tunggal', 'elektronik_kantor', '${inv1Id}', 'draft')
+    RETURNING id;
+  `)).rows[0].id
+  const c1 = (await db.query(`
+    INSERT INTO public.asset_components (org_id, asset_id, nama_komponen, jenis_pekerjaan, biaya_perolehan)
+    VALUES ('${orgA}', '${a1}', 'Komponen Tunggal', 'perolehan_baru', 250000)
+    RETURNING id;
+  `)).rows[0].id
 
-  await t.test('2.1 Menjalankan Migrasi 800 di atas skema lama', async () => {
-    // Terapkan migration 800
+  // Data Aset 2: Ambigu (>1 komponen perolehan_baru pada aset yang sama) (harus ditandai status_kapitalisasi = 'perlu_telaah')
+  const a2 = (await db.query(`
+    INSERT INTO public.assets (org_id, nama_aset, kategori_aset, legacy_inventory_id, status_pencatatan)
+    VALUES ('${orgA}', 'Aset Legacy Ambigu', 'elektronik_kantor', '${inv2Id}', 'draft')
+    RETURNING id;
+  `)).rows[0].id
+  const c2a = (await db.query(`
+    INSERT INTO public.asset_components (org_id, asset_id, nama_komponen, jenis_pekerjaan, biaya_perolehan)
+    VALUES ('${orgA}', '${a2}', 'Komponen Ambigu 1', 'perolehan_baru', 300000)
+    RETURNING id;
+  `)).rows[0].id
+  const c2b = (await db.query(`
+    INSERT INTO public.asset_components (org_id, asset_id, nama_komponen, jenis_pekerjaan, biaya_perolehan)
+    VALUES ('${orgA}', '${a2}', 'Komponen Ambigu 2', 'perolehan_baru', 450000)
+    RETURNING id;
+  `)).rows[0].id
+
+  await t.test('2.1 Menerapkan Migrasi 800 final di atas skema versi 8bee6db', async () => {
+    // Terapkan migration 800 revisi
     await execSqlFile(db, 'supabase/migrations/20261108000800_assets_phase2.sql')
   })
 
-  await t.test('2.2 Verifikasi pembersihan policy lama dan fungsi 0-argumen', async () => {
+  await t.test('2.2 Verifikasi pembersihan policy lama dan fungsi 0-argumen dari katalog', async () => {
+    // Policy lama assets_org_access dan asset_components_org_access harus sudah hilang
     const policies = (await db.query(`
       SELECT policyname FROM pg_policies
       WHERE schemaname = 'public' AND policyname IN ('assets_org_access', 'asset_components_org_access');
     `)).rows
-    assert.equal(policies.length, 0, 'Policy lama assets_org_access & asset_components_org_access harus terhapus')
+    assert.equal(policies.length, 0, 'Policy lama assets_org_access & asset_components_org_access harus terhapus bersih')
 
+    // Fungsi 0-argumen harus sudah hilang dan digantikan oleh overload 1-argumen
     const funcs = (await db.query(`
       SELECT proname, pg_get_function_identity_arguments(p.oid) as args
       FROM pg_proc p
       JOIN pg_namespace n ON n.oid = p.pronamespace
       WHERE n.nspname = 'public' AND p.proname = 'backfill_inventories_to_assets';
     `)).rows
-    assert.equal(funcs.length, 1, 'Hanya ada 1 fungsi backfill')
-    assert.ok(funcs[0].args.includes('uuid'))
+    assert.equal(funcs.length, 1, 'Hanya ada tepat 1 fungsi backfill')
+    assert.ok(funcs[0].args.includes('uuid'), 'Fungsi harus menerima parameter org_id')
   })
 
-  await t.test('2.3 Verifikasi pemetaan terbukti komponen asal dan penandaan ambigu', async () => {
-    // Kasus 1: Komponen tunggal harus menjadi is_origin_inventory = true
+  await t.test('2.3 Verifikasi pelestarian data eksisting & pemetaan komponen asal', async () => {
+    // Pelestarian data: seluruh aset lama tetap utuh
+    const allAssets = (await db.query(`SELECT id, nama_aset FROM public.assets WHERE id IN ('${a1}', '${a2}')`)).rows
+    assert.equal(allAssets.length, 2, 'Data aset eksisting harus tetap lestari dan utuh')
+
+    // Kasus 1: Komponen tunggal harus dipetakan menjadi is_origin_inventory = true
     const resC1 = (await db.query(`SELECT is_origin_inventory, status_kapitalisasi FROM public.asset_components WHERE id = '${c1}'`)).rows[0]
     assert.equal(resC1.is_origin_inventory, true, 'Komponen tunggal harus ditandai is_origin_inventory = true')
 
-    // Kasus 2: Komponen ambigu harus ditandai status_kapitalisasi = perlu_telaah
+    // Kasus 2: Komponen ambigu harus ditandai status_kapitalisasi = 'perlu_telaah' dengan catatan audit
     const resC2a = (await db.query(`SELECT is_origin_inventory, status_kapitalisasi, catatan_telaah FROM public.asset_components WHERE id = '${c2a}'`)).rows[0]
     const resC2b = (await db.query(`SELECT is_origin_inventory, status_kapitalisasi, catatan_telaah FROM public.asset_components WHERE id = '${c2b}'`)).rows[0]
 
