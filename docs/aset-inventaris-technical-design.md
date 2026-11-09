@@ -665,11 +665,11 @@ erDiagram
 ```
 
 #### 1. Tabel `public.asset_bookkeeping_settings`
-Menyimpan patokan tanggal mulai pembukuan aset per organisasi.
+Menyimpan patokan tanggal mulai pembukuan aset per organisasi (dilindungi dari penghapusan organisasi yang tidak disengaja).
 ```sql
 create table if not exists public.asset_bookkeeping_settings (
   id uuid primary key default gen_random_uuid(),
-  org_id uuid not null unique references public.organizations(id) on delete cascade,
+  org_id uuid not null unique references public.organizations(id) on delete restrict,
   tanggal_mulai_pembukuan date not null check (extract(day from tanggal_mulai_pembukuan) = 1),
   is_locked boolean not null default false,
   locked_reason text,
@@ -681,12 +681,12 @@ create table if not exists public.asset_bookkeeping_settings (
 ```
 
 #### 2. Tabel `public.asset_activation_snapshots`
-Merekam parameter lengkap komponen aset saat beralih dari draf ke aktif (relasi `ON DELETE RESTRICT` pada aset).
+Merekam parameter lengkap komponen aset saat beralih dari draf ke aktif (relasi `ON DELETE RESTRICT` pada aset dan organisasi).
 ```sql
 create table if not exists public.asset_activation_snapshots (
   id uuid primary key default gen_random_uuid(),
   asset_id uuid not null references public.assets(id) on delete restrict,
-  org_id uuid not null references public.organizations(id) on delete cascade,
+  org_id uuid not null references public.organizations(id) on delete restrict,
   version int not null default 1,
   algorithm_version text not null default 'v3.1-bresenham',
   snapshot_params jsonb not null,
@@ -698,13 +698,13 @@ create table if not exists public.asset_activation_snapshots (
 ```
 
 #### 3. Tabel `public.asset_opening_balances`
-Menyimpan saldo awal resmi per komponen aset per tanggal cutoff dengan perlindungan versi dan status pembatalan.
+Menyimpan saldo awal resmi per komponen aset per tanggal cutoff dengan perlindungan versi dan status pembatalan (`ON DELETE RESTRICT` pada organisasi).
 ```sql
 create table if not exists public.asset_opening_balances (
   id uuid primary key default gen_random_uuid(),
   component_id uuid not null references public.asset_components(id) on delete restrict,
   asset_id uuid not null references public.assets(id) on delete restrict,
-  org_id uuid not null references public.organizations(id) on delete cascade,
+  org_id uuid not null references public.organizations(id) on delete restrict,
   version int not null default 1,
   status text not null default 'approved' check (status in ('approved', 'cancelled')),
   cutoff_date date not null,
@@ -754,7 +754,7 @@ Mengelola siklus periode bulanan pembukuan aset per organisasi.
 ```sql
 create table if not exists public.asset_accounting_periods (
   id uuid primary key default gen_random_uuid(),
-  org_id uuid not null references public.organizations(id) on delete cascade,
+  org_id uuid not null references public.organizations(id) on delete restrict,
   period_key text not null check (period_key ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
   status text not null default 'open' check (status in ('open', 'locked')),
   closed_at timestamptz,
@@ -773,7 +773,7 @@ Mengelola transaksi batch posting penyusutan per periode dengan dukungan pembata
 ```sql
 create table if not exists public.asset_depreciation_batches (
   id uuid primary key default gen_random_uuid(),
-  org_id uuid not null references public.organizations(id) on delete cascade,
+  org_id uuid not null references public.organizations(id) on delete restrict,
   period_id uuid not null references public.asset_accounting_periods(id) on delete restrict,
   period_key text not null check (period_key ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
   batch_number text not null,
@@ -786,6 +786,7 @@ create table if not exists public.asset_depreciation_batches (
   total_business_portion numeric not null check (total_business_portion >= 0),
   total_non_business_portion numeric not null check (total_non_business_portion >= 0),
   component_count int not null check (component_count >= 0),
+  algorithm_version text not null default 'v3.1-bresenham',
   snapshot_version_map jsonb not null default '{}'::jsonb,
   preview_token text not null,
   posted_by uuid references auth.users(id),
@@ -816,7 +817,7 @@ Buku pembantu rincian penyusutan per komponen per periode.
 ```sql
 create table if not exists public.asset_depreciation_ledger (
   id uuid primary key default gen_random_uuid(),
-  org_id uuid not null references public.organizations(id) on delete cascade,
+  org_id uuid not null references public.organizations(id) on delete restrict,
   batch_id uuid not null references public.asset_depreciation_batches(id) on delete restrict,
   period_id uuid not null references public.asset_accounting_periods(id) on delete restrict,
   period_key text not null check (period_key ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
@@ -844,7 +845,7 @@ create table if not exists public.asset_depreciation_ledger (
 -- Maksimal 1 entry regular per komponen per batch
 create unique index if not exists uq_regular_ledger_posting 
   on public.asset_depreciation_ledger (batch_id, component_id) 
-  where entry_type = 'regular';
+  where entry_type in ('regular', 'replacement');
 
 -- Maksimal 1 reversal entry per ledger item
 create unique index if not exists uq_ledger_reversal_single 
@@ -857,7 +858,7 @@ Catatan jejak peristiwa append-only audit untuk seluruh mutasi status dan pembuk
 ```sql
 create table if not exists public.asset_accounting_audit_logs (
   id uuid primary key default gen_random_uuid(),
-  org_id uuid not null references public.organizations(id) on delete cascade,
+  org_id uuid not null references public.organizations(id) on delete restrict,
   event_type text not null check (event_type in (
     'start_date_configured',
     'asset_activated',
@@ -958,8 +959,8 @@ Seluruh RPC menggunakan dekorasi `SECURITY DEFINER` dengan penguncian transaksi 
    - Mencatat peristiwa ke `asset_accounting_audit_logs`.
 5. **`preview_depreciation_posting(p_org_id uuid, p_period_key text)`**:
    - Pratinjau server *in-memory* tanpa mutasi data.
-   - Mengembalikan daftar komponen eligible, ineligible (dengan alasan), summary total, dan `preview_token`.
-   - `preview_token` merupakan hash SHA-256 komposit dari: `(p_org_id, p_period_key, snapshot_version_map, opening_balance_hash, last_posted_batch_id)`.
+   - Mengembalikan daftar komponen eligible, ineligible (dengan alasan), summary total, `algorithm_version`, dan `preview_token`.
+   - `preview_token` merupakan hash SHA-256 komposit dari: `(p_org_id, p_period_key, algorithm_version, snapshot_version_map, opening_balance_hash, last_posted_batch_id)`.
 6. **`post_depreciation_batch(p_org_id uuid, p_period_key text, p_idempotency_key text, p_payload_hash text, p_preview_token text, p_notes text)`**:
    - **Validasi Otorisasi:** Diperiksa terlebih dahulu sebelum pengecekan idempoten.
    - **Idempotensi & Payload Integrity:**
@@ -1043,11 +1044,14 @@ Jika saldo awal suatu komponen ternyata salah padahal posting bulanan telah berj
 3. Sahkan saldo awal versi baru ($N+1$) dengan angka yang benar via `approve_component_opening_balance`.
 4. Lakukan posting bulanan ulang dari periode pertama secara berurutan maju. Riwayat versi dan audit trail tetap utuh.
 
-#### 2. Penambahan Komponen Baru pada Periode yang Sudah Diposting
+#### 2. Penambahan Komponen Terlambat pada Periode yang Sudah Diposting
 Jika ada komponen baru yang memiliki tanggal siap guna di masa lalu (misal siap guna Maret 2027, tetapi saat ini pembukuan sudah diposting hingga Mei 2027):
-- Komponen **dilarang menyusut secara retroaktif diam-diam**.
-- **Opsi A (Retroaktif Bersih):** Pemilik membatalkan mundur posting Mei dan April via `reverse_depreciation_batch`, mengaktifkan komponen baru, lalu memposting ulang April dan Mei dengan mengikutsertakan komponen tersebut.
-- **Opsi B (Prospektif):** Jika posting lampau tidak ingin diubah, tanggal siap guna komponen disesuaikan ke periode terbuka saat ini (Juni 2027) untuk disusutkan mulai periode berjalan.
+- **Tanggal Siap Guna Asli Tetap Dipertahankan:** Kolom `tanggal_siap_guna` pada tabel master `asset_components` wajib mempertahankan tanggal historis aslinya dan dilarang diubah paksa menjadi tanggal periode berjalan demi kepatuhan audit.
+- **Komponen Dilarang Menyusut Diam-Diam:** Komponen tidak otomatis disusutkan retroaktif tanpa pembatalan posting lampau.
+- **Alur Koreksi Retroaktif Bersih:**
+  1. Pengguna membatalkan mundur (*unwind*) batch posting Mei dan April via `reverse_depreciation_batch`.
+  2. Komponen baru diaktifkan (`activate_asset` atau snapshot baru) dengan `tanggal_siap_guna` asli tetap Maret 2027.
+  3. Pengguna memposting ulang periode April 2027 (komponen mulai disusutkan sesuai tanggal siap gunanya) dan Mei 2027 secara berurutan maju.
 
 ---
 
