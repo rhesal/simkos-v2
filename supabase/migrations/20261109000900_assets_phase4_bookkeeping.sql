@@ -1,24 +1,23 @@
 -- ==============================================================================
 -- Migrasi: 20261109000900_assets_phase4_bookkeeping.sql
--- Modul: Aset & Inventaris SimKos (Fase 4B-1)
+-- Modul: Aset & Inventaris SimKos (Fase 4B-1R)
 -- Deskripsi: Skema Buku Pembantu Penyusutan Aset, Pengesahan Saldo Awal Multi-Versi,
---            Snapshot Parameter Aktivasi, Penguncian Periode, Batch Posting Atomik
---            Idempoten, Pembatalan Bertahap (Storno), Audit Append-Only,
+--            Snapshot Parameter Aktivasi sebagai Sumber Kebenaran Pembukuan,
+--            Guard Aktivasi Komponen Terlambat (Wajib Unwind), Penolakan Direct Mutasi,
+--            Server-Side Canonical Payload Hash, Penguncian Periode, Batch Posting
+--            Atomik Idempoten, Pembatalan Bertahap (Storno), Audit Append-Only,
 --            dan Perlindungan Riwayat (ON DELETE RESTRICT pada organisasi & aset).
 -- ==============================================================================
 
--- 1. Penyesuaian Check Constraint status_pencatatan & Trigger Validasi Status Aset
-do $$
-begin
-  alter table public.assets drop constraint if exists assets_status_pencatatan_check;
-  alter table public.assets add constraint assets_status_pencatatan_check check (
-    status_pencatatan in ('draft', 'aktif', 'terverifikasi', 'dibukukan', 'diarsipkan')
-  );
-exception when others then
-  null;
-end $$;
+-- 1. Penyesuaian Check Constraint status_pencatatan pada Tabel assets
+alter table public.assets drop constraint if exists assets_status_pencatatan_check;
+alter table public.assets add constraint assets_status_pencatatan_check check (
+  status_pencatatan in ('draft', 'aktif', 'terverifikasi', 'dibukukan', 'diarsipkan')
+);
 
--- Perbarui fungsi trigger validate_asset_relations agar mengizinkan status 'aktif' pada Fase 4
+-- Perbarui fungsi trigger validate_asset_relations:
+-- Menolak direct aktivasi ke status 'aktif' di luar RPC activate_asset
+-- Menolak perubahan kembali dari 'aktif' ke 'draft' jika aset telah memiliki snapshot / pembukuan
 create or replace function public.validate_asset_relations()
 returns trigger
 language plpgsql
@@ -36,9 +35,30 @@ begin
     raise exception 'SIMKOS_IMMUTABLE_ORG: Organisasi aset tidak dapat dipindahkan';
   end if;
 
-  -- Pada Fase 4, status yang diizinkan adalah 'draft' atau 'aktif'
+  -- Pada INSERT, status aset baru wajib 'draft'
+  if tg_op = 'INSERT' and new.status_pencatatan <> 'draft' then
+    raise exception 'SIMKOS_INSERT_DRAFT_ONLY: Aset baru wajib dibuat dengan status draft';
+  end if;
+
+  -- Pada UPDATE, status yang diizinkan
   if new.status_pencatatan not in ('draft', 'aktif', 'terverifikasi', 'dibukukan', 'diarsipkan') then
     raise exception 'SIMKOS_INVALID_STATUS: Status pencatatan aset tidak valid';
+  end if;
+
+  -- Larang direct UPDATE status menjadi 'aktif' di luar RPC activate_asset
+  if tg_op = 'UPDATE' and new.status_pencatatan = 'aktif' and old.status_pencatatan <> 'aktif' then
+    if coalesce(current_setting('simkos.in_rpc_activate_asset', true), 'false') <> 'true' then
+      raise exception 'SIMKOS_DIRECT_ACTIVATION_FORBIDDEN: Perubahan status aset menjadi aktif dilarang melalui direct update; wajib melalui RPC activate_asset';
+    end if;
+  end if;
+
+  -- Larang perubahan kembali dari 'aktif' ke 'draft' jika aset telah memiliki snapshot / pembukuan
+  if tg_op = 'UPDATE' and old.status_pencatatan = 'aktif' and new.status_pencatatan <> 'aktif' then
+    if exists (select 1 from public.asset_activation_snapshots where asset_id = old.id) or
+       exists (select 1 from public.asset_opening_balances where asset_id = old.id and status = 'approved') or
+       exists (select 1 from public.asset_depreciation_ledger where asset_id = old.id) then
+      raise exception 'SIMKOS_CANNOT_REVERT_ACTIVE_ASSET: Aset aktif yang memiliki riwayat pembukuan/snapshot tidak dapat dikembalikan menjadi status %', new.status_pencatatan;
+    end if;
   end if;
 
   -- Validasi lokasi satu organisasi
@@ -68,6 +88,95 @@ begin
     if v_inv_org is null or v_inv_org <> new.org_id then
       raise exception 'SIMKOS_CROSS_TENANT_INVENTORY: Inventaris asal (%) bukan milik organisasi (%)',
         new.legacy_inventory_id, new.org_id;
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+-- Perbarui fungsi trigger validate_component_relations:
+-- Menolak perubahan parameter finansial master komponen yang telah disahkan saldo awalnya atau dibukukan
+create or replace function public.validate_component_relations()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_asset_org uuid;
+  v_exp_org uuid;
+  v_exp_nominal numeric;
+  v_total_allocated numeric;
+begin
+  -- Cegah perubahan org_id atau pemindahan asset_id
+  if tg_op = 'UPDATE' and (new.org_id <> old.org_id or new.asset_id <> old.asset_id) then
+    raise exception 'SIMKOS_IMMUTABLE_RELATION: Relasi asset_id dan org_id komponen tidak dapat diubah';
+  end if;
+
+  -- Validasi aset induk satu organisasi
+  select org_id into v_asset_org from public.assets where id = new.asset_id;
+  if v_asset_org is null or v_asset_org <> new.org_id then
+    raise exception 'SIMKOS_CROSS_TENANT_ASSET: Aset induk (%) bukan milik organisasi (%)', new.asset_id, new.org_id;
+  end if;
+
+  -- Perlindungan integritas: jika komponen telah disahkan saldo awalnya atau telah dibukukan, parameter finansial tidak boleh diubah langsung
+  if tg_op = 'UPDATE' then
+    if (new.biaya_perolehan is distinct from old.biaya_perolehan
+        or new.nilai_sisa is distinct from old.nilai_sisa
+        or new.masa_manfaat_bulan is distinct from old.masa_manfaat_bulan
+        or new.tanggal_siap_guna is distinct from old.tanggal_siap_guna
+        or new.porsi_usaha_persen is distinct from old.porsi_usaha_persen
+        or new.status_kapitalisasi is distinct from old.status_kapitalisasi
+        or new.metode_penyusutan is distinct from old.metode_penyusutan) then
+      if exists (select 1 from public.asset_opening_balances where component_id = old.id and status = 'approved') or
+         exists (select 1 from public.asset_depreciation_ledger where component_id = old.id) then
+        raise exception 'SIMKOS_LOCKED_FINANCIAL_PARAMETERS: Parameter finansial komponen yang telah disahkan saldo awal atau dibukukan tidak dapat diubah langsung';
+      end if;
+    end if;
+  end if;
+
+  -- Pengawasan penanda perubahan finansial berbasis server
+  if tg_op = 'UPDATE' then
+    if old.financials_customized_in_asset = true and new.financials_customized_in_asset = false then
+      raise exception 'SIMKOS_CANNOT_RESET_CUSTOMIZED_FINANCIALS: Penanda kustomisasi finansial aset tidak dapat direset manual oleh client';
+    end if;
+
+    if (new.biaya_perolehan is distinct from old.biaya_perolehan 
+        or new.tanggal_perolehan is distinct from old.tanggal_perolehan 
+        or new.bukti_dokumen_url is distinct from old.bukti_dokumen_url) then
+      if coalesce(current_setting('simkos.in_inventory_sync', true), 'false') <> 'true' then
+        new.financials_customized_in_asset := true;
+      end if;
+    end if;
+  end if;
+
+  -- Validasi relasi pengeluaran & penguncian baris untuk konkurensi aman
+  if new.expense_id is not null then
+    select org_id, nominal into v_exp_org, v_exp_nominal
+    from public.expenses
+    where id = new.expense_id
+    for update;
+
+    if v_exp_org is null or v_exp_org <> new.org_id then
+      raise exception 'SIMKOS_CROSS_TENANT_EXPENSE: Transaksi pengeluaran (%) bukan milik organisasi (%)', new.expense_id, new.org_id;
+    end if;
+
+    if new.allocated_cost is not null then
+      if new.biaya_perolehan is not null and new.allocated_cost > new.biaya_perolehan then
+        raise exception 'SIMKOS_ALLOCATION_EXCEEDS_ASSET_COST: Alokasi biaya (%) melebihi biaya perolehan komponen (%)',
+          new.allocated_cost, new.biaya_perolehan;
+      end if;
+
+      select coalesce(sum(allocated_cost), 0) into v_total_allocated
+      from public.asset_components
+      where expense_id = new.expense_id
+        and id <> coalesce(new.id, '00000000-0000-0000-0000-000000000000'::uuid);
+
+      if (v_total_allocated + new.allocated_cost) > coalesce(v_exp_nominal, 0) then
+        raise exception 'SIMKOS_OVERALLOCATED_EXPENSE: Total alokasi aset (%) melebihi nominal transaksi sumber (%)',
+          (v_total_allocated + new.allocated_cost), v_exp_nominal;
+      end if;
     end if;
   end if;
 
@@ -166,7 +275,7 @@ create table if not exists public.asset_accounting_periods (
   constraint uq_org_accounting_period unique (org_id, period_key)
 );
 
--- 6. Tabel Batch Posting Penyusutan (Dukungan Multi-Versi Reversal)
+-- 6. Tabel Batch Posting Penyusutan (Dukungan Multi-Versi Reversal & Rantai Pengganti)
 create table if not exists public.asset_depreciation_batches (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.organizations(id) on delete restrict,
@@ -536,20 +645,27 @@ security definer
 set search_path = public, auth
 as $$
 declare
-  v_caller_role text;
   v_existing public.asset_bookkeeping_settings%rowtype;
   v_result public.asset_bookkeeping_settings%rowtype;
 begin
-  if not (public.is_org_owner(p_org_id) or public.is_org_admin(p_org_id)) then
-    raise exception 'SIMKOS_FORBIDDEN: Hanya owner atau admin yang dapat mengatur tanggal mulai pembukuan';
+  if p_org_id is null then
+    raise exception 'SIMKOS_INVALID_PARAM: org_id wajib diisi';
   end if;
-
-  perform pg_advisory_xact_lock(hashtext('simkos:depreciation:' || p_org_id::text));
-
+  if p_start_date is null then
+    raise exception 'SIMKOS_INVALID_PARAM: start_date wajib diisi';
+  end if;
   if extract(day from p_start_date) != 1 then
     raise exception 'SIMKOS_INVALID_START_DATE: Tanggal mulai pembukuan harus tanggal 1 suatu bulan';
   end if;
 
+  if not (public.is_org_owner(p_org_id) or public.is_org_admin(p_org_id)) then
+    raise exception 'SIMKOS_FORBIDDEN: Hanya owner atau admin yang dapat mengatur tanggal mulai pembukuan';
+  end if;
+
+  -- 1. Ambil penguncian transaksi
+  perform pg_advisory_xact_lock(hashtext('simkos:depreciation:' || p_org_id::text));
+
+  -- 2. Baca ulang data setelah lock
   select * into v_existing from public.asset_bookkeeping_settings where org_id = p_org_id;
   if found and v_existing.is_locked then
     raise exception 'SIMKOS_SETTINGS_LOCKED: Pengaturan tanggal mulai pembukuan telah dikunci dan tidak dapat diubah';
@@ -595,7 +711,14 @@ declare
   v_components jsonb;
   v_invalid_count int;
   v_snapshot public.asset_activation_snapshots%rowtype;
+  v_latest_posted_period text;
+  v_latest_posted_end_date date;
+  v_late_comp record;
 begin
+  if p_asset_id is null then
+    raise exception 'SIMKOS_INVALID_PARAM: asset_id wajib diisi';
+  end if;
+
   select * into v_asset from public.assets where id = p_asset_id;
   if not found then
     raise exception 'SIMKOS_ASSET_NOT_FOUND: Aset dengan ID % tidak ditemukan', p_asset_id;
@@ -605,21 +728,25 @@ begin
     raise exception 'SIMKOS_FORBIDDEN: Hanya owner atau admin yang dapat mengaktivasi aset';
   end if;
 
+  -- 1. Kunci transaksi advisory lock
   perform pg_advisory_xact_lock(hashtext('simkos:depreciation:' || v_asset.org_id::text));
 
+  -- 2. Baca ulang data aset setelah lock
+  select * into v_asset from public.assets where id = p_asset_id;
+
   if v_asset.status_pencatatan = 'aktif' then
-    -- Aset sudah aktif, periksa apakah ini snapshot komponen pengembangan baru
+    -- Aset sudah aktif, boleh diaktivasi ulang untuk snapshot versi baru
     null;
   elsif v_asset.status_pencatatan != 'draft' then
-    raise exception 'SIMKOS_INVALID_STATUS: Hanya aset berstatus draft yang dapat diaktivasi';
+    raise exception 'SIMKOS_INVALID_STATUS: Hanya aset berstatus draft atau aktif yang dapat diaktivasi';
   end if;
 
-  -- Validasi komponen: harus ada minimal 1 komponen
+  -- 3. Validasi minimal 1 komponen
   if not exists (select 1 from public.asset_components where asset_id = p_asset_id) then
     raise exception 'SIMKOS_NO_COMPONENTS: Aset wajib memiliki minimal satu komponen sebelum diaktivasi';
   end if;
 
-  -- Kategori bukan tanah wajib tidak memiliki komponen 'perlu_telaah'
+  -- 4. Validasi komponen kapitalisasi
   if v_asset.kategori_aset != 'tanah' then
     select count(*) into v_invalid_count 
     from public.asset_components 
@@ -629,23 +756,67 @@ begin
       raise exception 'SIMKOS_COMPONENT_UNRESOLVED: Terdapat % komponen berstatus perlu_telaah. Wajib diputuskan kapitalisasi atau beban langsung', v_invalid_count;
     end if;
 
-    -- Komponen kapitalisasi wajib memiliki parameter lengkap
+    -- Validasi kelengkapan ketat (tidak ada data kosong yang diam-diam jadi nol)
     select count(*) into v_invalid_count
     from public.asset_components
     where asset_id = p_asset_id 
       and status_kapitalisasi = 'kapitalisasi'
-      and (biaya_perolehan is null or tanggal_siap_guna is null or masa_manfaat_bulan is null or masa_manfaat_bulan <= 0);
+      and (biaya_perolehan is null or biaya_perolehan < 0
+           or tanggal_siap_guna is null 
+           or masa_manfaat_bulan is null or masa_manfaat_bulan <= 0
+           or porsi_usaha_persen is null or porsi_usaha_persen < 0 or porsi_usaha_persen > 100
+           or metode_penyusutan is null or metode_penyusutan != 'garis_lurus');
 
     if v_invalid_count > 0 then
-      raise exception 'SIMKOS_INCOMPLETE_PARAMETERS: Terdapat % komponen kapitalisasi dengan parameter belum lengkap', v_invalid_count;
+      raise exception 'SIMKOS_INCOMPLETE_PARAMETERS: Terdapat % komponen kapitalisasi dengan parameter belum lengkap (metode, porsi usaha, biaya, tanggal, atau masa manfaat)', v_invalid_count;
     end if;
   end if;
 
+  -- 5. Pengecekan Komponen Terlambat terhadap Periode Posting Aktif:
+  select period_key into v_latest_posted_period
+  from public.asset_depreciation_batches
+  where org_id = v_asset.org_id and batch_status = 'posted'
+  order by period_key desc limit 1;
+
+  if v_latest_posted_period is not null then
+    v_latest_posted_end_date := (make_date(substring(v_latest_posted_period from 1 for 4)::int, substring(v_latest_posted_period from 6 for 2)::int, 1) + interval '1 month' - interval '1 day')::date;
+
+    select * into v_late_comp
+    from public.asset_components
+    where asset_id = p_asset_id
+      and status_kapitalisasi = 'kapitalisasi'
+      and metode_penyusutan = 'garis_lurus'
+      and tanggal_siap_guna <= v_latest_posted_end_date
+    limit 1;
+
+    if found then
+      raise exception 'SIMKOS_LATE_COMPONENT_REQUIRES_UNWIND: Komponen % memiliki tanggal siap guna (%) pada periode yang telah diposting aktif (%). Batalkan mundur posting hingga periode sebelum tanggal siap guna komponen terlebih dahulu',
+        v_late_comp.nama_komponen, v_late_comp.tanggal_siap_guna, v_latest_posted_period;
+    end if;
+  end if;
+
+  -- 6. Tentukan versi snapshot berikutnya
   select coalesce(max(version), 0) + 1 into v_next_version
   from public.asset_activation_snapshots
   where asset_id = p_asset_id;
 
-  select jsonb_agg(to_jsonb(c)) into v_components
+  -- 7. Kumpulkan parameter kanonis seluruh komponen ke dalam snapshot_params
+  select jsonb_agg(
+    jsonb_build_object(
+      'id', c.id,
+      'component_id', c.id,
+      'asset_id', c.asset_id,
+      'org_id', c.org_id,
+      'nama_komponen', c.nama_komponen,
+      'biaya_perolehan', c.biaya_perolehan,
+      'nilai_sisa', c.nilai_sisa,
+      'masa_manfaat_bulan', c.masa_manfaat_bulan,
+      'tanggal_siap_guna', c.tanggal_siap_guna,
+      'porsi_usaha_persen', c.porsi_usaha_persen,
+      'status_kapitalisasi', c.status_kapitalisasi,
+      'metode_penyusutan', c.metode_penyusutan
+    ) order by c.created_at asc
+  ) into v_components
   from public.asset_components c
   where c.asset_id = p_asset_id;
 
@@ -654,6 +825,9 @@ begin
   ) values (
     p_asset_id, v_asset.org_id, v_next_version, 'v3.1-bresenham', v_components, auth.uid(), p_activation_notes
   ) returning * into v_snapshot;
+
+  -- Set session variable agar trigger validate_asset_relations mengizinkan transisi status ke 'aktif'
+  perform set_config('simkos.in_rpc_activate_asset', 'true', true);
 
   update public.assets set
     status_pencatatan = 'aktif',
@@ -712,24 +886,58 @@ declare
   v_bobot_lalu numeric;
   v_start_day int;
   v_days_first_month int;
-  v_end_period_date date;
+  v_snap public.asset_activation_snapshots%rowtype;
+  v_snap_comp jsonb;
   v_result public.asset_opening_balances%rowtype;
 begin
+  if p_component_id is null then
+    raise exception 'SIMKOS_INVALID_PARAM: component_id wajib diisi';
+  end if;
+  if p_jalur is null or p_jalur not in ('simulasi_historis', 'catatan_terdahulu') then
+    raise exception 'SIMKOS_INVALID_PATH: Jalur saldo tidak valid. Gunakan simulasi_historis atau catatan_terdahulu';
+  end if;
+
   select * into v_comp from public.asset_components where id = p_component_id;
   if not found then
     raise exception 'SIMKOS_COMPONENT_NOT_FOUND: Komponen dengan ID % tidak ditemukan', p_component_id;
-  end if;
-
-  select * into v_asset from public.assets where id = v_comp.asset_id;
-  if not found or v_asset.status_pencatatan != 'aktif' then
-    raise exception 'SIMKOS_ASSET_NOT_ACTIVE: Saldo awal hanya dapat disahkan untuk aset yang telah berstatus aktif';
   end if;
 
   if not (public.is_org_owner(v_comp.org_id) or public.is_org_admin(v_comp.org_id)) then
     raise exception 'SIMKOS_FORBIDDEN: Hanya owner atau admin yang dapat mengesahkan saldo awal';
   end if;
 
+  -- 1. Kunci transaksi advisory lock
   perform pg_advisory_xact_lock(hashtext('simkos:depreciation:' || v_comp.org_id::text));
+
+  -- 2. BACA ULANG seluruh keadaan setelah lock
+  select * into v_comp from public.asset_components where id = p_component_id;
+  select * into v_asset from public.assets where id = v_comp.asset_id;
+  if not found or v_asset.status_pencatatan != 'aktif' then
+    raise exception 'SIMKOS_ASSET_NOT_ACTIVE: Saldo awal hanya dapat disahkan untuk aset yang telah berstatus aktif';
+  end if;
+
+  -- Ambil snapshot aktivasi terbaru
+  select * into v_snap from public.asset_activation_snapshots
+  where asset_id = v_comp.asset_id order by version desc limit 1;
+  if not found then
+    raise exception 'SIMKOS_NO_SNAPSHOT: Aset belum memiliki snapshot aktivasi resmi';
+  end if;
+
+  -- Ambil parameter komponen dari elemen SNAPSHOT
+  select elem into v_snap_comp
+  from jsonb_array_elements(v_snap.snapshot_params) elem
+  where (elem->>'id')::uuid = p_component_id;
+  if v_snap_comp is null then
+    raise exception 'SIMKOS_COMPONENT_NOT_IN_SNAPSHOT: Komponen belum disahkan dalam snapshot aktivasi aset';
+  end if;
+
+  -- 3. PERIKSA BATCH AKTIF DI ORGANISASI: Menolak keras pengesahan jika masih ada batch aktif
+  if exists (
+    select 1 from public.asset_depreciation_batches
+    where org_id = v_comp.org_id and batch_status = 'posted'
+  ) then
+    raise exception 'SIMKOS_POSTED_BATCH_EXISTS: Tidak dapat mengesahkan saldo awal baru karena terdapat batch posting yang aktif. Batalkan seluruh batch posting aktif terlebih dahulu';
+  end if;
 
   select * into v_settings from public.asset_bookkeeping_settings where org_id = v_comp.org_id;
   if not found then
@@ -739,19 +947,20 @@ begin
   v_cutoff_date := v_settings.tanggal_mulai_pembukuan - interval '1 day';
   v_cutoff_key := to_char(v_cutoff_date, 'YYYY-MM');
 
-  if v_comp.tanggal_siap_guna >= v_settings.tanggal_mulai_pembukuan then
+  -- Gunakan parameter dari SNAPSHOT (bukan data master mutable)
+  v_biaya := (v_snap_comp->>'biaya_perolehan')::numeric;
+  v_sisa := coalesce((v_snap_comp->>'nilai_sisa')::numeric, 0);
+  v_dasar := v_biaya - v_sisa;
+
+  if (v_snap_comp->>'tanggal_siap_guna')::date >= v_settings.tanggal_mulai_pembukuan then
     raise exception 'SIMKOS_ACQUISITION_NOT_HISTORICAL: Komponen siap guna pada atau setelah tanggal mulai pembukuan, tidak memerlukan saldo awal historis';
   end if;
 
-  v_biaya := coalesce(v_comp.biaya_perolehan, 0);
-  v_sisa := coalesce(v_comp.nilai_sisa, 0);
-  v_dasar := v_biaya - v_sisa;
-
   if p_jalur = 'simulasi_historis' then
-    -- Ambil jadwal dari formula Bresenham sampai cutoff date
     select * into v_last_sched 
     from public.calc_component_depreciation_schedule(
-      v_biaya, v_sisa, v_comp.masa_manfaat_bulan, v_comp.tanggal_siap_guna, v_comp.porsi_usaha_persen
+      v_biaya, v_sisa, (v_snap_comp->>'masa_manfaat_bulan')::int, 
+      (v_snap_comp->>'tanggal_siap_guna')::date, (v_snap_comp->>'porsi_usaha_persen')::numeric
     )
     where period_key <= v_cutoff_key
     order by periode_idx desc
@@ -769,28 +978,37 @@ begin
     v_nilai_buku_awal := v_biaya - v_akum_awal;
     v_sisa_dasar := v_nilai_buku_awal - v_sisa;
     
-    if v_comp.porsi_usaha_persen is not null and v_sisa_dasar > 0 then
-      v_sisa_target_usaha := round(v_sisa_dasar * (v_comp.porsi_usaha_persen / 100.0));
+    if (v_snap_comp->>'porsi_usaha_persen') is not null and v_sisa_dasar > 0 then
+      v_sisa_target_usaha := round(v_sisa_dasar * ((v_snap_comp->>'porsi_usaha_persen')::numeric / 100.0));
     else
       v_sisa_target_usaha := 0;
     end if;
 
-    -- Hitung sisa periode kalender
     select count(*) into v_sisa_periode_kalender
     from public.calc_component_depreciation_schedule(
-      v_biaya, v_sisa, v_comp.masa_manfaat_bulan, v_comp.tanggal_siap_guna, v_comp.porsi_usaha_persen
+      v_biaya, v_sisa, (v_snap_comp->>'masa_manfaat_bulan')::int, 
+      (v_snap_comp->>'tanggal_siap_guna')::date, (v_snap_comp->>'porsi_usaha_persen')::numeric
     )
     where period_key > v_cutoff_key;
 
     v_sisa_bobot := v_sisa_periode_kalender::numeric;
 
   elsif p_jalur = 'catatan_terdahulu' then
-    if p_manual_akumulasi is null or p_manual_akumulasi < 0 or p_manual_akumulasi > v_dasar then
+    if p_manual_akumulasi is null then
+      raise exception 'SIMKOS_INVALID_MANUAL_ACCUMULATION: Akumulasi manual wajib diisi';
+    end if;
+    if round(p_manual_akumulasi) != p_manual_akumulasi then
+      raise exception 'SIMKOS_INVALID_MANUAL_ACCUMULATION: Akumulasi manual harus berupa bilangan bulat rupiah tanpa pecahan desimal';
+    end if;
+    if p_manual_akumulasi < 0 or p_manual_akumulasi > v_dasar then
       raise exception 'SIMKOS_INVALID_MANUAL_ACCUMULATION: Akumulasi manual harus antara 0 dan dasar penyusutan (%)', v_dasar;
     end if;
 
     v_akum_awal := p_manual_akumulasi;
     v_akum_usaha_awal := coalesce(p_manual_usaha, 0);
+    if round(v_akum_usaha_awal) != v_akum_usaha_awal then
+      raise exception 'SIMKOS_INVALID_MANUAL_BUSINESS: Akumulasi usaha harus berupa bilangan bulat rupiah tanpa pecahan desimal';
+    end if;
     if v_akum_usaha_awal < 0 or v_akum_usaha_awal > v_akum_awal then
       raise exception 'SIMKOS_INVALID_MANUAL_BUSINESS: Akumulasi usaha harus antara 0 dan akumulasi penyusutan awal';
     end if;
@@ -799,19 +1017,17 @@ begin
     v_nilai_buku_awal := v_biaya - v_akum_awal;
     v_sisa_dasar := v_nilai_buku_awal - v_sisa;
 
-    if v_comp.porsi_usaha_persen is not null and v_sisa_dasar > 0 then
-      v_sisa_target_usaha := round(v_sisa_dasar * (v_comp.porsi_usaha_persen / 100.0));
+    if (v_snap_comp->>'porsi_usaha_persen') is not null and v_sisa_dasar > 0 then
+      v_sisa_target_usaha := round(v_sisa_dasar * ((v_snap_comp->>'porsi_usaha_persen')::numeric / 100.0));
     else
       v_sisa_target_usaha := 0;
     end if;
 
-    -- Hitung bobot masa lalu
-    v_start_day := extract(day from v_comp.tanggal_siap_guna)::int;
-    v_days_first_month := extract(day from (make_date(extract(year from v_comp.tanggal_siap_guna)::int, extract(month from v_comp.tanggal_siap_guna)::int, 1) + interval '1 month' - interval '1 day'))::int;
+    v_start_day := extract(day from (v_snap_comp->>'tanggal_siap_guna')::date)::int;
+    v_days_first_month := extract(day from (make_date(extract(year from (v_snap_comp->>'tanggal_siap_guna')::date)::int, extract(month from (v_snap_comp->>'tanggal_siap_guna')::date)::int, 1) + interval '1 month' - interval '1 day'))::int;
     
-    -- Jumlah bulan kalender terlewati dari siap guna ke cutoff
-    v_months_past := (extract(year from v_cutoff_date)::int - extract(year from v_comp.tanggal_siap_guna)::int) * 12 
-      + (extract(month from v_cutoff_date)::int - extract(month from v_comp.tanggal_siap_guna)::int) + 1;
+    v_months_past := (extract(year from v_cutoff_date)::int - extract(year from (v_snap_comp->>'tanggal_siap_guna')::date)::int) * 12 
+      + (extract(month from v_cutoff_date)::int - extract(month from (v_snap_comp->>'tanggal_siap_guna')::date)::int) + 1;
 
     if v_start_day = 1 then
       v_bobot_lalu := v_months_past::numeric;
@@ -819,9 +1035,8 @@ begin
       v_bobot_lalu := ((v_days_first_month - v_start_day + 1)::numeric / v_days_first_month::numeric) + (v_months_past - 1)::numeric;
     end if;
 
-    v_sisa_bobot := v_comp.masa_manfaat_bulan::numeric - v_bobot_lalu;
+    v_sisa_bobot := (v_snap_comp->>'masa_manfaat_bulan')::numeric - v_bobot_lalu;
 
-    -- Edge case: sisa dasar > 0 namun sisa masa manfaat <= 0
     if v_sisa_dasar > 0 and v_sisa_bobot <= 0 then
       if p_revisi_sisa_bulan is null or p_revisi_sisa_bulan <= 0 then
         raise exception 'SIMKOS_REVISION_REQUIRED: Sisa dasar penyusutan positif (%) namun masa manfaat telah habis. Wajib mengisi revisi estimasi sisa bulan', v_sisa_dasar;
@@ -833,15 +1048,13 @@ begin
     else
       v_sisa_periode_kalender := ceil(greatest(v_sisa_bobot, 0))::int;
     end if;
-  else
-    raise exception 'SIMKOS_INVALID_PATH: Jalur saldo tidak valid. Gunakan simulasi_historis atau catatan_terdahulu';
   end if;
 
   select coalesce(max(version), 0) + 1 into v_next_version
   from public.asset_opening_balances
   where component_id = p_component_id;
 
-  -- Nonaktifkan versi approved sebelumnya jika ada
+  -- Batalkan versi approved lama jika ada
   update public.asset_opening_balances set
     status = 'cancelled',
     cancelled_by = auth.uid(),
@@ -863,7 +1076,6 @@ begin
     p_catatan, auth.uid(), now()
   ) returning * into v_result;
 
-  -- Kunci pengaturan tanggal mulai pembukuan
   update public.asset_bookkeeping_settings set
     is_locked = true,
     locked_reason = 'Saldo awal komponen ' || v_comp.nama_komponen || ' telah disahkan',
@@ -896,6 +1108,10 @@ as $$
 declare
   v_ob public.asset_opening_balances%rowtype;
 begin
+  if p_component_id is null then
+    raise exception 'SIMKOS_INVALID_PARAM: component_id wajib diisi';
+  end if;
+
   select * into v_ob from public.asset_opening_balances 
   where component_id = p_component_id and status = 'approved';
   
@@ -907,9 +1123,17 @@ begin
     raise exception 'SIMKOS_FORBIDDEN: Hanya owner atau admin yang dapat membatalkan saldo awal';
   end if;
 
+  -- 1. Kunci transaksi
   perform pg_advisory_xact_lock(hashtext('simkos:depreciation:' || v_ob.org_id::text));
 
-  -- Wajib: tidak boleh ada batch posting aktif
+  -- 2. Baca ulang status setelah lock
+  select * into v_ob from public.asset_opening_balances 
+  where component_id = p_component_id and status = 'approved';
+  if not found then
+    raise exception 'SIMKOS_OB_NOT_FOUND: Tidak ditemukan saldo awal approved untuk komponen ID %', p_component_id;
+  end if;
+
+  -- 3. Wajib: tidak boleh ada batch posting aktif
   if exists (
     select 1 from public.asset_depreciation_batches
     where org_id = v_ob.org_id and batch_status = 'posted'
@@ -938,7 +1162,7 @@ begin
 end;
 $$;
 
--- RPC 5: Pratinjau Server Posting Penyusutan Bulanan
+-- RPC 5: Pratinjau Server Posting Penyusutan Bulanan (Menggunakan Sumber Snapshot Resmi)
 create or replace function public.preview_depreciation_posting(
   p_org_id uuid,
   p_period_key text
@@ -961,15 +1185,33 @@ declare
   v_total_bus numeric := 0;
   v_total_non_bus numeric := 0;
   v_count int := 0;
-  v_comp record;
-  v_ob public.asset_opening_balances%rowtype;
+  v_asset record;
   v_snap public.asset_activation_snapshots%rowtype;
+  v_comp_json jsonb;
+  v_comp_id uuid;
+  v_nama_komponen text;
+  v_biaya numeric;
+  v_sisa numeric;
+  v_masa int;
+  v_tgl_siap_guna date;
+  v_porsi numeric;
+  v_status_kap text;
+  v_metode text;
+  v_ob public.asset_opening_balances%rowtype;
   v_sched record;
   v_snapshot_hash text;
   v_ob_hash text;
+  v_master_hash text;
   v_preview_token text;
   v_item jsonb;
 begin
+  if p_org_id is null then
+    raise exception 'SIMKOS_INVALID_PARAM: org_id wajib diisi';
+  end if;
+  if p_period_key is null or p_period_key !~ '^[0-9]{4}-(0[1-9]|1[0-2])$' then
+    raise exception 'SIMKOS_INVALID_PARAM: period_key tidak valid (harus YYYY-MM)';
+  end if;
+
   if not (public.is_org_owner(p_org_id) or public.is_org_admin(p_org_id)) then
     raise exception 'SIMKOS_FORBIDDEN: Hanya owner atau admin yang dapat membuat pratinjau posting';
   end if;
@@ -1009,110 +1251,130 @@ begin
   v_period_date := make_date(substring(p_period_key from 1 for 4)::int, substring(p_period_key from 6 for 2)::int, 1);
   v_period_end_date := v_period_date + interval '1 month' - interval '1 day';
 
-  -- Evaluasi setiap komponen aktif
-  for v_comp in (
-    select c.*, a.nama_aset, a.kategori_aset
-    from public.asset_components c
-    join public.assets a on a.id = c.asset_id
-    where c.org_id = p_org_id and a.status_pencatatan = 'aktif'
-    order by c.created_at asc
+  -- Evaluasi seluruh aset aktif berdasarkan SNAPSHOT AKTIVASI RESMI
+  for v_asset in (
+    select id, nama_aset, kategori_aset
+    from public.assets
+    where org_id = p_org_id and status_pencatatan = 'aktif'
+    order by created_at asc
   ) loop
-    -- Ambil snapshot aset terbaru
     select * into v_snap from public.asset_activation_snapshots
-    where asset_id = v_comp.asset_id order by version desc limit 1;
-    if found then
-      v_snapshot_map := jsonb_set(v_snapshot_map, array[v_comp.asset_id::text], to_jsonb(v_snap.version));
-    end if;
+    where asset_id = v_asset.id order by version desc limit 1;
 
-    -- Pengecekan kelayakan dasar
-    if v_comp.kategori_aset = 'tanah' or v_comp.status_kapitalisasi = 'beban_langsung' or v_comp.metode_penyusutan = 'tidak_disusutkan' then
-      v_ineligible := v_ineligible || jsonb_build_object(
-        'component_id', v_comp.id, 'nama_komponen', v_comp.nama_komponen, 'alasan', 'Tidak disusutkan'
-      );
+    if not found then
       continue;
     end if;
 
-    if v_comp.tanggal_siap_guna > v_period_end_date then
-      v_ineligible := v_ineligible || jsonb_build_object(
-        'component_id', v_comp.id, 'nama_komponen', v_comp.nama_komponen, 'alasan', 'Belum siap guna pada periode ini'
-      );
-      continue;
-    end if;
+    v_snapshot_map := jsonb_set(v_snapshot_map, array[v_asset.id::text], to_jsonb(v_snap.version));
 
-    -- Jika perolehan historis (< tanggal mulai), wajib ada saldo awal approved
-    if v_comp.tanggal_siap_guna < v_settings.tanggal_mulai_pembukuan then
-      select * into v_ob from public.asset_opening_balances
-      where component_id = v_comp.id and status = 'approved';
-      if not found then
+    -- Evaluasi setiap komponen yang tersimpan resmi di dalam SNAPSHOT
+    for v_comp_json in select * from jsonb_array_elements(v_snap.snapshot_params) loop
+      v_comp_id := (v_comp_json->>'id')::uuid;
+      v_nama_komponen := v_comp_json->>'nama_komponen';
+      v_biaya := (v_comp_json->>'biaya_perolehan')::numeric;
+      v_sisa := coalesce((v_comp_json->>'nilai_sisa')::numeric, 0);
+      v_masa := (v_comp_json->>'masa_manfaat_bulan')::int;
+      v_tgl_siap_guna := (v_comp_json->>'tanggal_siap_guna')::date;
+      v_porsi := (v_comp_json->>'porsi_usaha_persen')::numeric;
+      v_status_kap := v_comp_json->>'status_kapitalisasi';
+      v_metode := v_comp_json->>'metode_penyusutan';
+
+      -- Pengecekan kelayakan dasar
+      if v_asset.kategori_aset = 'tanah' or v_status_kap = 'beban_langsung' or v_metode = 'tidak_disusutkan' then
         v_ineligible := v_ineligible || jsonb_build_object(
-          'component_id', v_comp.id, 'nama_komponen', v_comp.nama_komponen, 'alasan', 'Saldo awal historis belum disahkan'
+          'component_id', v_comp_id, 'nama_komponen', v_nama_komponen, 'alasan', 'Tidak disusutkan'
         );
         continue;
       end if;
 
-      if v_ob.jalur_saldo = 'simulasi_historis' then
-        select * into v_sched from public.calc_component_depreciation_schedule(
-          v_comp.biaya_perolehan, v_comp.nilai_sisa, v_comp.masa_manfaat_bulan, v_comp.tanggal_siap_guna, v_comp.porsi_usaha_persen
-        ) where period_key = p_period_key;
+      if v_tgl_siap_guna > v_period_end_date then
+        v_ineligible := v_ineligible || jsonb_build_object(
+          'component_id', v_comp_id, 'nama_komponen', v_nama_komponen, 'alasan', 'Belum siap guna pada periode ini'
+        );
+        continue;
+      end if;
+
+      -- Komponen historis (< tanggal mulai) wajib memiliki saldo awal approved
+      if v_tgl_siap_guna < v_settings.tanggal_mulai_pembukuan then
+        select * into v_ob from public.asset_opening_balances
+        where component_id = v_comp_id and status = 'approved';
+        if not found then
+          v_ineligible := v_ineligible || jsonb_build_object(
+            'component_id', v_comp_id, 'nama_komponen', v_nama_komponen, 'alasan', 'Saldo awal historis belum disahkan'
+          );
+          continue;
+        end if;
+
+        if v_ob.jalur_saldo = 'simulasi_historis' then
+          select * into v_sched from public.calc_component_depreciation_schedule(
+            v_biaya, v_sisa, v_masa, v_tgl_siap_guna, v_porsi
+          ) where period_key = p_period_key;
+        else
+          select * into v_sched from public.calc_component_manual_schedule(
+            v_ob.biaya_perolehan, v_ob.nilai_sisa, v_ob.akumulasi_penyusutan_awal, v_ob.akumulasi_usaha_awal,
+            v_ob.sisa_dasar_penyusutan, v_ob.sisa_target_usaha, v_ob.sisa_bobot_manfaat, v_ob.sisa_periode_kalender,
+            v_settings.tanggal_mulai_pembukuan
+          ) where period_key = p_period_key;
+        end if;
       else
-        -- Jalur catatan terdahulu
-        select * into v_sched from public.calc_component_manual_schedule(
-          v_ob.biaya_perolehan, v_ob.nilai_sisa, v_ob.akumulasi_penyusutan_awal, v_ob.akumulasi_usaha_awal,
-          v_ob.sisa_dasar_penyusutan, v_ob.sisa_target_usaha, v_ob.sisa_bobot_manfaat, v_ob.sisa_periode_kalender,
-          v_settings.tanggal_mulai_pembukuan
+        -- Perolehan baru pada masa pembukuan
+        v_ob := null;
+        select * into v_sched from public.calc_component_depreciation_schedule(
+          v_biaya, v_sisa, v_masa, v_tgl_siap_guna, v_porsi
         ) where period_key = p_period_key;
       end if;
-    else
-      -- Perolehan baru pada masa pembukuan
-      v_ob := null;
-      select * into v_sched from public.calc_component_depreciation_schedule(
-        v_comp.biaya_perolehan, v_comp.nilai_sisa, v_comp.masa_manfaat_bulan, v_comp.tanggal_siap_guna, v_comp.porsi_usaha_persen
-      ) where period_key = p_period_key;
-    end if;
 
-    if not found or v_sched is null then
-      v_ineligible := v_ineligible || jsonb_build_object(
-        'component_id', v_comp.id, 'nama_komponen', v_comp.nama_komponen, 'alasan', 'Masa manfaat telah berakhir'
+      if not found or v_sched is null then
+        v_ineligible := v_ineligible || jsonb_build_object(
+          'component_id', v_comp_id, 'nama_komponen', v_nama_komponen, 'alasan', 'Masa manfaat telah berakhir'
+        );
+        continue;
+      end if;
+
+      v_item := jsonb_build_object(
+        'component_id', v_comp_id,
+        'asset_id', v_asset.id,
+        'nama_komponen', v_nama_komponen,
+        'snapshot_id', v_snap.id,
+        'opening_balance_id', v_ob.id,
+        'beban', v_sched.beban,
+        'beban_usaha', v_sched.beban_usaha,
+        'beban_non_usaha', v_sched.beban_non_usaha,
+        'porsi_usaha_persen', v_porsi,
+        'akumulasi', v_sched.akumulasi,
+        'nilai_buku', v_sched.nilai_buku
       );
-      continue;
-    end if;
 
-    v_item := jsonb_build_object(
-      'component_id', v_comp.id,
-      'asset_id', v_comp.asset_id,
-      'nama_komponen', v_comp.nama_komponen,
-      'snapshot_id', v_snap.id,
-      'opening_balance_id', v_ob.id,
-      'beban', v_sched.beban,
-      'beban_usaha', v_sched.beban_usaha,
-      'beban_non_usaha', v_sched.beban_non_usaha,
-      'porsi_usaha_persen', v_comp.porsi_usaha_persen,
-      'akumulasi', v_sched.akumulasi,
-      'nilai_buku', v_sched.nilai_buku
-    );
-
-    v_eligible := v_eligible || v_item;
-    v_total_depr := v_total_depr + v_sched.beban;
-    v_total_bus := v_total_bus + v_sched.beban_usaha;
-    v_total_non_bus := v_total_non_bus + v_sched.beban_non_usaha;
-    v_count := v_count + 1;
+      v_eligible := v_eligible || v_item;
+      v_total_depr := v_total_depr + v_sched.beban;
+      v_total_bus := v_total_bus + v_sched.beban_usaha;
+      v_total_non_bus := v_total_non_bus + v_sched.beban_non_usaha;
+      v_count := v_count + 1;
+    end loop;
   end loop;
 
-  -- Hitung token pratinjau yang memuat versi algoritma
-  select md5(coalesce(string_agg(asset_id::text || '=' || version::text, ',' order by asset_id), 'NO_SNAP'))
+  -- Token pratinjau: mengunci versi snapshot, saldo awal approved, dan master aset/komponen aktif
+  select md5(coalesce(string_agg(asset_id::text || '=' || version::text || '=' || snapshot_params::text, ',' order by asset_id), 'NO_SNAP'))
   into v_snapshot_hash
   from public.asset_activation_snapshots
   where org_id = p_org_id;
 
-  select md5(coalesce(string_agg(component_id::text || '=' || version::text || '=' || akumulasi_penyusutan_awal::text, ',' order by component_id), 'NO_OB'))
+  select md5(coalesce(string_agg(component_id::text || '=' || version::text || '=' || akumulasi_penyusutan_awal::text || '=' || sisa_dasar_penyusutan::text, ',' order by component_id), 'NO_OB'))
   into v_ob_hash
   from public.asset_opening_balances
   where org_id = p_org_id and status = 'approved';
+
+  select md5(coalesce(string_agg(c.id::text || '=' || coalesce(c.biaya_perolehan::text, '') || '=' || coalesce(c.porsi_usaha_persen::text, '') || '=' || coalesce(c.tanggal_siap_guna::text, ''), ',' order by c.id), 'NO_MASTER'))
+  into v_master_hash
+  from public.asset_components c
+  join public.assets a on a.id = c.asset_id
+  where c.org_id = p_org_id and a.status_pencatatan = 'aktif';
 
   v_preview_token := 'pv_' || md5(
     p_org_id::text || ':' || p_period_key || ':v3.1-bresenham:' || 
     coalesce(v_snapshot_hash, 'S0') || ':' || 
     coalesce(v_ob_hash, 'O0') || ':' || 
+    coalesce(v_master_hash, 'M0') || ':' || 
     coalesce(v_last_posted.id::text, 'INITIAL')
   );
 
@@ -1131,13 +1393,13 @@ begin
 end;
 $$;
 
--- RPC 6: Posting Batch Penyusutan (Atomik & Idempoten)
+-- RPC 6: Posting Batch Penyusutan (Server-Side Canonical Payload Hash & Re-read After Lock)
 create or replace function public.post_depreciation_batch(
   p_org_id uuid,
   p_period_key text,
   p_idempotency_key text,
-  p_payload_hash text,
-  p_preview_token text,
+  p_payload_hash text default null,
+  p_preview_token text default null,
   p_notes text default null
 )
 returns jsonb
@@ -1146,6 +1408,7 @@ security definer
 set search_path = public, auth
 as $$
 declare
+  v_computed_payload_hash text;
   v_existing public.asset_depreciation_batches%rowtype;
   v_preview jsonb;
   v_server_preview_token text;
@@ -1155,24 +1418,46 @@ declare
   v_new_batch public.asset_depreciation_batches%rowtype;
   v_elem jsonb;
 begin
+  -- 1. Validasi parameter wajib non-null secara ketat
+  if p_org_id is null then
+    raise exception 'SIMKOS_INVALID_PARAM: org_id wajib diisi';
+  end if;
+  if p_period_key is null or p_period_key !~ '^[0-9]{4}-(0[1-9]|1[0-2])$' then
+    raise exception 'SIMKOS_INVALID_PARAM: period_key tidak valid (harus YYYY-MM)';
+  end if;
+  if p_idempotency_key is null or length(btrim(p_idempotency_key)) = 0 then
+    raise exception 'SIMKOS_INVALID_PARAM: idempotency_key wajib diisi';
+  end if;
+  if p_preview_token is null or length(btrim(p_preview_token)) = 0 then
+    raise exception 'SIMKOS_INVALID_PARAM: preview_token wajib diisi';
+  end if;
+
   if not (public.is_org_owner(p_org_id) or public.is_org_admin(p_org_id)) then
     raise exception 'SIMKOS_FORBIDDEN: Hanya owner atau admin yang dapat memposting penyusutan';
   end if;
 
+  -- 2. Hitung payload hash kanonis di server
+  v_computed_payload_hash := md5(p_org_id::text || '|' || p_period_key || '|' || coalesce(trim(p_notes), ''));
+
+  if p_payload_hash is not null and p_payload_hash != v_computed_payload_hash then
+    raise exception 'SIMKOS_IDEMPOTENCY_PAYLOAD_MISMATCH: Payload hash klien tidak sesuai dengan kalkulasi kanonis server';
+  end if;
+
+  -- 3. Ambil penguncian transaksi advisory lock
   perform pg_advisory_xact_lock(hashtext('simkos:depreciation:' || p_org_id::text));
 
-  -- 1. Pengecekan Idempotensi
+  -- 4. BACA ULANG status idempotensi setelah lock
   select * into v_existing from public.asset_depreciation_batches
   where org_id = p_org_id and idempotency_key = p_idempotency_key;
 
   if found then
-    if v_existing.payload_hash != p_payload_hash then
+    if v_existing.payload_hash != v_computed_payload_hash then
       raise exception 'SIMKOS_IDEMPOTENCY_PAYLOAD_MISMATCH: Kunci idempotensi sama digunakan dengan payload berbeda';
     end if;
     return to_jsonb(v_existing);
   end if;
 
-  -- 2. Cek apakah sudah ada batch aktif untuk periode ini
+  -- 5. Cek apakah sudah ada batch aktif untuk periode ini
   if exists (
     select 1 from public.asset_depreciation_batches
     where org_id = p_org_id and period_key = p_period_key and batch_status = 'posted'
@@ -1180,7 +1465,7 @@ begin
     raise exception 'SIMKOS_BATCH_ALREADY_POSTED: Periode % telah memiliki batch posting aktif', p_period_key;
   end if;
 
-  -- 3. Deteksi apakah ini posting pengganti
+  -- 6. Deteksi posting pengganti
   select id into v_replaces_batch_id
   from public.asset_depreciation_batches
   where org_id = p_org_id and period_key = p_period_key and batch_status = 'reversed'
@@ -1192,7 +1477,7 @@ begin
     v_entry_type := 'regular';
   end if;
 
-  -- 4. Status periode akuntansi
+  -- 7. Status periode akuntansi
   insert into public.asset_accounting_periods (org_id, period_key, status)
   values (p_org_id, p_period_key, 'open')
   on conflict (org_id, period_key) do nothing;
@@ -1204,7 +1489,7 @@ begin
     raise exception 'SIMKOS_PERIOD_LOCKED: Periode % dalam keadaan terkunci (locked)', p_period_key;
   end if;
 
-  -- 5. Hitung ulang preview di dalam lock
+  -- 8. Hitung ulang preview di dalam lock
   v_preview := public.preview_depreciation_posting(p_org_id, p_period_key);
   v_server_preview_token := v_preview->>'preview_token';
 
@@ -1212,7 +1497,7 @@ begin
     raise exception 'SIMKOS_STALE_PREVIEW: Pratinjau kedaluwarsa. Parameter aset, komponen, atau saldo awal telah berubah sejak pratinjau dibuat';
   end if;
 
-  -- 6. Insert batch
+  -- 9. Insert batch
   insert into public.asset_depreciation_batches (
     org_id, period_id, period_key, batch_number, idempotency_key, payload_hash,
     batch_status, reversed_batch_id, replaces_batch_id,
@@ -1222,7 +1507,7 @@ begin
   ) values (
     p_org_id, v_period_rec.id, p_period_key,
     'BATCH-' || replace(p_period_key, '-', '') || '-' || substr(gen_random_uuid()::text, 1, 8),
-    p_idempotency_key, p_payload_hash,
+    p_idempotency_key, v_computed_payload_hash,
     'posted', null, v_replaces_batch_id,
     (v_preview->>'total_depreciation')::numeric,
     (v_preview->>'total_business_portion')::numeric,
@@ -1234,7 +1519,7 @@ begin
     auth.uid(), now()
   ) returning * into v_new_batch;
 
-  -- 7. Insert rincian ledger
+  -- 10. Insert rincian ledger
   for v_elem in select * from jsonb_array_elements(v_preview->'eligible_components') loop
     insert into public.asset_depreciation_ledger (
       org_id, batch_id, period_id, period_key, asset_id, component_id,
@@ -1259,7 +1544,7 @@ begin
     );
   end loop;
 
-  -- 8. Catat audit log
+  -- 11. Catat audit log
   insert into public.asset_accounting_audit_logs (
     org_id, event_type, entity_type, entity_id, actor_id, actor_role, notes_reason, payload_after
   ) values (
@@ -1273,7 +1558,7 @@ begin
 end;
 $$;
 
--- RPC 7: Pembatalan Batch Penyusutan (Storno / Reversal)
+-- RPC 7: Pembatalan Batch Penyusutan (Storno / Reversal dengan Re-read After Lock)
 create or replace function public.reverse_depreciation_batch(
   p_batch_id uuid,
   p_reason text
@@ -1285,19 +1570,27 @@ set search_path = public, auth
 as $$
 declare
   v_batch public.asset_depreciation_batches%rowtype;
+  v_org_id uuid;
   v_row record;
 begin
-  select * into v_batch from public.asset_depreciation_batches where id = p_batch_id;
+  if p_batch_id is null then
+    raise exception 'SIMKOS_INVALID_PARAM: batch_id wajib diisi';
+  end if;
+
+  select org_id into v_org_id from public.asset_depreciation_batches where id = p_batch_id;
   if not found then
     raise exception 'SIMKOS_BATCH_NOT_FOUND: Batch dengan ID % tidak ditemukan', p_batch_id;
   end if;
 
-  if not (public.is_org_owner(v_batch.org_id) or public.is_org_admin(v_batch.org_id)) then
+  if not (public.is_org_owner(v_org_id) or public.is_org_admin(v_org_id)) then
     raise exception 'SIMKOS_FORBIDDEN: Hanya owner atau admin yang dapat membatalkan batch penyusutan';
   end if;
 
-  perform pg_advisory_xact_lock(hashtext('simkos:depreciation:' || v_batch.org_id::text));
+  -- 1. Ambil advisory lock
+  perform pg_advisory_xact_lock(hashtext('simkos:depreciation:' || v_org_id::text));
 
+  -- 2. BACA ULANG status batch setelah lock
+  select * into v_batch from public.asset_depreciation_batches where id = p_batch_id;
   if v_batch.batch_status != 'posted' then
     raise exception 'SIMKOS_BATCH_NOT_POSTED: Batch % telah dibatalkan sebelumnya', v_batch.batch_number;
   end if;
@@ -1318,7 +1611,7 @@ begin
     raise exception 'SIMKOS_NON_CHRONOLOGICAL_REVERSAL: Hanya batch aktif pada periode terakhir yang dapat dibatalkan. Batalkan batch periode yang lebih baru terlebih dahulu';
   end if;
 
-  -- Update batch awal
+  -- Update batch awal menjadi reversed
   update public.asset_depreciation_batches set
     batch_status = 'reversed',
     reversed_by = auth.uid(),
@@ -1327,7 +1620,7 @@ begin
   where id = p_batch_id
   returning * into v_batch;
 
-  -- Buat baris storno di ledger
+  -- Buat baris storno di ledger (jika batch nol, loop 0 iterasi tanpa error)
   for v_row in (
     select * from public.asset_depreciation_ledger
     where batch_id = p_batch_id and entry_type in ('regular', 'replacement')
@@ -1373,6 +1666,13 @@ as $$
 declare
   v_rec public.asset_accounting_periods%rowtype;
 begin
+  if p_org_id is null then
+    raise exception 'SIMKOS_INVALID_PARAM: org_id wajib diisi';
+  end if;
+  if p_period_key is null or p_period_key !~ '^[0-9]{4}-(0[1-9]|1[0-2])$' then
+    raise exception 'SIMKOS_INVALID_PARAM: period_key tidak valid';
+  end if;
+
   if not (public.is_org_owner(p_org_id) or public.is_org_admin(p_org_id)) then
     raise exception 'SIMKOS_FORBIDDEN: Hanya owner atau admin yang dapat mengunci periode';
   end if;
@@ -1418,6 +1718,13 @@ as $$
 declare
   v_rec public.asset_accounting_periods%rowtype;
 begin
+  if p_org_id is null then
+    raise exception 'SIMKOS_INVALID_PARAM: org_id wajib diisi';
+  end if;
+  if p_period_key is null or p_period_key !~ '^[0-9]{4}-(0[1-9]|1[0-2])$' then
+    raise exception 'SIMKOS_INVALID_PARAM: period_key tidak valid';
+  end if;
+
   if not (public.is_org_owner(p_org_id) or public.is_org_admin(p_org_id)) then
     raise exception 'SIMKOS_FORBIDDEN: Hanya owner atau admin yang dapat membuka kunci periode';
   end if;
