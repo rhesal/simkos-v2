@@ -1120,6 +1120,13 @@ Jika ada komponen baru yang memiliki tanggal siap guna di masa lalu (misal siap 
    - Reversal pada batch bernilai nol (`total_depreciation = 0`, baris ledger = 0) ditangani secara elegan tanpa error dan status batch berubah menjadi `reversed`.
 7. **Eliminasi Exception Masking**:
    - Seluruh blok `EXCEPTION WHEN OTHERS THEN NULL` telah dihilangkan dari berkas migrasi database untuk menjamin integritas pelaporan kesalahan runtime PostgreSQL.
+8. **Pengetatan Transisi Status Aset Berriwayat & Proteksi requires_reapproval**:
+   - Aset yang memiliki snapshot aktivasi atau riwayat pembukuan (`asset_activation_snapshots`, `asset_opening_balances`, `asset_depreciation_ledger`) dilarang keras dipindahkan statusnya secara langsung ke status lain (`diarsipkan`, `terverifikasi`, `dibukukan`, `draft`) via direct UPDATE (`SIMKOS_LOCKED_STATUS_TRANSITION`).
+   - Transisi status aset yang sah setelah memiliki riwayat HANYA melalui RPC resmi:
+     1. Menjadi `'perlu_pengesahan_ulang'` via `revise_component_parameters`.
+     2. Menjadi `'aktif'` via `activate_asset`.
+   - Kolom `requires_reapproval` pada `asset_components` dilindungi dari direct UPDATE atau INSERT langsung (`SIMKOS_DIRECT_REAPPROVAL_FLAG_UPDATE_FORBIDDEN`). Hanya RPC `revise_component_parameters` yang berhak menandainya `true`, dan RPC `activate_asset` yang berhak meresetnya menjadi `false`.
+   - Pembuktian SQL & REST API: setelah manipulasi langsung ditolak, aset tetap mempertahankan status integritas aslinya (tetap masuk perhitungan jika aktif, atau tetap diblokir jika memerlukan pengesahan ulang). Fitur pengarsipan/penghentian aset ditunda dan tidak ditambahkan pada fase ini.
 
 
 

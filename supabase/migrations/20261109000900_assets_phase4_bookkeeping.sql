@@ -48,26 +48,38 @@ begin
     raise exception 'SIMKOS_INVALID_STATUS: Status pencatatan aset tidak valid';
   end if;
 
-  -- Larang direct UPDATE status menjadi 'aktif' di luar RPC activate_asset
-  if tg_op = 'UPDATE' and new.status_pencatatan = 'aktif' and old.status_pencatatan <> 'aktif' then
-    if coalesce(current_setting('simkos.in_rpc_activate_asset', true), 'false') <> 'true' then
-      raise exception 'SIMKOS_DIRECT_ACTIVATION_FORBIDDEN: Perubahan status aset menjadi aktif dilarang melalui direct update; wajib melalui RPC activate_asset';
-    end if;
-  end if;
-
-  -- Larang direct UPDATE status menjadi 'perlu_pengesahan_ulang' di luar RPC revise_component_parameters
-  if tg_op = 'UPDATE' and new.status_pencatatan = 'perlu_pengesahan_ulang' and old.status_pencatatan <> 'perlu_pengesahan_ulang' then
-    if coalesce(current_setting('simkos.in_rpc_revise_component', true), 'false') <> 'true' then
-      raise exception 'SIMKOS_DIRECT_STATUS_CHANGE_FORBIDDEN: Perubahan status ke perlu_pengesahan_ulang hanya diizinkan melalui RPC revise_component_parameters';
-    end if;
-  end if;
-
-  -- Larang perubahan kembali dari 'aktif' atau 'perlu_pengesahan_ulang' ke 'draft' jika aset telah memiliki snapshot / pembukuan
-  if tg_op = 'UPDATE' and old.status_pencatatan in ('aktif', 'perlu_pengesahan_ulang') and new.status_pencatatan = 'draft' then
+  -- Perketat transisi status aset yang sudah memiliki snapshot atau riwayat pembukuan:
+  -- Tolak perubahan langsung ke seluruh status lain; izinkan transisi yang diperlukan hanya melalui RPC resmi.
+  if tg_op = 'UPDATE' and new.status_pencatatan <> old.status_pencatatan then
     if exists (select 1 from public.asset_activation_snapshots where asset_id = old.id) or
        exists (select 1 from public.asset_opening_balances where asset_id = old.id and status = 'approved') or
        exists (select 1 from public.asset_depreciation_ledger where asset_id = old.id) then
-      raise exception 'SIMKOS_CANNOT_REVERT_ACTIVE_ASSET: Aset yang memiliki riwayat pembukuan/snapshot tidak dapat dikembalikan menjadi status draft';
+      
+      if new.status_pencatatan = 'perlu_pengesahan_ulang' then
+        if coalesce(current_setting('simkos.in_rpc_revise_component', true), 'false') <> 'true' then
+          raise exception 'SIMKOS_DIRECT_STATUS_CHANGE_FORBIDDEN: Perubahan status ke perlu_pengesahan_ulang hanya diizinkan melalui RPC revise_component_parameters';
+        end if;
+      elsif new.status_pencatatan = 'aktif' then
+        if coalesce(current_setting('simkos.in_rpc_activate_asset', true), 'false') <> 'true' then
+          raise exception 'SIMKOS_DIRECT_ACTIVATION_FORBIDDEN: Perubahan status aset menjadi aktif dilarang melalui direct update; wajib melalui RPC activate_asset';
+        end if;
+      elsif new.status_pencatatan = 'draft' then
+        raise exception 'SIMKOS_CANNOT_REVERT_ACTIVE_ASSET: Aset yang memiliki riwayat pembukuan/snapshot tidak dapat dikembalikan menjadi status draft';
+      else
+        -- Seluruh status lain (diarsipkan, terverifikasi, dibukukan) dilarang langsung untuk aset berriwayat
+        raise exception 'SIMKOS_LOCKED_STATUS_TRANSITION: Aset yang memiliki riwayat pembukuan/snapshot tidak dapat dipindahkan langsung ke status %; hanya transisi resmi via RPC yang diizinkan', new.status_pencatatan;
+      end if;
+    else
+      -- Untuk aset draf/tanpa riwayat pembukuan:
+      if new.status_pencatatan = 'aktif' then
+        if coalesce(current_setting('simkos.in_rpc_activate_asset', true), 'false') <> 'true' then
+          raise exception 'SIMKOS_DIRECT_ACTIVATION_FORBIDDEN: Perubahan status aset menjadi aktif dilarang melalui direct update; wajib melalui RPC activate_asset';
+        end if;
+      elsif new.status_pencatatan = 'perlu_pengesahan_ulang' then
+        if coalesce(current_setting('simkos.in_rpc_revise_component', true), 'false') <> 'true' then
+          raise exception 'SIMKOS_DIRECT_STATUS_CHANGE_FORBIDDEN: Perubahan status ke perlu_pengesahan_ulang hanya diizinkan melalui RPC revise_component_parameters';
+        end if;
+      end if;
     end if;
   end if;
 
@@ -154,6 +166,18 @@ begin
           raise exception 'SIMKOS_LOCKED_FINANCIAL_PARAMETERS: Parameter finansial komponen yang telah disahkan saldo awal atau dibukukan tidak dapat diubah langsung. Gunakan RPC revise_component_parameters setelah membatalkan posting aktif.';
         end if;
       end if;
+    end if;
+  end if;
+
+  -- Perlindungan penanda pengesahan ulang (requires_reapproval) dari direct INSERT / UPDATE
+  if tg_op = 'INSERT' and new.requires_reapproval = true then
+    raise exception 'SIMKOS_DIRECT_REAPPROVAL_FLAG_UPDATE_FORBIDDEN: Komponen baru tidak dapat langsung dibuat dengan requires_reapproval = true';
+  end if;
+
+  if tg_op = 'UPDATE' and new.requires_reapproval is distinct from old.requires_reapproval then
+    if coalesce(current_setting('simkos.in_rpc_revise_component', true), 'false') <> 'true'
+       and coalesce(current_setting('simkos.in_rpc_activate_asset', true), 'false') <> 'true' then
+      raise exception 'SIMKOS_DIRECT_REAPPROVAL_FLAG_UPDATE_FORBIDDEN: Penanda pengesahan ulang (requires_reapproval) tidak dapat diubah langsung; hanya RPC revise_component_parameters dan activate_asset yang diizinkan';
     end if;
   end if;
 

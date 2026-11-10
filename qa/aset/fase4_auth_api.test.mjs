@@ -429,6 +429,157 @@ test('Fase 4B-1R API: Pengujian GoTrue Resmi & PostgREST Terproteksi', { timeout
         'Nominal beban di ledger terbukti nyata menggunakan parameter baru (Rp400.000)'
       )
     })
+
+    // ------------------------------------------------------------------------
+    // 7. REST API: Pengetatan Transisi Status Aset Berriwayat & Proteksi requires_reapproval
+    // ------------------------------------------------------------------------
+    await t.test('7. REST API: Pengetatan Transisi Status Aset Berriwayat & Proteksi requires_reapproval', async () => {
+      // 7.1 Coba direct UPDATE status aset aktif ke status terlarang via REST
+      const patchArchived = await restFetch(`/assets?id=eq.${assetId}`, {
+        method: 'PATCH',
+        token: ownerA.access_token,
+        body: { status_pencatatan: 'diarsipkan' },
+      })
+      assert.ok(patchArchived.status >= 400, 'Direct PATCH ke status diarsipkan wajib ditolak')
+      assert.ok(JSON.stringify(patchArchived.data).includes('SIMKOS_LOCKED_STATUS_TRANSITION'))
+
+      const patchVerified = await restFetch(`/assets?id=eq.${assetId}`, {
+        method: 'PATCH',
+        token: ownerA.access_token,
+        body: { status_pencatatan: 'terverifikasi' },
+      })
+      assert.ok(patchVerified.status >= 400, 'Direct PATCH ke status terverifikasi wajib ditolak')
+      assert.ok(JSON.stringify(patchVerified.data).includes('SIMKOS_LOCKED_STATUS_TRANSITION'))
+
+      const patchBooked = await restFetch(`/assets?id=eq.${assetId}`, {
+        method: 'PATCH',
+        token: ownerA.access_token,
+        body: { status_pencatatan: 'dibukukan' },
+      })
+      assert.ok(patchBooked.status >= 400, 'Direct PATCH ke status dibukukan wajib ditolak')
+      assert.ok(JSON.stringify(patchBooked.data).includes('SIMKOS_LOCKED_STATUS_TRANSITION'))
+
+      // 7.2 Coba direct UPDATE penanda requires_reapproval = true via REST
+      const patchFlagIllegal = await restFetch(`/asset_components?id=eq.${compId}`, {
+        method: 'PATCH',
+        token: ownerA.access_token,
+        body: { requires_reapproval: true },
+      })
+      assert.ok(patchFlagIllegal.status >= 400, 'Direct PATCH penanda requires_reapproval = true wajib ditolak')
+      assert.ok(JSON.stringify(patchFlagIllegal.data).includes('SIMKOS_DIRECT_REAPPROVAL_FLAG_UPDATE_FORBIDDEN'))
+
+      // 7.3 Buktikan setelah percobaan ditolak: aset tetap aktif dan TETAP MASUK PERHITUNGAN
+      const checkAssetStillActive = await restFetch(`/assets?id=eq.${assetId}`, { token: ownerA.access_token })
+      assert.equal(checkAssetStillActive.data[0].status_pencatatan, 'aktif')
+      const checkCompStillFalse = await restFetch(`/asset_components?id=eq.${compId}`, { token: ownerA.access_token })
+      assert.equal(checkCompStillFalse.data[0].requires_reapproval, false)
+
+      const prevFeb = await restFetch('/rpc/preview_depreciation_posting', {
+        method: 'POST',
+        token: ownerA.access_token,
+        body: { p_org_id: orgA, p_period_key: '2027-02' },
+      })
+      assert.equal(prevFeb.status, 200, 'Pratinjau periode berikutnya berhasil')
+      assert.ok(Number(prevFeb.data.total_depreciation) > 0, 'Aset tetap masuk perhitungan normal')
+
+      // 7.4 Bagian 2: Transisi ke perlu_pengesahan_ulang pasca revisi parameter
+      // Unwind dulu batch posted yang ada di orgA
+      const activeBatchesRes = await restFetch(`/asset_depreciation_batches?org_id=eq.${orgA}&batch_status=eq.posted`, {
+        token: ownerA.access_token,
+      })
+      assert.ok(activeBatchesRes.data.length > 0, 'Harus ada batch posted untuk di-unwind')
+      const targetBatchId = activeBatchesRes.data[0].id
+
+      const revBatchRes = await restFetch('/rpc/reverse_depreciation_batch', {
+        method: 'POST',
+        token: ownerA.access_token,
+        body: { p_batch_id: targetBatchId, p_reason: 'Unwind untuk pengujian transisi status REST' },
+      })
+      assert.equal(revBatchRes.status, 200)
+
+      // Revisi parameter resmi via RPC
+      const revRes2 = await restFetch('/rpc/revise_component_parameters', {
+        method: 'POST',
+        token: ownerA.access_token,
+        body: {
+          p_component_id: compId,
+          p_biaya_perolehan: 30000000,
+          p_nilai_sisa: 0,
+          p_masa_manfaat_bulan: 60,
+          p_tanggal_siap_guna: '2024-06-16',
+          p_porsi_usaha_persen: 100,
+          p_metode_penyusutan: 'garis_lurus',
+          p_status_kapitalisasi: 'kapitalisasi',
+          p_revision_notes: 'Revisi biaya ke 30jt via REST',
+        },
+      })
+      assert.equal(revRes2.status, 200)
+
+      // Coba hapus penanda pengesahan ulang via REST direct UPDATE
+      const patchFlagFalse = await restFetch(`/asset_components?id=eq.${compId}`, {
+        method: 'PATCH',
+        token: ownerA.access_token,
+        body: { requires_reapproval: false },
+      })
+      assert.ok(patchFlagFalse.status >= 400, 'Direct PATCH requires_reapproval = false wajib ditolak')
+      assert.ok(JSON.stringify(patchFlagFalse.data).includes('SIMKOS_DIRECT_REAPPROVAL_FLAG_UPDATE_FORBIDDEN'))
+
+      // Coba paksa status kembali aktif via REST direct UPDATE
+      const patchDirectActive = await restFetch(`/assets?id=eq.${assetId}`, {
+        method: 'PATCH',
+        token: ownerA.access_token,
+        body: { status_pencatatan: 'aktif' },
+      })
+      assert.ok(patchDirectActive.status >= 400, 'Direct PATCH status ke aktif wajib ditolak')
+      assert.ok(JSON.stringify(patchDirectActive.data).includes('SIMKOS_DIRECT_ACTIVATION_FORBIDDEN'))
+
+      // 7.5 Buktikan setelah percobaan ditolak: aset TETAP DIBLOKIR sampai disahkan ulang
+      const checkAssetStillPending = await restFetch(`/assets?id=eq.${assetId}`, { token: ownerA.access_token })
+      assert.equal(checkAssetStillPending.data[0].status_pencatatan, 'perlu_pengesahan_ulang')
+      const checkCompStillTrue = await restFetch(`/asset_components?id=eq.${compId}`, { token: ownerA.access_token })
+      assert.equal(checkCompStillTrue.data[0].requires_reapproval, true)
+
+      const blockedPrev = await restFetch('/rpc/preview_depreciation_posting', {
+        method: 'POST',
+        token: ownerA.access_token,
+        body: { p_org_id: orgA, p_period_key: '2027-01' },
+      })
+      assert.ok(blockedPrev.status >= 400, 'Pratinjau tetap diblokir selama perlu pengesahan ulang')
+      assert.ok(JSON.stringify(blockedPrev.data).includes('SIMKOS_REAPPROVAL_REQUIRED'))
+
+      // 7.6 Re-aktivasi resmi via RPC activate_asset -> BLOKIR TERANGKAT
+      const reactRes2 = await restFetch('/rpc/activate_asset', {
+        method: 'POST',
+        token: ownerA.access_token,
+        body: { p_asset_id: assetId, p_activation_notes: 'Re-aktivasi resmi setelah 30jt' },
+      })
+      assert.equal(reactRes2.status, 200)
+
+      const checkCleanAsset = await restFetch(`/assets?id=eq.${assetId}`, { token: ownerA.access_token })
+      assert.equal(checkCleanAsset.data[0].status_pencatatan, 'aktif')
+      const checkCleanComp = await restFetch(`/asset_components?id=eq.${compId}`, { token: ownerA.access_token })
+      assert.equal(checkCleanComp.data[0].requires_reapproval, false)
+
+      // Sahkan saldo awal baru
+      await restFetch('/rpc/approve_component_opening_balance', {
+        method: 'POST',
+        token: ownerA.access_token,
+        body: {
+          p_component_id: compId,
+          p_jalur: 'simulasi_historis',
+          p_catatan: 'Pengesahan ulang saldo awal 30jt',
+        },
+      })
+
+      // Pratinjau kini berhasil: 30jt / 60 bln = 500.000 / bln
+      const okPrev2 = await restFetch('/rpc/preview_depreciation_posting', {
+        method: 'POST',
+        token: ownerA.access_token,
+        body: { p_org_id: orgA, p_period_key: '2027-01' },
+      })
+      assert.equal(okPrev2.status, 200)
+      assert.equal(Number(okPrev2.data.total_depreciation), 500000, 'Beban pratinjau baru harus 500.000')
+    })
   } finally {
     if (stack) {
       console.log('[QA-API] Menghentikan Supabase stack...')

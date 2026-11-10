@@ -1083,6 +1083,181 @@ test('Fase 4B-1R: Uji Integrasi Database & Kontrak Pembukuan Penyusutan', async 
   })
 
   // --------------------------------------------------------------------------
+  // Uji 9d: Pengetatan Transisi Status Aset Berriwayat & Proteksi requires_reapproval
+  // --------------------------------------------------------------------------
+  await t.test('9d. Pengetatan Transisi Status Aset Berriwayat & Proteksi requires_reapproval', async () => {
+    await setAuthContext(db, { userId: ownerA, role: 'authenticated' })
+
+    // Batalkan seluruh batch aktif sebelum aktivasi aset uji agar tidak terbentur penanganan komponen terlambat
+    const activeBatches = await db.query(
+      "SELECT id FROM public.asset_depreciation_batches WHERE org_id = $1 AND batch_status = 'posted' ORDER BY period_key DESC;",
+      [orgA]
+    )
+    for (const b of activeBatches.rows) {
+      await db.query("SELECT public.reverse_depreciation_batch($1, 'Unwind untuk inisialisasi uji 9d');", [b.id])
+    }
+
+    // Buat aset & komponen uji khusus 9d
+    const aRes = await db.query(`
+      INSERT INTO public.assets (org_id, nama_aset, kategori_aset, dasar_penggunaan, status_pencatatan)
+      VALUES ($1, 'Aset Transisi Status Test', 'elektronik_kantor', 'milik_sendiri', 'draft')
+      RETURNING id;
+    `, [orgA])
+    const testAssetId = aRes.rows[0].id
+
+    const cRes = await db.query(`
+      INSERT INTO public.asset_components (
+        org_id, asset_id, nama_komponen, biaya_perolehan, nilai_sisa,
+        masa_manfaat_bulan, tanggal_siap_guna, porsi_usaha_persen, status_kapitalisasi, metode_penyusutan
+      ) VALUES (
+        $1, $2, 'Komponen Uji Status', 6000000, 0, 30, '2027-01-01', 100, 'kapitalisasi', 'garis_lurus'
+      ) RETURNING id;
+    `, [orgA, testAssetId])
+    const testCompId = cRes.rows[0].id
+
+    // Aktivasi aset secara resmi
+    await db.query("SELECT public.activate_asset($1, 'Aktivasi awal aset uji 9d');", [testAssetId])
+
+    // Bagian 1: Aset aktif yang memiliki snapshot dan riwayat pembukuan
+    // Coba direct UPDATE status aset ke seluruh status terlarang
+    await assert.rejects(
+      async () => {
+        await db.query("UPDATE public.assets SET status_pencatatan = 'diarsipkan' WHERE id = $1;", [testAssetId])
+      },
+      /SIMKOS_LOCKED_STATUS_TRANSITION/,
+      'Direct update aset aktif ke diarsipkan wajib ditolak'
+    )
+
+    await assert.rejects(
+      async () => {
+        await db.query("UPDATE public.assets SET status_pencatatan = 'terverifikasi' WHERE id = $1;", [testAssetId])
+      },
+      /SIMKOS_LOCKED_STATUS_TRANSITION/,
+      'Direct update aset aktif ke terverifikasi wajib ditolak'
+    )
+
+    await assert.rejects(
+      async () => {
+        await db.query("UPDATE public.assets SET status_pencatatan = 'dibukukan' WHERE id = $1;", [testAssetId])
+      },
+      /SIMKOS_LOCKED_STATUS_TRANSITION/,
+      'Direct update aset aktif ke dibukukan wajib ditolak'
+    )
+
+    await assert.rejects(
+      async () => {
+        await db.query("UPDATE public.assets SET status_pencatatan = 'draft' WHERE id = $1;", [testAssetId])
+      },
+      /SIMKOS_CANNOT_REVERT_ACTIVE_ASSET/,
+      'Direct update aset aktif ke draft wajib ditolak'
+    )
+
+    // Coba manipulasi penanda requires_reapproval secara langsung pada komponen aktif
+    await assert.rejects(
+      async () => {
+        await db.query("UPDATE public.asset_components SET requires_reapproval = true WHERE id = $1;", [testCompId])
+      },
+      /SIMKOS_DIRECT_REAPPROVAL_FLAG_UPDATE_FORBIDDEN/,
+      'Direct update penanda requires_reapproval = true wajib ditolak'
+    )
+
+    // Coba INSERT komponen baru dengan requires_reapproval = true
+    await assert.rejects(
+      async () => {
+        await db.query(`
+          INSERT INTO public.asset_components (
+            org_id, asset_id, nama_komponen, biaya_perolehan, nilai_sisa,
+            masa_manfaat_bulan, tanggal_siap_guna, porsi_usaha_persen, requires_reapproval
+          ) VALUES (
+            $1, $2, 'Komponen Ilegal', 1000000, 0, 12, '2027-01-01', 100, true
+          );
+        `, [orgA, testAssetId])
+      },
+      /SIMKOS_DIRECT_REAPPROVAL_FLAG_UPDATE_FORBIDDEN/,
+      'Insert komponen baru dengan requires_reapproval = true wajib ditolak'
+    )
+
+    // Buktikan: setelah seluruh percobaan ditolak, aset tetap aktif dan TETAP MASUK PERHITUNGAN
+    const checkActive = await db.query("SELECT status_pencatatan FROM public.assets WHERE id = $1;", [testAssetId])
+    assert.equal(checkActive.rows[0].status_pencatatan, 'aktif', 'Status aset tetap aktif')
+
+    const checkCompActive = await db.query("SELECT requires_reapproval FROM public.asset_components WHERE id = $1;", [testCompId])
+    assert.equal(checkCompActive.rows[0].requires_reapproval, false, 'requires_reapproval tetap false')
+
+    const prevActiveRes = await db.query("SELECT public.preview_depreciation_posting($1, '2027-01') as val;", [orgA])
+    const prevActive = parseVal(prevActiveRes.rows[0].val)
+    assert.ok(Number(prevActive.total_depreciation) > 0, 'Aset tetap masuk perhitungan normal')
+
+    // Bagian 2: Aset dalam status perlu_pengesahan_ulang pasca revisi parameter
+    // Batalkan dulu batch 2027-01 agar revisi diizinkan
+    const postedJan = await db.query("SELECT id FROM public.asset_depreciation_batches WHERE org_id = $1 AND period_key = '2027-01' AND batch_status = 'posted';", [orgA])
+    if (postedJan.rows.length > 0) {
+      await db.query("SELECT public.reverse_depreciation_batch($1, 'Alasan unwind untuk uji transisi status');", [postedJan.rows[0].id])
+    }
+
+    // Jalankan revisi resmi
+    await db.query(`
+      SELECT public.revise_component_parameters(
+        $1, 9000000, 0, 36, '2027-01-01', 100, 'garis_lurus', 'kapitalisasi', 'Revisi biaya komponen ke 9jt'
+      );
+    `, [testCompId])
+
+    // Status kini 'perlu_pengesahan_ulang' dan requires_reapproval = true
+    const checkReappAsset = await db.query("SELECT status_pencatatan FROM public.assets WHERE id = $1;", [testAssetId])
+    assert.equal(checkReappAsset.rows[0].status_pencatatan, 'perlu_pengesahan_ulang')
+    const checkReappComp = await db.query("SELECT requires_reapproval FROM public.asset_components WHERE id = $1;", [testCompId])
+    assert.equal(checkReappComp.rows[0].requires_reapproval, true)
+
+    // Coba hapus penanda pengesahan ulang langsung via UPDATE
+    await assert.rejects(
+      async () => {
+        await db.query("UPDATE public.asset_components SET requires_reapproval = false WHERE id = $1;", [testCompId])
+      },
+      /SIMKOS_DIRECT_REAPPROVAL_FLAG_UPDATE_FORBIDDEN/,
+      'Direct update penanda requires_reapproval = false wajib ditolak'
+    )
+
+    // Coba paksa status kembali aktif langsung tanpa aktivasi ulang
+    await assert.rejects(
+      async () => {
+        await db.query("UPDATE public.assets SET status_pencatatan = 'aktif' WHERE id = $1;", [testAssetId])
+      },
+      /SIMKOS_DIRECT_ACTIVATION_FORBIDDEN/,
+      'Direct update status kembali ke aktif wajib ditolak'
+    )
+
+    // Coba alihkan ke status lain saat status perlu_pengesahan_ulang
+    await assert.rejects(
+      async () => {
+        await db.query("UPDATE public.assets SET status_pencatatan = 'diarsipkan' WHERE id = $1;", [testAssetId])
+      },
+      /SIMKOS_LOCKED_STATUS_TRANSITION/,
+      'Direct update status ke diarsipkan saat perlu_pengesahan_ulang wajib ditolak'
+    )
+
+    // Buktikan: setelah seluruh percobaan ditolak, aset TETAP DIBLOKIR sampai disahkan ulang
+    await assert.rejects(
+      async () => {
+        await db.query("SELECT public.preview_depreciation_posting($1, '2027-01');", [orgA])
+      },
+      /SIMKOS_REAPPROVAL_REQUIRED/,
+      'Pratinjau tetap diblokir selama aset memerlukan pengesahan ulang'
+    )
+
+    // Re-aktivasi resmi via activate_asset -> BLOKIR TERANGKAT
+    await db.query("SELECT public.activate_asset($1, 'Pengesahan ulang resmi via RPC');", [testAssetId])
+    const cleanAsset = await db.query("SELECT status_pencatatan FROM public.assets WHERE id = $1;", [testAssetId])
+    assert.equal(cleanAsset.rows[0].status_pencatatan, 'aktif')
+    const cleanComp = await db.query("SELECT requires_reapproval FROM public.asset_components WHERE id = $1;", [testCompId])
+    assert.equal(cleanComp.rows[0].requires_reapproval, false)
+
+    // Sekarang pratinjau berhasil
+    const okPrevAfter = await db.query("SELECT public.preview_depreciation_posting($1, '2027-01') as val;", [orgA])
+    const okPrevVal = parseVal(okPrevAfter.rows[0].val)
+    assert.ok(Number(okPrevVal.total_depreciation) > 0, 'Blokir terangkat dan pratinjau berhasil pasca re-aktivasi resmi')
+  })
+
+  // --------------------------------------------------------------------------
   // Uji 10: Isolasi Multi-Tenant & Penolakan Akses Lintas Organisasi
   // --------------------------------------------------------------------------
   await t.test('10. Penolakan Akses Lintas Organisasi (Tenant Isolation)', async () => {
