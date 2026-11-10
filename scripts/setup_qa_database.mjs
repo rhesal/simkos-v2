@@ -148,6 +148,7 @@ export async function setupQaDatabase() {
     await execSqlFile(client, 'supabase/migrations/20261018000600_pindah_kamar.sql')
     await execSqlFile(client, 'supabase/migrations/20261107000700_tenant_alamat.sql')
     await execSqlFile(client, 'supabase/migrations/20261108000800_assets_phase2.sql')
+    await execSqlFile(client, 'supabase/migrations/20261109000900_assets_phase4_bookkeeping.sql')
 
     // 7. Izin hak akses PostgREST / Supabase
     await client.query(`

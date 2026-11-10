@@ -247,9 +247,19 @@ test('Fase 4B-1R: Uji Integrasi Database & Kontrak Pembukuan Penyusutan', async 
     const actRes = await db.query("SELECT public.activate_asset($1, 'Aktivasi AC Kamar 01') as val;", [assetIdAC])
     const snapAC = parseVal(actRes.rows[0].val)
     assert.equal(snapAC.version, 1)
+    assert.equal(snapAC.kategori_aset, 'elektronik_kantor', 'Snapshot wajib membekukan kategori aset')
     assert.equal(snapAC.algorithm_version, 'v3.1-bresenham')
     assert.ok(Array.isArray(snapAC.snapshot_params), 'snapshot_params harus berupa array JSON')
     assert.equal(snapAC.snapshot_params[0].component_id, compIdAC)
+
+    // 4.2b Perubahan langsung kategori_aset setelah aset memiliki snapshot/ledger DITOLAK
+    await assert.rejects(
+      async () => {
+        await db.query("UPDATE public.assets SET kategori_aset = 'tanah' WHERE id = $1;", [assetIdAC])
+      },
+      /SIMKOS_LOCKED_ASSET_CATEGORY/,
+      'Perubahan langsung kategori_aset pada aset yang memiliki snapshot/ledger wajib ditolak trigger'
+    )
 
     // 4.3 Revert status 'aktif' ke 'draft' DITOLAK jika aset memiliki snapshot
     await assert.rejects(
@@ -739,6 +749,27 @@ test('Fase 4B-1R: Uji Integrasi Database & Kontrak Pembukuan Penyusutan', async 
     await db.query(`
       SELECT public.post_depreciation_batch($1, '2027-03', 'idemp-202703', $2, $3, $4);
     `, [orgA, hashMar, pMar.preview_token, notesMar])
+
+    // 8.5 Penambahan Komponen Masa Depan (Tanggal Siap Guna > Periode Efektif Terakhir)
+    // Batch aktif terakhir saat ini adalah 2027-03 (akhir periode 2027-03-31).
+    // Tambah komponen baru dengan siap guna 2027-04-01.
+    // Tidak boleh memicu SIMKOS_LATE_COMPONENT_REQUIRES_UNWIND dan tidak perlu membatalkan batch Jan-Mar!
+    const insFutureComp = await db.query(`
+      INSERT INTO public.asset_components (
+        asset_id, org_id, nama_komponen, biaya_perolehan, nilai_sisa, masa_manfaat_bulan,
+        tanggal_siap_guna, porsi_usaha_persen, status_kapitalisasi, metode_penyusutan
+      ) VALUES ($1, $2, 'Exhaust Fan Baru', 1200000, 0, 12, '2027-04-01', 100, 'kapitalisasi', 'garis_lurus')
+      RETURNING id;
+    `, [assetIdAC, orgA])
+    const futureCompId = insFutureComp.rows[0].id
+
+    const actFutureRes = await db.query("SELECT public.activate_asset($1, 'Aktivasi penambahan exhaust fan') as val;", [assetIdAC])
+    const snapFuture = parseVal(actFutureRes.rows[0].val)
+    assert.equal(snapFuture.version, 3, 'Snapshot berhasil diperbarui ke versi 3')
+    assert.ok(
+      snapFuture.snapshot_params.some(p => p.component_id === futureCompId),
+      'Komponen masa depan masuk snapshot params tanpa menuntut pembatalan posting lama'
+    )
   })
 
   // --------------------------------------------------------------------------
@@ -848,6 +879,85 @@ test('Fase 4B-1R: Uji Integrasi Database & Kontrak Pembukuan Penyusutan', async 
 
     // Kembalikan konteks auth ke ownerA
     await setAuthContext(db, { userId: ownerA, role: 'authenticated' })
+  })
+
+  // --------------------------------------------------------------------------
+  // Uji 9b: Revisi Parameter Komponen via RPC & Bukti Perubahan Beban Riil
+  // --------------------------------------------------------------------------
+  await t.test('9b. Revisi Parameter Komponen via RPC (Biaya Berubah Nyata di Ledger)', async () => {
+    await setAuthContext(db, { userId: ownerA, role: 'authenticated' })
+
+    // 1. Coba panggil revise_component_parameters saat batch Jan-Mar 2027 masih berstatus posted -> DITOLAK
+    await assert.rejects(
+      async () => {
+        await db.query(`
+          SELECT public.revise_component_parameters(
+            $1, 12000000, 0, 60, '2024-06-16', 100, 'garis_lurus', 'kapitalisasi', 'Revisi biaya AC jadi 12jt'
+          );
+        `, [compIdAC])
+      },
+      /SIMKOS_POSTED_BATCH_EXISTS/,
+      'Revisi parameter komponen wajib ditolak jika masih ada batch pembukuan aktif'
+    )
+
+    // 2. Unwind kronologis: Batalkan Mar 2027, Feb 2027, lalu Jan 2027
+    const batches = (await db.query(
+      "SELECT id, period_key FROM public.asset_depreciation_batches WHERE org_id = $1 AND batch_status = 'posted' ORDER BY period_key DESC;",
+      [orgA]
+    )).rows
+    for (const b of batches) {
+      await db.query("SELECT public.reverse_depreciation_batch($1, 'Unwind untuk revisi parameter');", [b.id])
+    }
+
+    // 3. Panggil revise_component_parameters dengan mengubah biaya perolehan AC dari 6.000.000 menjadi 12.000.000
+    const revRes = await db.query(`
+      SELECT public.revise_component_parameters(
+        $1, 12000000, 0, 60, '2024-06-16', 100, 'garis_lurus', 'kapitalisasi', 'Revisi biaya AC ke Rp12.000.000'
+      ) as val;
+    `, [compIdAC])
+    const revComp = parseVal(revRes.rows[0].val)
+    assert.equal(Number(revComp.biaya_perolehan), 12000000, 'Biaya perolehan di tabel master komponen berubah ke 12.000.000')
+
+    // 4. Verifikasi saldo awal lama AC otomatis dibatalkan (cancelled)
+    const oldOb = await db.query("SELECT status FROM public.asset_opening_balances WHERE component_id = $1;", [compIdAC])
+    assert.ok(oldOb.rows.every(r => r.status === 'cancelled'), 'Seluruh saldo awal lama untuk komponen ini harus cancelled')
+
+    // 5. Aktivasi snapshot baru aset AC (versi 4) dengan parameter terevisi
+    const actV4Res = await db.query("SELECT public.activate_asset($1, 'Aktivasi setelah revisi biaya') as val;", [assetIdAC])
+    const snapV4 = parseVal(actV4Res.rows[0].val)
+    assert.equal(snapV4.version, 4)
+
+    // 6. Sahkan saldo awal baru AC (simulasi historis) berdasarkan snapshot v4:
+    // Biaya 12jt, masa 60 bln -> 200rb/bln. Cutoff Dec 2026 = 30.5 bln * 200rb = 6.100.000 akumulasi awal.
+    const newObRes = await db.query(`
+      SELECT public.approve_component_opening_balance(
+        $1, 'simulasi_historis', null, null, null, 'Saldo awal baru AC 12jt'
+      ) as val;
+    `, [compIdAC])
+    const newOb = parseVal(newObRes.rows[0].val)
+    assert.equal(newOb.status, 'approved')
+    assert.equal(Number(newOb.akumulasi_penyusutan_awal), 6100000, 'Akumulasi awal terhitung Rp6.100.000')
+
+    // 7. Posting pengganti untuk Jan 2027 dan verifikasi beban penyusutan di ledger
+    const prevJan4 = await db.query("SELECT public.preview_depreciation_posting($1, '2027-01') as val;", [orgA])
+    const pJan4 = parseVal(prevJan4.rows[0].val)
+    const notesJan4 = 'Posting Jan setelah revisi AC 12jt'
+    const hashJan4 = getCanonicalHash(orgA, '2027-01', notesJan4)
+    const postJan4Res = await db.query(`
+      SELECT public.post_depreciation_batch($1, '2027-01', 'idemp-202701-rev12m', $2, $3, $4) as val;
+    `, [orgA, hashJan4, pJan4.preview_token, notesJan4])
+    const postJan4Batch = parseVal(postJan4Res.rows[0].val)
+
+    const ledgerACRev = await db.query(
+      "SELECT * FROM public.asset_depreciation_ledger WHERE batch_id = $1 AND component_id = $2;",
+      [postJan4Batch.id, compIdAC]
+    )
+    assert.equal(ledgerACRev.rows.length, 1)
+    assert.equal(
+      Number(ledgerACRev.rows[0].depreciation_amount),
+      200000,
+      'Beban penyusutan per bulan AC terbukti nyata berubah dari Rp100.000 menjadi Rp200.000 (bukan sekadar bump versi)'
+    )
   })
 
   // --------------------------------------------------------------------------

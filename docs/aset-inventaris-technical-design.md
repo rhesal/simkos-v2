@@ -1078,41 +1078,45 @@ Jika ada komponen baru yang memiliki tanggal siap guna di masa lalu (misal siap 
 
 | Kategori Pengujian | Berkas Pengujian Target | Skenario Validasi Utama |
 | :--- | :--- | :--- |
-| **Unit Test Kontrak Saldo Awal** | `qa/aset/fase4_opening_balance.test.mjs` | Kontinuitas jadwal Bresenham jalur historis, sisa dasar & bobot $W_{\text{sisa}}$ & $N_{\text{sisa}}$ jalur manual, penolakan pembagian nol pada edge case masa habis. |
-| **Integrasi Database SQL (Fase 4B-1R)** | `qa/aset/fase4_bookkeeping_db.test.mjs` | 12 subtest: skema & constraint, set start date, kesetaraan engine server vs kontrak Fase 3-R, aktivasi aset & penguncian parameter master, validasi manual tanpa desimal, stale preview guard, siklus multi-versi (posting -> reversal -> replacement x2), penutupan shortcut saldo awal, penanganan komponen terlambat menuntut unwind, penguncian periode & reversal batch nol, isolasi tenant, zero impact ke kas (`expenses`/`incomes` 100% identik), ON DELETE RESTRICT organisasi. |
-| **Pengujian Konkurensi Nyata (PostgreSQL Port 54322)** | `qa/aset/fase4_concurrency.test.mjs` | Posting bersamaan periode sama (1 sukses, 1 SIMKOS_BATCH_ALREADY_POSTED), pembatalan bersamaan batch sama (1 sukses, 1 SIMKOS_BATCH_NOT_POSTED), pembatalan bersamaan batch nol. |
+| **Integrasi Database SQL (Fase 4B-1R)** | `qa/aset/fase4_bookkeeping_db.test.mjs` | 13 subtest: skema & constraint, set start date, kesetaraan engine server vs kontrak Fase 3-R, aktivasi aset, pembekuan kategori aset, penolakan mutasi langsung kategori (`SIMKOS_LOCKED_ASSET_CATEGORY`), penguncian parameter master, validasi manual tanpa desimal, stale preview guard, siklus multi-versi (posting -> reversal -> replacement x2), penutupan shortcut saldo awal, penanganan komponen terlambat menuntut unwind, penambahan komponen masa depan tanpa unwind, penguncian periode & reversal batch nol, revisi parameter finansial via RPC `revise_component_parameters` dengan pembuktian perubahan beban riil di ledger, isolasi tenant, zero impact ke kas (`expenses`/`incomes` 100% data baris identik), ON DELETE RESTRICT organisasi. |
+| **Pengujian Konkurensi Nyata (PostgreSQL Port 54322)** | `qa/aset/fase4_concurrency.test.mjs` | 5 subtest: posting bersamaan periode sama (1 sukses, 1 SIMKOS_BATCH_ALREADY_POSTED), pembatalan bersamaan batch sama (1 sukses, 1 SIMKOS_BATCH_NOT_POSTED), pembatalan bersamaan batch nol, konkurensi posting vs penguncian periode (serialisasi atomik terjamin), konkurensi posting vs revisi parameter komponen (advisory lock mutual exclusion terbukti menolak revisi saat ada batch aktif). |
+| **Integrasi API Auth Resmi (GoTrue v2.197.0 & PostgREST 16.5)** | `qa/aset/fase4_auth_api.test.mjs` | 5 subtest: otentikasi login resmi owner/admin/staff/owner B, otentikasi konfigurasi pembukuan via REST, pencegahan mutasi langsung status/kategori/parameter finansial via REST, isolasi multi-tenant data pembukuan via PostgREST RLS (data Org A tidak bocor ke Owner B), siklus penuh pratinjau, posting, pembacaan ledger, dan storno reversal via REST RPC. |
+| **Regresi Engine Penyusutan (Fase 3-R)** | `qa/aset/depresiasi_engine.test.mjs` | 11 subtest: pembagian pembulatan Bresenham kumulatif, prorata hari nyata, penanganan komponen berdasar nol, input porsi usaha null vs 0%, konsistensi kalender gabungan. |
+| **Pencatatan Draf & Validasi Struktur (Fase 2-R)** | `qa/aset/aset_phase2.test.mjs` | 12 subtest: pengujian unit, simulasi backfill draf idempoten, pemisahan kategori tanah vs barang/gedung, validasi relasi draf cross-tenant, dan pemeriksaan statis UI. *(Catatan: berkas ini berisi pengujian unit/simulasi dan pemeriksaan statis, bukan bukti koneksi database nyata).* |
+| **Browser E2E UI (Fase 4B-2)** | *Ditunda* | Pengujian browser flow UI ditunda sesuai instruksi hingga pekerjaan database, otorisasi, dan kontrak pembukuan Fase 4B-1R disetujui. |
 
 ---
 
-### 11.8 Resolusi Integritas Pembukuan Fase 4B-1R (Enam Butir Mandat)
+### 11.8 Resolusi Integritas Pembukuan Fase 4B-1R (Koreksi Lengkap)
 
 1. **Penutupan Jalan Pintas Pengesahan Saldo Awal & Aktivasi Langsung**:
    - `approve_component_opening_balance()` menolak mutasi jika masih terdapat batch berstatus `posted` di organisasi (`SIMKOS_POSTED_BATCH_EXISTS`). Pengguna diwajibkan membatalkan seluruh posting aktif (*unwind*) sebelum merevisi atau mengesahkan saldo awal baru.
    - Trigger `validate_asset_relations` melarang manipulasi langsung status aset menjadi `'aktif'` via SQL/REST (`SIMKOS_DIRECT_ACTIVATION_FORBIDDEN`), mewajibkan penggunaan RPC resmi `activate_asset` yang memanfaatkan PostgreSQL session variable `simkos.in_rpc_activate_asset`.
    - Trigger `validate_asset_relations` melarang revert status dari `'aktif'` ke `'draft'` jika aset telah memiliki riwayat snapshot atau pembukuan (`SIMKOS_CANNOT_REVERT_ACTIVE_ASSET`).
-   - Trigger `validate_component_relations` mengunci parameter finansial master komponen (`biaya_perolehan`, `nilai_sisa`, `masa_manfaat_bulan`, `tanggal_siap_guna`, `status_kapitalisasi`) dari pengubahan langsung setelah saldo awal disahkan atau dibukukan (`SIMKOS_LOCKED_FINANCIAL_PARAMETERS`).
+   - Trigger `validate_asset_relations` membekukan `kategori_aset` dan melarang perubahan langsung via UPDATE jika aset telah memiliki snapshot aktivasi, saldo awal, atau transaksi pembukuan di ledger (`SIMKOS_LOCKED_ASSET_CATEGORY`).
+   - Trigger `validate_component_relations` mengunci parameter finansial master komponen (`biaya_perolehan`, `nilai_sisa`, `masa_manfaat_bulan`, `tanggal_siap_guna`, `porsi_usaha_persen`, `status_kapitalisasi`, `metode_penyusutan`) dari pengubahan langsung setelah saldo awal disahkan atau dibukukan (`SIMKOS_LOCKED_FINANCIAL_PARAMETERS`).
 2. **Snapshot Sebagai Sumber Tunggal Parameter Pembukuan**:
-   - Fungsi `preview_depreciation_posting` dan `post_depreciation_batch` membaca parameter komponen secara eksklusif dari elemen array JSON `snapshot_params` pada snapshot aktivasi aset resmi terbaru (`asset_activation_snapshots`), bukan membaca master mutable `asset_components`.
+   - Fungsi `preview_depreciation_posting` dan `post_depreciation_batch` membaca parameter komponen secara eksklusif dari elemen array JSON `snapshot_params` serta kolom `kategori_aset` pada snapshot aktivasi aset resmi terbaru (`asset_activation_snapshots`), bukan membaca master mutable `asset_components`.
    - Penambahan komponen baru pada aset yang sudah aktif tidak akan masuk ke jadwal pembukuan sampai disahkan melalui pemanggilan `activate_asset` versi baru.
    - Parameter tidak lengkap (biaya, masa manfaat, porsi usaha) ditolak saat aktivasi; tidak ada nilai kosong/null yang diam-diam diasumsikan nol.
-3. **Penanganan Komponen Terlambat Menuntut Unwind Kronologis**:
-   - Jika komponen baru memiliki `tanggal_siap_guna` yang jatuh pada atau sebelum periode posting aktif terakhir (`tanggal_siap_guna <= v_latest_posted_end_date`), RPC `activate_asset` menolak aktivasi dengan kode `SIMKOS_LATE_COMPONENT_REQUIRES_UNWIND`.
-   - Tanggal siap guna asli komponen tetap dipertahankan utuh pada master komponen.
-   - Pengguna diwajibkan melakukan *unwind* mundur seluruh batch posting yang terdampak, mengaktivasi aset dengan komponen baru, lalu melakukan posting ulang secara kronologis maju sehingga penyusutan komponen terlambat tercatat resmi di buku pembantu sejak tanggal siap guna aslinya.
-4. **Server-Side Canonical Payload Hash & Validasi Ketat Parameter**:
+3. **Pembedaan Komponen Terlambat vs Komponen Masa Depan**:
+   - RPC `activate_asset` membandingkan komponen aset dengan elemen `snapshot_params` pada snapshot terakhir (`v_prev_snap`). Komponen yang tidak berubah diabaikan dari pengecekan periode aktif.
+   - Jika terdapat komponen baru yang memiliki `tanggal_siap_guna` jatuh pada atau sebelum periode posting aktif terakhir (`tanggal_siap_guna <= v_latest_posted_end_date`), RPC menolak aktivasi dengan kode `SIMKOS_LATE_COMPONENT_REQUIRES_UNWIND`. Tanggal siap guna asli komponen tetap dipertahankan utuh pada master komponen.
+   - Sebaliknya, penambahan komponen di masa depan (`tanggal_siap_guna > v_latest_posted_end_date`) diizinkan langsung diaktivasi ke snapshot versi baru tanpa menuntut pembatalan batch posting komponen lama yang sudah dibukukan.
+4. **Jalur Revisi Parameter Finansial Resmi via RPC `revise_component_parameters`**:
+   - Jika pengguna perlu mengoreksi parameter finansial (misal biaya perolehan salah dicatat), koreksi dilakukan melalui RPC `public.revise_component_parameters(...)`.
+   - RPC ini mengambil advisory lock tingkat organisasi, memastikan tidak ada batch aktif (`SIMKOS_POSTED_BATCH_EXISTS`), otomatis membatalkan saldo awal lama (`cancelled`), mengupdate tabel master komponen di bawah session variable `simkos.in_rpc_revise_component = 'true'`, dan mencatat audit log `component_parameters_revised`.
+   - Setelah revisi, pengguna mengaktivasi snapshot versi baru dan mengesahkan saldo awal baru, menghasilkan perubahan beban riil di buku pembantu saat diposting ulang (terbukti berubah dari Rp100.000 menjadi Rp200.000 per bulan).
+5. **Server-Side Canonical Payload Hash & Validasi Ketat Parameter**:
    - Klien tidak lagi dipercaya untuk memasok `p_payload_hash`. Server menghitung sendiri hash kanonis: `md5(p_org_id || '|' || p_period_key || '|' || coalesce(trim(p_notes), ''))`.
    - Jika klien mengirim `p_payload_hash` yang tidak cocok dengan kalkulasi server, permintaan ditolak dengan `SIMKOS_IDEMPOTENCY_PAYLOAD_MISMATCH`.
    - Percobaan penggunaan kembali kunci idempotensi dengan payload berbeda ditolak keras.
    - Validasi parameter wajib non-null diberlakukan ketat untuk `p_org_id`, `p_period_key`, `p_idempotency_key`, dan `p_preview_token`.
-5. **Re-Read State After Lock & Penanganan Batch Nol**:
+6. **Re-Read State After Lock & Penanganan Batch Nol**:
    - Setiap RPC mutasi pembukuan mengambil `pg_advisory_xact_lock(hashtext('simkos:depreciation:' || org_id))` sebelum membaca ulang seluruh state yang akan divalidasi dan dimutasi, mencegah race condition TOCTOU.
    - Reversal pada batch bernilai nol (`total_depreciation = 0`, baris ledger = 0) ditangani secara elegan tanpa error dan status batch berubah menjadi `reversed`.
-6. **Eliminasi Exception Masking**:
+7. **Eliminasi Exception Masking**:
    - Seluruh blok `EXCEPTION WHEN OTHERS THEN NULL` telah dihilangkan dari berkas migrasi database untuk menjamin integritas pelaporan kesalahan runtime PostgreSQL.
 
-| **Pengujian Idempotensi & Reversal** | `qa/aset/fase4_idempotency_reversal.test.mjs` | Pemanggilan ulang dengan idempotency_key + payload hash, partial unique index multi-reversal, pembatalan storno periode terakhir aktif, penolakan pembatalan non-kronologis. |
-| **Integrasi API Auth Resmi** | `qa/aset/fase4_auth_api.test.mjs` | Penolakan eksekusi RPC oleh role staf, penolakan akses token lintas organisasi. |
-| **Snapshot Kas Komparatif** | `qa/aset/fase4_cash_snapshot.test.mjs` | Membuktikan tabel `expenses` dan `incomes` identik 100% sebelum dan sesudah pembukuan penyusutan. |
-| **Browser E2E Puppeteer** | `qa/aset/fase4_browser_flow.test.mjs` | Alur UI: set tanggal mulai $\rightarrow$ aktivasi aset $\rightarrow$ sahkan saldo awal $\rightarrow$ pratinjau $\rightarrow$ posting $\rightarrow$ pembatalan (*storno*). |
 
 

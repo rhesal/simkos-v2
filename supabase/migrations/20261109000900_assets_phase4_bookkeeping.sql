@@ -61,6 +61,15 @@ begin
     end if;
   end if;
 
+  -- Tolak perubahan kategori aset langsung setelah pengesahan / memiliki snapshot
+  if tg_op = 'UPDATE' and old.kategori_aset is distinct from new.kategori_aset then
+    if exists (select 1 from public.asset_activation_snapshots where asset_id = old.id) or
+       exists (select 1 from public.asset_opening_balances where asset_id = old.id and status = 'approved') or
+       exists (select 1 from public.asset_depreciation_ledger where asset_id = old.id) then
+      raise exception 'SIMKOS_LOCKED_ASSET_CATEGORY: Kategori aset yang telah disahkan atau memiliki riwayat snapshot tidak dapat diubah langsung dari % menjadi %', old.kategori_aset, new.kategori_aset;
+    end if;
+  end if;
+
   -- Validasi lokasi satu organisasi
   if new.location_id is not null then
     select org_id into v_loc_org from public.locations where id = new.location_id;
@@ -131,7 +140,9 @@ begin
         or new.metode_penyusutan is distinct from old.metode_penyusutan) then
       if exists (select 1 from public.asset_opening_balances where component_id = old.id and status = 'approved') or
          exists (select 1 from public.asset_depreciation_ledger where component_id = old.id) then
-        raise exception 'SIMKOS_LOCKED_FINANCIAL_PARAMETERS: Parameter finansial komponen yang telah disahkan saldo awal atau dibukukan tidak dapat diubah langsung';
+        if coalesce(current_setting('simkos.in_rpc_revise_component', true), 'false') <> 'true' then
+          raise exception 'SIMKOS_LOCKED_FINANCIAL_PARAMETERS: Parameter finansial komponen yang telah disahkan saldo awal atau dibukukan tidak dapat diubah langsung. Gunakan RPC revise_component_parameters setelah membatalkan posting aktif.';
+        end if;
       end if;
     end if;
   end if;
@@ -202,6 +213,7 @@ create table if not exists public.asset_activation_snapshots (
   id uuid primary key default gen_random_uuid(),
   asset_id uuid not null references public.assets(id) on delete restrict,
   org_id uuid not null references public.organizations(id) on delete restrict,
+  kategori_aset text not null check (kategori_aset in ('tanah', 'gedung', 'peralatan', 'kendaraan', 'elektronik_kantor', 'komponen_gedung')),
   version int not null default 1,
   algorithm_version text not null default 'v3.1-bresenham',
   snapshot_params jsonb not null,
@@ -366,7 +378,8 @@ create table if not exists public.asset_accounting_audit_logs (
     'batch_posted',
     'batch_reversed',
     'period_locked',
-    'period_unlocked'
+    'period_unlocked',
+    'component_parameters_revised'
   )),
   entity_type text not null check (entity_type in ('settings', 'asset', 'component', 'batch', 'period')),
   entity_id uuid not null,
@@ -711,6 +724,7 @@ declare
   v_components jsonb;
   v_invalid_count int;
   v_snapshot public.asset_activation_snapshots%rowtype;
+  v_prev_snap public.asset_activation_snapshots%rowtype;
   v_latest_posted_period text;
   v_latest_posted_end_date date;
   v_late_comp record;
@@ -772,7 +786,7 @@ begin
     end if;
   end if;
 
-  -- 5. Pengecekan Komponen Terlambat terhadap Periode Posting Aktif:
+  -- 5. Pengecekan Komponen Terlambat terhadap Periode Posting Aktif (Hanya perbedaan terhadap snapshot terakhir):
   select period_key into v_latest_posted_period
   from public.asset_depreciation_batches
   where org_id = v_asset.org_id and batch_status = 'posted'
@@ -781,15 +795,32 @@ begin
   if v_latest_posted_period is not null then
     v_latest_posted_end_date := (make_date(substring(v_latest_posted_period from 1 for 4)::int, substring(v_latest_posted_period from 6 for 2)::int, 1) + interval '1 month' - interval '1 day')::date;
 
-    select * into v_late_comp
-    from public.asset_components
+    -- Ambil snapshot terakhir jika ada untuk membandingkan perbedaan
+    select * into v_prev_snap
+    from public.asset_activation_snapshots
     where asset_id = p_asset_id
-      and status_kapitalisasi = 'kapitalisasi'
-      and metode_penyusutan = 'garis_lurus'
-      and tanggal_siap_guna <= v_latest_posted_end_date
+    order by version desc limit 1;
+
+    -- Periksa hanya komponen baru atau yang berubah parameter siap guna/kapitalisasinya
+    select c.* into v_late_comp
+    from public.asset_components c
+    where c.asset_id = p_asset_id
+      and c.status_kapitalisasi = 'kapitalisasi'
+      and c.metode_penyusutan = 'garis_lurus'
+      and c.tanggal_siap_guna <= v_latest_posted_end_date
+      and (
+        v_prev_snap.id is null
+        or not exists (
+          select 1 from jsonb_array_elements(v_prev_snap.snapshot_params) elem
+          where (elem->>'id')::uuid = c.id
+            and (elem->>'status_kapitalisasi') = 'kapitalisasi'
+            and (elem->>'tanggal_siap_guna')::date = c.tanggal_siap_guna
+            and (elem->>'biaya_perolehan')::numeric = c.biaya_perolehan
+        )
+      )
     limit 1;
 
-    if found then
+    if v_late_comp.id is not null then
       raise exception 'SIMKOS_LATE_COMPONENT_REQUIRES_UNWIND: Komponen % memiliki tanggal siap guna (%) pada periode yang telah diposting aktif (%). Batalkan mundur posting hingga periode sebelum tanggal siap guna komponen terlebih dahulu',
         v_late_comp.nama_komponen, v_late_comp.tanggal_siap_guna, v_latest_posted_period;
     end if;
@@ -821,9 +852,9 @@ begin
   where c.asset_id = p_asset_id;
 
   insert into public.asset_activation_snapshots (
-    asset_id, org_id, version, algorithm_version, snapshot_params, activated_by, activation_notes
+    asset_id, org_id, kategori_aset, version, algorithm_version, snapshot_params, activated_by, activation_notes
   ) values (
-    p_asset_id, v_asset.org_id, v_next_version, 'v3.1-bresenham', v_components, auth.uid(), p_activation_notes
+    p_asset_id, v_asset.org_id, v_asset.kategori_aset, v_next_version, 'v3.1-bresenham', v_components, auth.uid(), p_activation_notes
   ) returning * into v_snapshot;
 
   -- Set session variable agar trigger validate_asset_relations mengizinkan transisi status ke 'aktif'
@@ -1279,8 +1310,8 @@ begin
       v_status_kap := v_comp_json->>'status_kapitalisasi';
       v_metode := v_comp_json->>'metode_penyusutan';
 
-      -- Pengecekan kelayakan dasar
-      if v_asset.kategori_aset = 'tanah' or v_status_kap = 'beban_langsung' or v_metode = 'tidak_disusutkan' then
+      -- Pengecekan kelayakan dasar menggunakan kategori aset yang dibekukan di snapshot
+      if v_snap.kategori_aset = 'tanah' or v_status_kap = 'beban_langsung' or v_metode = 'tidak_disusutkan' then
         v_ineligible := v_ineligible || jsonb_build_object(
           'component_id', v_comp_id, 'nama_komponen', v_nama_komponen, 'alasan', 'Tidak disusutkan'
         );
@@ -1764,6 +1795,121 @@ begin
 end;
 $$;
 
+-- RPC 10: Revisi Parameter Finansial Komponen Resmi (Setelah Pembatalan Unwind Selesai)
+create or replace function public.revise_component_parameters(
+  p_component_id uuid,
+  p_biaya_perolehan numeric,
+  p_nilai_sisa numeric default 0,
+  p_masa_manfaat_bulan int default null,
+  p_tanggal_siap_guna date default null,
+  p_porsi_usaha_persen numeric default null,
+  p_metode_penyusutan text default 'garis_lurus',
+  p_status_kapitalisasi text default 'kapitalisasi',
+  p_revision_notes text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_comp public.asset_components%rowtype;
+  v_asset public.assets%rowtype;
+  v_updated_comp public.asset_components%rowtype;
+begin
+  if p_component_id is null then
+    raise exception 'SIMKOS_INVALID_PARAM: component_id wajib diisi';
+  end if;
+
+  select * into v_comp from public.asset_components where id = p_component_id;
+  if not found then
+    raise exception 'SIMKOS_COMPONENT_NOT_FOUND: Komponen tidak ditemukan';
+  end if;
+
+  select * into v_asset from public.assets where id = v_comp.asset_id;
+  if not found then
+    raise exception 'SIMKOS_ASSET_NOT_FOUND: Aset tidak ditemukan';
+  end if;
+
+  if not (public.is_org_owner(v_asset.org_id) or public.is_org_admin(v_asset.org_id)) then
+    raise exception 'SIMKOS_FORBIDDEN: Hanya owner atau admin yang dapat merevisi parameter komponen';
+  end if;
+
+  -- 1. Kunci transaksi advisory lock pada organisasi
+  perform pg_advisory_xact_lock(hashtext('simkos:depreciation:' || v_asset.org_id::text));
+
+  -- 2. BACA ULANG status setelah lock: pastikan tidak ada batch aktif di organisasi
+  if exists (
+    select 1 from public.asset_depreciation_batches
+    where org_id = v_asset.org_id and batch_status = 'posted'
+  ) then
+    raise exception 'SIMKOS_POSTED_BATCH_EXISTS: Tidak dapat merevisi parameter komponen karena terdapat batch posting aktif. Batalkan seluruh batch posting aktif terlebih dahulu';
+  end if;
+
+  -- 3. Validasi parameter numerik
+  if p_biaya_perolehan is null or p_biaya_perolehan < 0 then
+    raise exception 'SIMKOS_INVALID_PARAM: biaya_perolehan wajib diisi dan non-negatif';
+  end if;
+  if p_nilai_sisa is null or p_nilai_sisa < 0 or p_nilai_sisa > p_biaya_perolehan then
+    raise exception 'SIMKOS_INVALID_PARAM: nilai_sisa tidak valid (harus 0 s/d biaya_perolehan)';
+  end if;
+  if p_status_kapitalisasi not in ('kapitalisasi', 'beban_langsung', 'perlu_telaah') then
+    raise exception 'SIMKOS_INVALID_PARAM: status_kapitalisasi tidak valid';
+  end if;
+
+  if p_status_kapitalisasi = 'kapitalisasi' then
+    if p_masa_manfaat_bulan is null or p_masa_manfaat_bulan <= 0 then
+      raise exception 'SIMKOS_INVALID_PARAM: masa_manfaat_bulan wajib positif untuk komponen kapitalisasi';
+    end if;
+    if p_tanggal_siap_guna is null then
+      raise exception 'SIMKOS_INVALID_PARAM: tanggal_siap_guna wajib diisi';
+    end if;
+    if p_porsi_usaha_persen is not null and (p_porsi_usaha_persen < 0 or p_porsi_usaha_persen > 100) then
+      raise exception 'SIMKOS_INVALID_PARAM: porsi_usaha_persen harus antara 0 dan 100';
+    end if;
+    if p_metode_penyusutan is null or p_metode_penyusutan != 'garis_lurus' then
+      raise exception 'SIMKOS_INVALID_PARAM: metode_penyusutan hanya mendukung garis_lurus';
+    end if;
+  end if;
+
+  -- 4. Batalkan saldo awal aktif komponen ini jika ada (karena parameter finansial berubah)
+  update public.asset_opening_balances set
+    status = 'cancelled',
+    cancelled_by = auth.uid(),
+    cancelled_at = now(),
+    cancellation_reason = 'Dibatalkan otomatis akibat revisi parameter komponen'
+  where component_id = p_component_id and status = 'approved';
+
+  -- 5. Lakukan update pada asset_components dengan flag session simkos.in_rpc_revise_component
+  perform set_config('simkos.in_rpc_revise_component', 'true', true);
+
+  update public.asset_components set
+    biaya_perolehan = p_biaya_perolehan,
+    nilai_sisa = coalesce(p_nilai_sisa, 0),
+    masa_manfaat_bulan = p_masa_manfaat_bulan,
+    tanggal_siap_guna = p_tanggal_siap_guna,
+    porsi_usaha_persen = p_porsi_usaha_persen,
+    metode_penyusutan = p_metode_penyusutan,
+    status_kapitalisasi = p_status_kapitalisasi,
+    updated_at = now()
+  where id = p_component_id
+  returning * into v_updated_comp;
+
+  -- 6. Catat audit log
+  insert into public.asset_accounting_audit_logs (
+    org_id, event_type, entity_type, entity_id, actor_id, actor_role, notes_reason, payload_before, payload_after
+  ) values (
+    v_asset.org_id, 'component_parameters_revised', 'component', p_component_id, auth.uid(),
+    case when public.is_org_owner(v_asset.org_id) then 'owner' else 'admin' end,
+    coalesce(p_revision_notes, 'Parameter komponen direvisi melalui RPC resmi'),
+    to_jsonb(v_comp),
+    to_jsonb(v_updated_comp)
+  );
+
+  return to_jsonb(v_updated_comp);
+end;
+$$;
+
 -- Hak eksekusi RPC untuk anon & authenticated
 grant execute on function public.calc_component_depreciation_schedule(numeric, numeric, int, date, numeric) to anon, authenticated;
 grant execute on function public.calc_component_manual_schedule(numeric, numeric, numeric, numeric, numeric, numeric, numeric, int, date) to anon, authenticated;
@@ -1776,3 +1922,4 @@ grant execute on function public.post_depreciation_batch(uuid, text, text, text,
 grant execute on function public.reverse_depreciation_batch(uuid, text) to anon, authenticated;
 grant execute on function public.lock_accounting_period(uuid, text) to anon, authenticated;
 grant execute on function public.unlock_accounting_period(uuid, text, text) to anon, authenticated;
+grant execute on function public.revise_component_parameters(uuid, numeric, numeric, int, date, numeric, text, text, text) to anon, authenticated;

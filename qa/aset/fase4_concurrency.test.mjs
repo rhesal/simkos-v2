@@ -298,4 +298,154 @@ test('Fase 4B-1R Konkurensi: Dua Koneksi Independen pada Server PostgreSQL Nyata
       await client2.end()
     }
   })
+
+  // --------------------------------------------------------------------------
+  // Uji 4: Konkurensi Posting vs Penguncian Periode (Advisory Lock Serialization)
+  // --------------------------------------------------------------------------
+  await t.test('4. Konkurensi Posting vs Penguncian Periode (Serialisasi Terjamin)', async () => {
+    const setupClient = await createClient(DB_NAME)
+    let pFebToken
+    try {
+      await setClientAuth(setupClient, { userId: ownerA, role: 'authenticated' })
+
+      // Pastikan batch Jan 2027 aktif diposting terlebih dahulu
+      const pJanRes = await setupClient.query("SELECT public.preview_depreciation_posting($1, '2027-01') as val;", [orgA])
+      const pJan = typeof pJanRes.rows[0].val === 'string' ? JSON.parse(pJanRes.rows[0].val) : pJanRes.rows[0].val
+      const nJan = 'Posting Jan Baseline'
+      const hJan = getCanonicalHash(orgA, '2027-01', nJan)
+      await setupClient.query(
+        "SELECT public.post_depreciation_batch($1, '2027-01', 'idemp-concurr-jan', $2, $3, $4);",
+        [orgA, hJan, pJan.preview_token, nJan]
+      )
+
+      // Ambil token pratinjau untuk Feb 2027
+      const pFebRes = await setupClient.query("SELECT public.preview_depreciation_posting($1, '2027-02') as val;", [orgA])
+      const pFeb = typeof pFebRes.rows[0].val === 'string' ? JSON.parse(pFebRes.rows[0].val) : pFebRes.rows[0].val
+      pFebToken = pFeb.preview_token
+    } finally {
+      await setupClient.end()
+    }
+
+    const client1 = await createClient(DB_NAME)
+    const client2 = await createClient(DB_NAME)
+
+    try {
+      await setClientAuth(client1, { userId: ownerA, role: 'authenticated' })
+      await setClientAuth(client2, { userId: ownerA, role: 'authenticated' })
+
+      const notesFeb = 'Posting Konkuren Feb'
+      const hashFeb = getCanonicalHash(orgA, '2027-02', notesFeb)
+
+      // Client 1 mencoba post Feb 2027, sementara Client 2 serentak mengunci periode Feb 2027
+      const results = await Promise.allSettled([
+        client1.query(`
+          SELECT public.post_depreciation_batch(
+            $1, '2027-02', 'idemp-concurr-feb', $2, $3, $4
+          );
+        `, [orgA, hashFeb, pFebToken, notesFeb]),
+        client2.query("SELECT public.lock_accounting_period($1, '2027-02');", [orgA]),
+      ])
+
+      const [postRes, lockRes] = results
+
+      // Lock harus selalu fulfilled
+      assert.equal(lockRes.status, 'fulfilled', 'Penguncian periode harus berhasil')
+
+      // Jika posting dijalankan sebelum lock, posting fulfilled. Jika lock dijalankan lebih dulu, posting rejected dengan SIMKOS_PERIOD_LOCKED
+      if (postRes.status === 'rejected') {
+        assert.ok(
+          postRes.reason.message.includes('SIMKOS_PERIOD_LOCKED'),
+          `Jika lock mendahului post, error harus SIMKOS_PERIOD_LOCKED, got: ${postRes.reason.message}`
+        )
+      } else {
+        assert.equal(postRes.status, 'fulfilled', 'Posting berhasil karena memperoleh advisory lock sebelum penguncian')
+      }
+
+      // Verifikasi konsistensi periode: periode Feb 2027 wajib berstatus terkunci
+      const periodCheck = await client1.query(
+        "SELECT status FROM public.asset_accounting_periods WHERE org_id = $1 AND period_key = '2027-02';",
+        [orgA]
+      )
+      assert.equal(periodCheck.rows[0].status, 'locked', "Periode 2027-02 harus berstatus 'locked'")
+    } finally {
+      await client1.end()
+      await client2.end()
+    }
+  })
+
+  // --------------------------------------------------------------------------
+  // Uji 5: Konkurensi Posting vs Revisi Parameter Komponen (Race Guard & State Verification)
+  // --------------------------------------------------------------------------
+  await t.test('5. Konkurensi Posting vs Revisi Parameter Komponen (Advisory Lock Mutual Exclusion)', async () => {
+    const setupClient = await createClient(DB_NAME)
+    let pMarToken
+    try {
+      await setClientAuth(setupClient, { userId: ownerA, role: 'authenticated' })
+
+      // Buka kunci periode Feb jika terkunci dan pastikan Feb diposting jika belum
+      await setupClient.query("SELECT public.unlock_accounting_period($1, '2027-02', 'Buka untuk uji konkurensi');", [orgA])
+
+      const febCheck = await setupClient.query(
+        "SELECT id FROM public.asset_depreciation_batches WHERE org_id = $1 AND period_key = '2027-02' AND batch_status = 'posted';",
+        [orgA]
+      )
+      if (febCheck.rows.length === 0) {
+        const pFebRes = await setupClient.query("SELECT public.preview_depreciation_posting($1, '2027-02') as val;", [orgA])
+        const pFeb = typeof pFebRes.rows[0].val === 'string' ? JSON.parse(pFebRes.rows[0].val) : pFebRes.rows[0].val
+        const nFeb = 'Posting Feb Prerequisite'
+        const hFeb = getCanonicalHash(orgA, '2027-02', nFeb)
+        await setupClient.query(
+          "SELECT public.post_depreciation_batch($1, '2027-02', 'idemp-concurr-feb-fix', $2, $3, $4);",
+          [orgA, hFeb, pFeb.preview_token, nFeb]
+        )
+      }
+
+      // Ambil token pratinjau untuk Mar 2027
+      const pMarRes = await setupClient.query("SELECT public.preview_depreciation_posting($1, '2027-03') as val;", [orgA])
+      const pMar = typeof pMarRes.rows[0].val === 'string' ? JSON.parse(pMarRes.rows[0].val) : pMarRes.rows[0].val
+      pMarToken = pMar.preview_token
+    } finally {
+      await setupClient.end()
+    }
+
+    const client1 = await createClient(DB_NAME)
+    const client2 = await createClient(DB_NAME)
+
+    try {
+      await setClientAuth(client1, { userId: ownerA, role: 'authenticated' })
+      await setClientAuth(client2, { userId: ownerA, role: 'authenticated' })
+
+      const notesMar = 'Posting Konkuren Mar'
+      const hashMar = getCanonicalHash(orgA, '2027-03', notesMar)
+
+      // Client 1 memposting Mar 2027 sementara Client 2 serentak mencoba merevisi parameter komponen kulkas
+      const results = await Promise.allSettled([
+        client1.query(`
+          SELECT public.post_depreciation_batch(
+            $1, '2027-03', 'idemp-concurr-mar', $2, $3, $4
+          );
+        `, [orgA, hashMar, pMarToken, notesMar]),
+        client2.query(`
+          SELECT public.revise_component_parameters(
+            $1, 4800000, 0, 36, '2027-01-01', 100, 'garis_lurus', 'kapitalisasi', 'Revisi biaya serentak'
+          );
+        `, [compId]),
+      ])
+
+      const [postRes, revRes] = results
+
+      // Karena batch 2027-01 & 2027-02 sudah posted, revise_component_parameters PASTI ditolak dengan SIMKOS_POSTED_BATCH_EXISTS
+      // baik dieksekusi sebelum Mar maupun sesudah Mar karena advisory lock memastikan atomisitas!
+      assert.equal(revRes.status, 'rejected', 'Revisi parameter wajib ditolak saat ada batch aktif')
+      assert.ok(
+        revRes.reason.message.includes('SIMKOS_POSTED_BATCH_EXISTS'),
+        `Error harus SIMKOS_POSTED_BATCH_EXISTS, got: ${revRes.reason.message}`
+      )
+
+      assert.equal(postRes.status, 'fulfilled', 'Posting batch Maret harus berhasil tanpa terganggu TOCTOU')
+    } finally {
+      await client1.end()
+      await client2.end()
+    }
+  })
 })
