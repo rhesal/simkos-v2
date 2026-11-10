@@ -24,6 +24,11 @@ const routes = [
     component: () => import('../views/AsetView.vue'),
   },
   {
+    path: '/aset/buku-pembantu',
+    name: 'BukuPembantuPenyusutan',
+    component: () => import('../views/BukuPembantuPenyusutanView.vue'),
+  },
+  {
     path: '/aset/tambah',
     name: 'TambahAset',
     component: () => import('../views/TambahAsetView.vue'),

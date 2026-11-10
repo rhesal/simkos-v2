@@ -8,14 +8,23 @@
             <p class="text-xs uppercase font-extrabold tracking-widest text-blue-200">Kekayaan Usaha</p>
             <h1 class="text-2xl font-black tracking-tight mt-0.5">Aset & Inventaris</h1>
           </div>
-          <router-link
-            v-if="canManageAssets"
-            to="/aset/tambah"
-            class="bg-white text-navy px-4 py-2.5 rounded-xl font-bold text-sm shadow hover:bg-blue-50 active:scale-95 transition-all flex items-center gap-1.5"
-          >
-            <span>＋</span>
-            <span>Tambah</span>
-          </router-link>
+          <div class="flex items-center gap-2">
+            <router-link
+              to="/aset/buku-pembantu"
+              class="bg-white/10 hover:bg-white/20 text-white px-3.5 py-2 rounded-xl font-bold text-xs border border-white/20 transition flex items-center gap-1.5 active:scale-95 shadow-sm"
+            >
+              <span>📖</span>
+              <span>Buku Pembantu</span>
+            </router-link>
+            <router-link
+              v-if="canManageAssets"
+              to="/aset/tambah"
+              class="bg-white text-navy px-3.5 py-2 rounded-xl font-bold text-xs shadow hover:bg-blue-50 active:scale-95 transition-all flex items-center gap-1.5"
+            >
+              <span>＋</span>
+              <span>Tambah</span>
+            </router-link>
+          </div>
         </div>
 
         <!-- Custom Location Dropdown -->
@@ -53,6 +62,26 @@
         >
           Coba Lagi
         </button>
+      </div>
+
+      <!-- Banner jika ada aset yang memerlukan pengesahan ulang -->
+      <div
+        v-if="reapprovalRequiredCount > 0 && !errorMessage"
+        class="bg-amber-50 border-2 border-amber-300 text-amber-900 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs"
+      >
+        <div class="flex items-center gap-2.5">
+          <span class="text-2xl">⚠️</span>
+          <div>
+            <p class="font-bold text-sm text-amber-900">Perlu Pengesahan Ulang ({{ reapprovalRequiredCount }} Aset)</p>
+            <p class="text-amber-800 mt-0.5">Terdapat parameter komponen yang direvisi dan diblokir dari pembukuan sampai disahkan ulang.</p>
+          </div>
+        </div>
+        <router-link
+          to="/aset/buku-pembantu"
+          class="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow transition"
+        >
+          Buka Buku Pembantu
+        </router-link>
       </div>
 
       <!-- Banner Sinkronisasi Inventaris Lama jika ada (hanya untuk Admin/Owner) -->
@@ -434,14 +463,20 @@ const incompleteCount = computed(() => {
   return assetsList.value.filter(a => !a.isComplete).length
 })
 
+const reapprovalRequiredCount = computed(() => {
+  return assetsList.value.filter(a => a.status_pencatatan === 'perlu_pengesahan_ulang').length
+})
+
 function openDetail(id) {
   router.push(`/aset/${id}`)
 }
 
 function getStatusBadgeClass(status) {
   switch (status) {
-    case 'terverifikasi': return 'bg-blue-100 text-blue-800'
-    case 'dibukukan': return 'bg-emerald-100 text-emerald-800'
+    case 'aktif': return 'bg-emerald-100 text-emerald-800 border border-emerald-300 font-extrabold'
+    case 'perlu_pengesahan_ulang': return 'bg-amber-100 text-amber-900 border border-amber-300 font-extrabold'
+    case 'terverifikasi':
+    case 'dibukukan': return 'bg-blue-100 text-blue-800'
     case 'diarsipkan': return 'bg-gray-200 text-gray-700'
     default: return 'bg-amber-100 text-amber-800'
   }
@@ -449,6 +484,8 @@ function getStatusBadgeClass(status) {
 
 function getStatusText(status) {
   switch (status) {
+    case 'aktif': return 'Aktif'
+    case 'perlu_pengesahan_ulang': return 'Perlu Pengesahan Ulang'
     case 'terverifikasi': return 'Terverifikasi'
     case 'dibukukan': return 'Dibukukan'
     case 'diarsipkan': return 'Diarsipkan'

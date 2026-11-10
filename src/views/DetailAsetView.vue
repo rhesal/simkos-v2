@@ -123,6 +123,82 @@
         </p>
       </div>
 
+      <!-- Notifikasi Sukses -->
+      <div
+        v-if="successNotification"
+        class="bg-emerald-50 border-2 border-emerald-300 text-emerald-900 rounded-2xl p-3.5 shadow-sm flex items-center justify-between gap-2 text-xs font-bold"
+      >
+        <div class="flex items-center gap-2">
+          <span>✅</span>
+          <span>{{ successNotification }}</span>
+        </div>
+        <button type="button" @click="successNotification = ''" class="text-emerald-700 hover:text-emerald-900">✕</button>
+      </div>
+
+      <!-- Banner Status Khusus: Perlu Pengesahan Ulang -->
+      <div
+        v-if="asset.status_pencatatan === 'perlu_pengesahan_ulang'"
+        class="bg-amber-50 border-2 border-amber-300 text-amber-900 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+      >
+        <div class="flex items-center gap-2.5">
+          <span class="text-2xl">⚠️</span>
+          <div>
+            <p class="font-bold text-sm text-amber-900">Aset Memerlukan Pengesahan Ulang</p>
+            <p class="text-xs text-amber-800 mt-0.5">Parameter finansial telah direvisi. Aset ini diblokir dari pembukuan sampai disahkan ulang.</p>
+          </div>
+        </div>
+        <button
+          v-if="canManageAssets"
+          type="button"
+          @click="openActivateModal"
+          class="px-4 py-2 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-1.5"
+        >
+          <span>✍️</span>
+          <span>Sahkan Ulang Aset</span>
+        </button>
+      </div>
+
+      <!-- Banner Status Draf: Siap Aktivasi -->
+      <div
+        v-else-if="asset.status_pencatatan === 'draft' && completeness.isComplete"
+        class="bg-blue-50 border-2 border-blue-200 text-blue-900 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+      >
+        <div class="flex items-center gap-2.5">
+          <span class="text-2xl">📋</span>
+          <div>
+            <p class="font-bold text-sm text-blue-900">Data Aset Lengkap — Siap Diaktivasi</p>
+            <p class="text-xs text-blue-700 mt-0.5">Aktivasi akan membekukan parameter ke snapshot resmi untuk pembukuan penyusutan.</p>
+          </div>
+        </div>
+        <button
+          v-if="canManageAssets"
+          type="button"
+          @click="openActivateModal"
+          class="px-4 py-2 bg-navy hover:bg-navy-dark active:scale-95 text-white font-bold text-xs rounded-xl shadow transition flex items-center gap-1.5"
+        >
+          <span>🚀</span>
+          <span>Aktivasi Aset (Resmi)</span>
+        </button>
+      </div>
+
+      <!-- Banner Status Aktif: Info Snapshot & Link Buku Pembantu -->
+      <div
+        v-else-if="asset.status_pencatatan === 'aktif'"
+        class="bg-emerald-50 border-2 border-emerald-200 text-emerald-900 rounded-2xl p-3.5 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs"
+      >
+        <div class="flex items-center gap-2">
+          <span>🟢</span>
+          <span><b>Aset Aktif Resmi</b> (Snapshot v{{ latestSnapshotVersion || 1 }})</span>
+        </div>
+        <router-link
+          to="/aset/buku-pembantu"
+          class="font-bold text-navy hover:underline flex items-center gap-1"
+        >
+          <span>Buka Buku Pembantu Penyusutan</span>
+          <span>›</span>
+        </router-link>
+      </div>
+
       <!-- Kartu Komponen & Riwayat Pengembangan -->
       <div class="bg-white rounded-2xl border-2 border-border p-5 shadow-sm space-y-4">
         <div class="flex items-center justify-between">
@@ -176,6 +252,46 @@
               <div>
                 <span class="text-text-muted block">Masa Manfaat:</span>
                 <span>{{ comp.masa_manfaat_bulan ? (comp.masa_manfaat_bulan / 12) + ' Tahun' : '-' }}</span>
+              </div>
+            </div>
+
+            <!-- Action Bar Komponen Pembukuan -->
+            <div class="flex items-center justify-between gap-2 pt-2 border-t border-border/60 flex-wrap">
+              <!-- Indikator Saldo Awal Historis -->
+              <div v-if="isComponentHistorical(comp)">
+                <span
+                  v-if="comp.approvedOB"
+                  class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800"
+                >
+                  ✅ Saldo Awal Disahkan ({{ comp.approvedOB.approval_route === 'manual' ? 'Manual' : 'Historis' }})
+                </span>
+                <div v-else class="flex items-center gap-1.5">
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                    🟡 Saldo Awal Belum Disahkan
+                  </span>
+                  <button
+                    v-if="canManageAssets && asset.status_pencatatan !== 'perlu_pengesahan_ulang'"
+                    type="button"
+                    @click="openOBModal(comp)"
+                    class="text-[10px] font-bold text-navy hover:underline bg-white px-2 py-0.5 border border-border rounded shadow-xs"
+                  >
+                    Sahkan Saldo Awal
+                  </button>
+                </div>
+              </div>
+              <div v-else>
+                <span class="text-[10px] font-semibold text-text-muted">Komponen Non-Historis</span>
+              </div>
+
+              <!-- Tombol Revisi Parameter (Owner/Admin) -->
+              <div v-if="canManageAssets && asset.status_pencatatan !== 'draft'">
+                <button
+                  type="button"
+                  @click="openReviseModal(comp)"
+                  class="text-[10px] font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 px-2.5 py-1 rounded-lg border border-amber-300 transition"
+                >
+                  ✏️ Revisi Parameter
+                </button>
               </div>
             </div>
           </div>
@@ -904,6 +1020,247 @@
         </div>
       </div>
     </BaseModal>
+
+    <!-- Modal Aktivasi / Pengesahan Ulang Aset -->
+    <BaseModal v-if="showActivateModal" @click.self="showActivateModal = false">
+      <div class="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border-2 border-border space-y-4">
+        <div class="flex items-center justify-between border-b border-border pb-3">
+          <h3 class="font-black text-base text-navy">
+            {{ asset.status_pencatatan === 'perlu_pengesahan_ulang' ? 'Sahkan Ulang Aset (Aktivasi Ulang)' : 'Aktivasi Aset (Resmi)' }}
+          </h3>
+          <button type="button" @click="showActivateModal = false" class="text-text-muted font-bold text-lg">✕</button>
+        </div>
+
+        <p class="text-xs text-text-secondary leading-relaxed">
+          Aktivasi aset akan membekukan seluruh parameter finansial komponen ke dalam snapshot versi resmi (SSOT pembukuan) dan mengaktifkan aset untuk penyusutan.
+        </p>
+
+        <div class="space-y-1 text-xs">
+          <label class="block font-bold text-text-secondary">Catatan Aktivasi (Opsional)</label>
+          <input
+            v-model="activationNotes"
+            type="text"
+            placeholder="Contoh: Pengesahan aktivasi awal modul pembukuan"
+            class="w-full border-2 border-border rounded-xl p-2.5 font-semibold text-xs"
+          />
+        </div>
+
+        <div v-if="activateModalError" class="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">
+          {{ activateModalError }}
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-border">
+          <button
+            type="button"
+            @click="showActivateModal = false"
+            class="px-4 py-2.5 rounded-xl border border-border text-xs font-bold text-text-secondary"
+          >
+            Batal
+          </button>
+          <button
+            type="button"
+            @click="executeActivateAsset"
+            :disabled="isActivating"
+            class="px-5 py-2.5 rounded-xl bg-navy text-white text-xs font-bold shadow hover:bg-navy-dark active:scale-95 transition disabled:opacity-50"
+          >
+            {{ isActivating ? 'Memproses...' : (asset.status_pencatatan === 'perlu_pengesahan_ulang' ? 'Konfirmasi Sahkan Ulang' : 'Konfirmasi Aktivasi') }}
+          </button>
+        </div>
+      </div>
+    </BaseModal>
+
+    <!-- Modal Pengesahan Saldo Awal -->
+    <BaseModal v-if="showOBModal && targetCompOB" @click.self="showOBModal = false">
+      <div class="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border-2 border-border space-y-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between border-b border-border pb-3">
+          <h3 class="font-black text-base text-navy">Pengesahan Saldo Awal</h3>
+          <button type="button" @click="showOBModal = false" class="text-text-muted font-bold text-lg">✕</button>
+        </div>
+
+        <div class="p-3 bg-bg-app rounded-xl border border-border text-xs space-y-1">
+          <p class="font-bold text-navy">{{ targetCompOB.nama_komponen }}</p>
+          <p class="text-text-secondary">Biaya: {{ formatCurrency(targetCompOB.biaya_perolehan) }} • Siap Guna: {{ targetCompOB.tanggal_siap_guna }}</p>
+        </div>
+
+        <!-- Pilihan Jalur -->
+        <div class="space-y-2 text-xs">
+          <label class="block font-bold text-text-secondary">Pilih Jalur Pengesahan:</label>
+          <div class="flex gap-4">
+            <label class="flex items-center gap-1.5 cursor-pointer font-semibold">
+              <input type="radio" value="simulasi_historis" v-model="obJalur" />
+              <span>Simulasi Historis</span>
+            </label>
+            <label class="flex items-center gap-1.5 cursor-pointer font-semibold">
+              <input type="radio" value="manual" v-model="obJalur" />
+              <span>Manual</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Form Manual jika dipilih -->
+        <div v-if="obJalur === 'manual'" class="space-y-3 text-xs bg-gray-50 p-3 rounded-xl border border-border">
+          <div>
+            <label class="block font-bold text-text-secondary mb-1">Akumulasi Penyusutan Awal (Rp) *</label>
+            <input
+              v-model.number="obAkumulasiManual"
+              type="number"
+              min="0"
+              class="w-full border-2 border-border rounded-xl p-2 font-semibold"
+            />
+          </div>
+          <div>
+            <label class="block font-bold text-text-secondary mb-1">Sisa Masa Manfaat (Bulan) *</label>
+            <input
+              v-model.number="obSisaBulanManual"
+              type="number"
+              min="1"
+              class="w-full border-2 border-border rounded-xl p-2 font-semibold"
+            />
+          </div>
+          <div>
+            <label class="block font-bold text-text-secondary mb-1">Target Usaha Kumulatif (Rp) *</label>
+            <input
+              v-model.number="obTargetUsahaManual"
+              type="number"
+              min="0"
+              class="w-full border-2 border-border rounded-xl p-2 font-semibold"
+            />
+          </div>
+        </div>
+
+        <div class="space-y-1 text-xs">
+          <label class="block font-bold text-text-secondary">Catatan Pengesahan (Opsional)</label>
+          <input
+            v-model="obCatatan"
+            type="text"
+            placeholder="Catatan saldo awal..."
+            class="w-full border-2 border-border rounded-xl p-2.5 font-semibold text-xs"
+          />
+        </div>
+
+        <div v-if="obModalError" class="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">
+          {{ obModalError }}
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-border">
+          <button
+            type="button"
+            @click="showOBModal = false"
+            class="px-4 py-2.5 rounded-xl border border-border text-xs font-bold text-text-secondary"
+          >
+            Batal
+          </button>
+          <button
+            type="button"
+            @click="executeApproveOB"
+            :disabled="isApprovingOB"
+            class="px-5 py-2.5 rounded-xl bg-navy text-white text-xs font-bold shadow hover:bg-navy-dark active:scale-95 transition disabled:opacity-50"
+          >
+            {{ isApprovingOB ? 'Mengesahkan...' : 'Konfirmasi Sahkan Saldo Awal' }}
+          </button>
+        </div>
+      </div>
+    </BaseModal>
+
+    <!-- Modal Revisi Parameter Finansial -->
+    <BaseModal v-if="showReviseModal && targetCompRevise" @click.self="showReviseModal = false">
+      <div class="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border-2 border-border space-y-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between border-b border-border pb-3">
+          <h3 class="font-black text-base text-navy">Revisi Parameter Komponen</h3>
+          <button type="button" @click="showReviseModal = false" class="text-text-muted font-bold text-lg">✕</button>
+        </div>
+
+        <div class="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1">
+          <p class="font-bold">⚠️ Perhatian Integritas Pembukuan:</p>
+          <p class="leading-relaxed">
+            Revisi parameter resmi akan mengupdate master dan menandai aset sebagai <b>Perlu Pengesahan Ulang</b>. Jika terdapat batch posting aktif terdampak, batalkan batch tersebut terlebih dahulu di Buku Pembantu.
+          </p>
+        </div>
+
+        <div class="space-y-3 text-xs">
+          <div>
+            <label class="block font-bold text-text-secondary mb-1">Biaya Perolehan (Rp) *</label>
+            <input
+              v-model.number="reviseBiaya"
+              type="number"
+              min="0"
+              class="w-full border-2 border-border rounded-xl p-2 font-semibold"
+            />
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block font-bold text-text-secondary mb-1">Nilai Sisa (Rp)</label>
+              <input
+                v-model.number="reviseNilaiSisa"
+                type="number"
+                min="0"
+                class="w-full border-2 border-border rounded-xl p-2 font-semibold"
+              />
+            </div>
+            <div>
+              <label class="block font-bold text-text-secondary mb-1">Masa Manfaat (Bulan) *</label>
+              <input
+                v-model.number="reviseMasaManfaat"
+                type="number"
+                min="1"
+                class="w-full border-2 border-border rounded-xl p-2 font-semibold"
+              />
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block font-bold text-text-secondary mb-1">Tanggal Siap Guna *</label>
+              <input
+                v-model="reviseTanggalSiapGuna"
+                type="date"
+                class="w-full border-2 border-border rounded-xl p-2 font-semibold"
+              />
+            </div>
+            <div>
+              <label class="block font-bold text-text-secondary mb-1">Porsi Usaha (%) *</label>
+              <input
+                v-model.number="revisePorsiUsaha"
+                type="number"
+                min="0"
+                max="100"
+                class="w-full border-2 border-border rounded-xl p-2 font-semibold"
+              />
+            </div>
+          </div>
+          <div>
+            <label class="block font-bold text-text-secondary mb-1">Alasan Revisi *</label>
+            <textarea
+              v-model="reviseReason"
+              rows="2"
+              placeholder="Jelaskan alasan perubahan parameter finansial ini..."
+              class="w-full border-2 border-border rounded-xl p-2 font-semibold"
+            ></textarea>
+          </div>
+        </div>
+
+        <div v-if="reviseModalError" class="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">
+          {{ reviseModalError }}
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-border">
+          <button
+            type="button"
+            @click="showReviseModal = false"
+            class="px-4 py-2.5 rounded-xl border border-border text-xs font-bold text-text-secondary"
+          >
+            Batal
+          </button>
+          <button
+            type="button"
+            @click="executeReviseParameters"
+            :disabled="isRevising || !reviseReason.trim()"
+            class="px-5 py-2.5 rounded-xl bg-amber-600 text-white text-xs font-bold shadow hover:bg-amber-700 active:scale-95 transition disabled:opacity-50"
+          >
+            {{ isRevising ? 'Menyimpan...' : 'Konfirmasi Revisi' }}
+          </button>
+        </div>
+      </div>
+    </BaseModal>
   </div>
 </template>
 
@@ -920,6 +1277,13 @@ import {
   STATUS_PERHITUNGAN,
   PRESET_UMUR_EKONOMIS,
 } from '../lib/depresiasi.js'
+import {
+  activateAsset,
+  approveComponentOpeningBalance,
+  reviseComponentParameters,
+  fetchBookkeepingSettings,
+  formatBookkeepingError,
+} from '../lib/pembukuanAset.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -933,6 +1297,41 @@ const showAddComponentModal = ref(false)
 
 const asset = ref(null)
 const componentsList = ref([])
+
+// State Pembukuan & Saldo Awal
+const latestSnapshotVersion = ref(null)
+const bookkeepingStartDate = ref(null)
+const approvedOBMap = ref({})
+const successNotification = ref('')
+
+// State Modal Aktivasi / Pengesahan Ulang
+const showActivateModal = ref(false)
+const activationNotes = ref('')
+const isActivating = ref(false)
+const activateModalError = ref('')
+
+// State Modal Saldo Awal
+const showOBModal = ref(false)
+const targetCompOB = ref(null)
+const obJalur = ref('simulasi_historis')
+const obAkumulasiManual = ref(null)
+const obSisaBulanManual = ref(null)
+const obTargetUsahaManual = ref(null)
+const obCatatan = ref('')
+const isApprovingOB = ref(false)
+const obModalError = ref('')
+
+// State Modal Revisi Parameter
+const showReviseModal = ref(false)
+const targetCompRevise = ref(null)
+const reviseBiaya = ref(0)
+const reviseNilaiSisa = ref(0)
+const reviseMasaManfaat = ref(0)
+const reviseTanggalSiapGuna = ref('')
+const revisePorsiUsaha = ref(100)
+const reviseReason = ref('')
+const isRevising = ref(false)
+const reviseModalError = ref('')
 
 // State Simulasi Penyusutan (In-Memory)
 const activeSimTab = ref('all')
@@ -1082,7 +1481,54 @@ async function loadAssetDetail() {
       asset.value = null
     } else {
       asset.value = data
-      componentsList.value = data.asset_components || []
+      const comps = data.asset_components || []
+
+      // Ambil pengaturan tanggal mulai pembukuan
+      try {
+        const startDate = await fetchBookkeepingSettings(supabase, data.org_id)
+        bookkeepingStartDate.value = startDate || null
+      } catch (settingsErr) {
+        console.warn('[SimKos] Gagal memuat bookkeeping settings:', settingsErr)
+      }
+
+      // Ambil snapshot versi terakhir
+      try {
+        const { data: snapData } = await supabase
+          .from('asset_activation_snapshots')
+          .select('version')
+          .eq('asset_id', data.id)
+          .order('version', { ascending: false })
+          .limit(1)
+
+        latestSnapshotVersion.value = snapData && snapData.length > 0 ? snapData[0].version : null
+      } catch (snapErr) {
+        console.warn('[SimKos] Gagal memuat snapshot aktivasi:', snapErr)
+      }
+
+      // Ambil approved opening balances
+      try {
+        const { data: obData } = await supabase
+          .from('asset_opening_balances')
+          .select('*')
+          .eq('asset_id', data.id)
+          .eq('status', 'approved')
+
+        const map = {}
+        if (obData) {
+          for (const row of obData) {
+            map[row.component_id] = row
+          }
+        }
+        approvedOBMap.value = map
+
+        for (const comp of comps) {
+          comp.approvedOB = map[comp.id] || null
+        }
+      } catch (obErr) {
+        console.warn('[SimKos] Gagal memuat opening balances:', obErr)
+      }
+
+      componentsList.value = comps
 
       if (componentsList.value.length === 1) {
         activeSimTab.value = componentsList.value[0].id
@@ -1096,6 +1542,123 @@ async function loadAssetDetail() {
     errorMessage.value = err.message || 'Gagal memuat detail aset.'
   } finally {
     isLoading.value = false
+  }
+}
+
+function isComponentHistorical(comp) {
+  if (!comp || !comp.tanggal_siap_guna || !bookkeepingStartDate.value) return false
+  return comp.tanggal_siap_guna < bookkeepingStartDate.value
+}
+
+function openActivateModal() {
+  activateModalError.value = ''
+  activationNotes.value = ''
+  showActivateModal.value = true
+}
+
+async function executeActivateAsset() {
+  isActivating.value = true
+  activateModalError.value = ''
+  try {
+    await activateAsset(supabase, {
+      assetId: asset.value.id,
+      notes: activationNotes.value,
+    })
+    showActivateModal.value = false
+    await loadAssetDetail()
+  } catch (err) {
+    activateModalError.value = formatBookkeepingError(err)
+  } finally {
+    isActivating.value = false
+  }
+}
+
+function openOBModal(comp) {
+  targetCompOB.value = comp
+  obJalur.value = 'simulasi_historis'
+  obAkumulasiManual.value = null
+  obSisaBulanManual.value = null
+  obTargetUsahaManual.value = null
+  obCatatan.value = ''
+  obModalError.value = ''
+  showOBModal.value = true
+}
+
+async function executeApproveOB() {
+  if (!targetCompOB.value) return
+
+  if (obJalur.value === 'manual') {
+    if (obAkumulasiManual.value === null || obAkumulasiManual.value === undefined) {
+      obModalError.value = 'Akumulasi penyusutan awal wajib diisi untuk jalur manual.'
+      return
+    }
+    if (!obSisaBulanManual.value || obSisaBulanManual.value < 1) {
+      obModalError.value = 'Sisa masa manfaat (bulan) harus minimal 1 periode.'
+      return
+    }
+    if (obTargetUsahaManual.value === null || obTargetUsahaManual.value === undefined) {
+      obModalError.value = 'Target usaha kumulatif wajib diisi untuk jalur manual.'
+      return
+    }
+  }
+
+  isApprovingOB.value = true
+  obModalError.value = ''
+  try {
+    await approveComponentOpeningBalance(supabase, {
+      componentId: targetCompOB.value.id,
+      jalur: obJalur.value,
+      akumulasiManual: obJalur.value === 'manual' ? obAkumulasiManual.value : null,
+      sisaBulanManual: obJalur.value === 'manual' ? obSisaBulanManual.value : null,
+      targetUsahaManual: obJalur.value === 'manual' ? obTargetUsahaManual.value : null,
+      catatan: obCatatan.value,
+    })
+    showOBModal.value = false
+    await loadAssetDetail()
+  } catch (err) {
+    obModalError.value = formatBookkeepingError(err)
+  } finally {
+    isApprovingOB.value = false
+  }
+}
+
+function openReviseModal(comp) {
+  targetCompRevise.value = comp
+  reviseBiaya.value = comp.biaya_perolehan !== null ? Number(comp.biaya_perolehan) : 0
+  reviseNilaiSisa.value = comp.nilai_sisa !== null ? Number(comp.nilai_sisa) : 0
+  reviseMasaManfaat.value = comp.masa_manfaat_bulan ? Number(comp.masa_manfaat_bulan) : 0
+  reviseTanggalSiapGuna.value = comp.tanggal_siap_guna || ''
+  revisePorsiUsaha.value = comp.porsi_usaha_persen !== null ? Number(comp.porsi_usaha_persen) : 100
+  reviseReason.value = ''
+  reviseModalError.value = ''
+  showReviseModal.value = true
+}
+
+async function executeReviseParameters() {
+  if (!targetCompRevise.value) return
+  if (!reviseReason.value.trim()) {
+    reviseModalError.value = 'Alasan revisi parameter wajib diisi.'
+    return
+  }
+
+  isRevising.value = true
+  reviseModalError.value = ''
+  try {
+    await reviseComponentParameters(supabase, {
+      componentId: targetCompRevise.value.id,
+      notes: reviseReason.value.trim(),
+      biaya: reviseBiaya.value,
+      nilaiSisa: reviseNilaiSisa.value,
+      masaManfaat: reviseMasaManfaat.value,
+      tanggalSiapGuna: reviseTanggalSiapGuna.value,
+      porsiUsaha: revisePorsiUsaha.value,
+    })
+    showReviseModal.value = false
+    await loadAssetDetail()
+  } catch (err) {
+    reviseModalError.value = formatBookkeepingError(err)
+  } finally {
+    isRevising.value = false
   }
 }
 
@@ -1171,14 +1734,18 @@ async function deleteDraftAsset() {
 
 function getStatusBadgeClass(status) {
   switch (status) {
+    case 'aktif': return 'bg-emerald-100 text-emerald-800'
+    case 'perlu_pengesahan_ulang': return 'bg-amber-100 text-amber-800'
     case 'terverifikasi': return 'bg-blue-100 text-blue-800'
-    case 'dibukukan': return 'bg-emerald-100 text-emerald-800'
-    default: return 'bg-amber-100 text-amber-800'
+    case 'dibukukan': return 'bg-purple-100 text-purple-800'
+    default: return 'bg-gray-100 text-gray-800'
   }
 }
 
 function getStatusText(status) {
   switch (status) {
+    case 'aktif': return 'Aktif'
+    case 'perlu_pengesahan_ulang': return 'Perlu Pengesahan Ulang'
     case 'terverifikasi': return 'Terverifikasi'
     case 'dibukukan': return 'Dibukukan'
     default: return 'Draf'

@@ -10,7 +10,8 @@
     "test": "node scripts/run_all_tests.mjs",
     "test:e2e": "node --test qa/aset/aset_browser_e2e.test.mjs",
     "test:gotrue-flow": "node --test qa/aset/aset_browser_gotrue_flow.test.mjs",
-    "test:simulasi-browser": "node --test qa/aset/aset_browser_simulasi_flow.test.mjs"
+    "test:simulasi-browser": "node --test qa/aset/aset_browser_simulasi_flow.test.mjs",
+    "test:fase4-browser": "node --test qa/aset/fase4_browser_pembukuan_flow.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",
