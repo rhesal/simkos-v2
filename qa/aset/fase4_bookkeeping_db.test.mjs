@@ -922,6 +922,28 @@ test('Fase 4B-1R: Uji Integrasi Database & Kontrak Pembukuan Penyusutan', async 
     const oldOb = await db.query("SELECT status FROM public.asset_opening_balances WHERE component_id = $1;", [compIdAC])
     assert.ok(oldOb.rows.every(r => r.status === 'cancelled'), 'Seluruh saldo awal lama untuk komponen ini harus cancelled')
 
+    // 4b. Pengujian Negatif: Langsung sahkan saldo awal tanpa aktivasi ulang -> DITOLAK
+    await assert.rejects(
+      async () => {
+        await db.query(`
+          SELECT public.approve_component_opening_balance(
+            $1, 'simulasi_historis', null, null, null, 'Coba langsung sahkan tanpa aktivasi'
+          );
+        `, [compIdAC])
+      },
+      /SIMKOS_REAPPROVAL_REQUIRED/,
+      'Pengesahan saldo awal langsung setelah revisi parameter tanpa aktivasi ulang wajib ditolak'
+    )
+
+    // 4c. Pengujian Negatif: Langsung pratinjau penyusutan tanpa aktivasi ulang -> DITOLAK
+    await assert.rejects(
+      async () => {
+        await db.query("SELECT public.preview_depreciation_posting($1, '2027-01');", [orgA])
+      },
+      /SIMKOS_REAPPROVAL_REQUIRED/,
+      'Pratinjau penyusutan saat aset berstatus perlu_pengesahan_ulang wajib ditolak'
+    )
+
     // 5. Aktivasi snapshot baru aset AC (versi 4) dengan parameter terevisi
     const actV4Res = await db.query("SELECT public.activate_asset($1, 'Aktivasi setelah revisi biaya') as val;", [assetIdAC])
     const snapV4 = parseVal(actV4Res.rows[0].val)
@@ -957,6 +979,106 @@ test('Fase 4B-1R: Uji Integrasi Database & Kontrak Pembukuan Penyusutan', async 
       Number(ledgerACRev.rows[0].depreciation_amount),
       200000,
       'Beban penyusutan per bulan AC terbukti nyata berubah dari Rp100.000 menjadi Rp200.000 (bukan sekadar bump versi)'
+    )
+  })
+
+  // --------------------------------------------------------------------------
+  // Uji 9c: Pengujian Negatif Revisi Parameter untuk Komponen Non-Historis (Tanpa Saldo Awal)
+  // --------------------------------------------------------------------------
+  await t.test('9c. Pengujian Negatif Revisi Komponen Non-Historis: Wajib Re-Aktivasi Sebelum Posting', async () => {
+    await setAuthContext(db, { userId: ownerA, role: 'authenticated' })
+
+    // Buat aset baru non-historis (tanggal siap guna 2027-01-01 pada/setelah tanggal pembukuan)
+    const insNewAsset = await db.query(`
+      INSERT INTO public.assets (org_id, nama_aset, kategori_aset, dasar_penggunaan, status_pencatatan)
+      VALUES ($1, 'Router Lab Jaringan', 'elektronik_kantor', 'milik_sendiri', 'draft') RETURNING id;
+    `, [orgA])
+    const newAssetId = insNewAsset.rows[0].id
+
+    const insNewComp = await db.query(`
+      INSERT INTO public.asset_components (
+        asset_id, org_id, nama_komponen, biaya_perolehan, nilai_sisa, masa_manfaat_bulan,
+        tanggal_siap_guna, porsi_usaha_persen, status_kapitalisasi, metode_penyusutan
+      ) VALUES ($1, $2, 'Router Mikrotik', 3600000, 0, 36, '2027-01-01', 100, 'kapitalisasi', 'garis_lurus')
+      RETURNING id;
+    `, [newAssetId, orgA])
+    const newCompId = insNewComp.rows[0].id
+
+    // Pastikan seluruh batch posting aktif dibatalkan terlebih dahulu agar aktivasi router 2027-01-01 diizinkan
+    const postedBatches = (await db.query(
+      "SELECT id FROM public.asset_depreciation_batches WHERE org_id = $1 AND batch_status = 'posted' ORDER BY period_key DESC;",
+      [orgA]
+    )).rows
+    for (const b of postedBatches) {
+      await db.query("SELECT public.reverse_depreciation_batch($1, 'Unwind untuk uji 9c');", [b.id])
+    }
+
+    // Aktivasi awal (snapshot v1)
+    await db.query("SELECT public.activate_asset($1, 'Aktivasi Router');", [newAssetId])
+
+    // Revisi biaya router dari 3.600.000 menjadi 7.200.000
+    await db.query(`
+      SELECT public.revise_component_parameters(
+        $1, 7200000, 0, 36, '2027-01-01', 100, 'garis_lurus', 'kapitalisasi', 'Revisi biaya Router ke 7.2jt'
+      );
+    `, [newCompId])
+
+    // Verifikasi aset ditandai 'perlu_pengesahan_ulang'
+    const assetCheck = await db.query("SELECT status_pencatatan FROM public.assets WHERE id = $1;", [newAssetId])
+    assert.equal(assetCheck.rows[0].status_pencatatan, 'perlu_pengesahan_ulang')
+
+    // 1. Jalur negatif: Langsung pratinjau tanpa aktivasi ulang -> DITOLAK SIMKOS_REAPPROVAL_REQUIRED
+    // Tidak boleh diam-diam dilewati lalu menghasilkan batch nol!
+    await assert.rejects(
+      async () => {
+        await db.query("SELECT public.preview_depreciation_posting($1, '2027-01');", [orgA])
+      },
+      /SIMKOS_REAPPROVAL_REQUIRED/,
+      'Pratinjau langsung setelah revisi tanpa aktivasi ulang wajib ditolak'
+    )
+
+    // 2. Jalur negatif: Langsung posting tanpa aktivasi ulang -> DITOLAK SIMKOS_REAPPROVAL_REQUIRED
+    const dummyHash = getCanonicalHash(orgA, '2027-01', 'Direct Post')
+    await assert.rejects(
+      async () => {
+        await db.query(`
+          SELECT public.post_depreciation_batch($1, '2027-01', 'idemp-direct-try', $2, 'dummy-token', 'Direct Post');
+        `, [orgA, dummyHash])
+      },
+      /SIMKOS_REAPPROVAL_REQUIRED/,
+      'Posting langsung setelah revisi tanpa aktivasi ulang wajib ditolak'
+    )
+
+    // 3. Aktivasi ulang resmi via RPC activate_asset -> BERHASIL, status pengesahan ulang terhapus secara atomik
+    const reactRes = await db.query("SELECT public.activate_asset($1, 'Aktivasi ulang Router setelah revisi biaya') as val;", [newAssetId])
+    const snapReact = parseVal(reactRes.rows[0].val)
+    assert.equal(snapReact.version, 2, 'Snapshot Router naik ke versi 2')
+    assert.equal(Number(snapReact.snapshot_params[0].biaya_perolehan), 7200000)
+
+    const assetCheckAfter = await db.query("SELECT status_pencatatan FROM public.assets WHERE id = $1;", [newAssetId])
+    assert.equal(assetCheckAfter.rows[0].status_pencatatan, 'aktif', 'Status aset kembali aktif atomik')
+
+    // 4. Setelah pengesahan ulang selesai: Pratinjau dan Posting BERHASIL
+    const prevRes = await db.query("SELECT public.preview_depreciation_posting($1, '2027-01') as val;", [orgA])
+    const pVal = parseVal(prevRes.rows[0].val)
+    const notesPost = 'Posting setelah aktivasi ulang Router'
+    const hashPost = getCanonicalHash(orgA, '2027-01', notesPost)
+
+    const postRes = await db.query(`
+      SELECT public.post_depreciation_batch($1, '2027-01', 'idemp-202701-router72m', $2, $3, $4) as val;
+    `, [orgA, hashPost, pVal.preview_token, notesPost])
+    const batchPost = parseVal(postRes.rows[0].val)
+
+    // 5. Verifikasi nominal ledger memakai parameter baru: Rp7.200.000 / 36 = Rp200.000 (bukan Rp100.000 dari biaya lama)
+    const ledgerRouter = await db.query(
+      "SELECT depreciation_amount FROM public.asset_depreciation_ledger WHERE batch_id = $1 AND component_id = $2;",
+      [batchPost.id, newCompId]
+    )
+    assert.equal(ledgerRouter.rows.length, 1)
+    assert.equal(
+      Number(ledgerRouter.rows[0].depreciation_amount),
+      200000,
+      'Beban penyusutan Router di ledger terbukti memakai parameter biaya baru (Rp200.000)'
     )
   })
 

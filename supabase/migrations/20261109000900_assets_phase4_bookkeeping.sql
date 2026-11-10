@@ -12,8 +12,11 @@
 -- 1. Penyesuaian Check Constraint status_pencatatan pada Tabel assets
 alter table public.assets drop constraint if exists assets_status_pencatatan_check;
 alter table public.assets add constraint assets_status_pencatatan_check check (
-  status_pencatatan in ('draft', 'aktif', 'terverifikasi', 'dibukukan', 'diarsipkan')
+  status_pencatatan in ('draft', 'aktif', 'perlu_pengesahan_ulang', 'terverifikasi', 'dibukukan', 'diarsipkan')
 );
+
+-- Kolom pelacak pengesahan ulang pada komponen
+alter table public.asset_components add column if not exists requires_reapproval boolean not null default false;
 
 -- Perbarui fungsi trigger validate_asset_relations:
 -- Menolak direct aktivasi ke status 'aktif' di luar RPC activate_asset
@@ -41,7 +44,7 @@ begin
   end if;
 
   -- Pada UPDATE, status yang diizinkan
-  if new.status_pencatatan not in ('draft', 'aktif', 'terverifikasi', 'dibukukan', 'diarsipkan') then
+  if new.status_pencatatan not in ('draft', 'aktif', 'perlu_pengesahan_ulang', 'terverifikasi', 'dibukukan', 'diarsipkan') then
     raise exception 'SIMKOS_INVALID_STATUS: Status pencatatan aset tidak valid';
   end if;
 
@@ -52,12 +55,19 @@ begin
     end if;
   end if;
 
-  -- Larang perubahan kembali dari 'aktif' ke 'draft' jika aset telah memiliki snapshot / pembukuan
-  if tg_op = 'UPDATE' and old.status_pencatatan = 'aktif' and new.status_pencatatan <> 'aktif' then
+  -- Larang direct UPDATE status menjadi 'perlu_pengesahan_ulang' di luar RPC revise_component_parameters
+  if tg_op = 'UPDATE' and new.status_pencatatan = 'perlu_pengesahan_ulang' and old.status_pencatatan <> 'perlu_pengesahan_ulang' then
+    if coalesce(current_setting('simkos.in_rpc_revise_component', true), 'false') <> 'true' then
+      raise exception 'SIMKOS_DIRECT_STATUS_CHANGE_FORBIDDEN: Perubahan status ke perlu_pengesahan_ulang hanya diizinkan melalui RPC revise_component_parameters';
+    end if;
+  end if;
+
+  -- Larang perubahan kembali dari 'aktif' atau 'perlu_pengesahan_ulang' ke 'draft' jika aset telah memiliki snapshot / pembukuan
+  if tg_op = 'UPDATE' and old.status_pencatatan in ('aktif', 'perlu_pengesahan_ulang') and new.status_pencatatan = 'draft' then
     if exists (select 1 from public.asset_activation_snapshots where asset_id = old.id) or
        exists (select 1 from public.asset_opening_balances where asset_id = old.id and status = 'approved') or
        exists (select 1 from public.asset_depreciation_ledger where asset_id = old.id) then
-      raise exception 'SIMKOS_CANNOT_REVERT_ACTIVE_ASSET: Aset aktif yang memiliki riwayat pembukuan/snapshot tidak dapat dikembalikan menjadi status %', new.status_pencatatan;
+      raise exception 'SIMKOS_CANNOT_REVERT_ACTIVE_ASSET: Aset yang memiliki riwayat pembukuan/snapshot tidak dapat dikembalikan menjadi status draft';
     end if;
   end if;
 
@@ -748,11 +758,11 @@ begin
   -- 2. Baca ulang data aset setelah lock
   select * into v_asset from public.assets where id = p_asset_id;
 
-  if v_asset.status_pencatatan = 'aktif' then
-    -- Aset sudah aktif, boleh diaktivasi ulang untuk snapshot versi baru
+  if v_asset.status_pencatatan in ('draft', 'aktif', 'perlu_pengesahan_ulang') then
+    -- Aset draft, aktif, atau perlu_pengesahan_ulang boleh diaktivasi / diaktivasi ulang
     null;
-  elsif v_asset.status_pencatatan != 'draft' then
-    raise exception 'SIMKOS_INVALID_STATUS: Hanya aset berstatus draft atau aktif yang dapat diaktivasi';
+  else
+    raise exception 'SIMKOS_INVALID_STATUS: Hanya aset berstatus draft, aktif, atau perlu_pengesahan_ulang yang dapat diaktivasi';
   end if;
 
   -- 3. Validasi minimal 1 komponen
@@ -866,6 +876,10 @@ begin
     updated_at = now()
   where id = p_asset_id;
 
+  update public.asset_components set
+    requires_reapproval = false
+  where asset_id = p_asset_id;
+
   insert into public.asset_accounting_audit_logs (
     org_id, event_type, entity_type, entity_id, actor_id, actor_role, notes_reason, payload_after
   ) values (
@@ -943,8 +957,12 @@ begin
   -- 2. BACA ULANG seluruh keadaan setelah lock
   select * into v_comp from public.asset_components where id = p_component_id;
   select * into v_asset from public.assets where id = v_comp.asset_id;
-  if not found or v_asset.status_pencatatan != 'aktif' then
-    raise exception 'SIMKOS_ASSET_NOT_ACTIVE: Saldo awal hanya dapat disahkan untuk aset yang telah berstatus aktif';
+  if not found or v_asset.status_pencatatan not in ('aktif', 'perlu_pengesahan_ulang') then
+    raise exception 'SIMKOS_ASSET_NOT_ACTIVE: Saldo awal hanya dapat disahkan untuk aset yang telah diaktivasi';
+  end if;
+
+  if v_asset.status_pencatatan = 'perlu_pengesahan_ulang' or coalesce(v_comp.requires_reapproval, false) = true then
+    raise exception 'SIMKOS_REAPPROVAL_REQUIRED: Parameter komponen atau aset telah direvisi; lakukan aktivasi ulang aset terlebih dahulu untuk menerbitkan snapshot baru sebelum mengesahkan saldo awal';
   end if;
 
   -- Ambil snapshot aktivasi terbaru
@@ -960,6 +978,15 @@ begin
   where (elem->>'id')::uuid = p_component_id;
   if v_snap_comp is null then
     raise exception 'SIMKOS_COMPONENT_NOT_IN_SNAPSHOT: Komponen belum disahkan dalam snapshot aktivasi aset';
+  end if;
+
+  -- Tolak jika parameter snapshot masih memuat angka lama yang berbeda dengan master (stale snapshot guard)
+  if (v_snap_comp->>'biaya_perolehan')::numeric is distinct from v_comp.biaya_perolehan or
+     (v_snap_comp->>'nilai_sisa')::numeric is distinct from v_comp.nilai_sisa or
+     (v_snap_comp->>'masa_manfaat_bulan')::int is distinct from v_comp.masa_manfaat_bulan or
+     (v_snap_comp->>'tanggal_siap_guna')::date is distinct from v_comp.tanggal_siap_guna or
+     (v_snap_comp->>'porsi_usaha_persen')::numeric is distinct from v_comp.porsi_usaha_persen then
+    raise exception 'SIMKOS_REAPPROVAL_REQUIRED: Snapshot aktivasi masih memuat parameter lama; lakukan aktivasi ulang aset terlebih dahulu';
   end if;
 
   -- 3. PERIKSA BATCH AKTIF DI ORGANISASI: Menolak keras pengesahan jika masih ada batch aktif
@@ -1235,6 +1262,7 @@ declare
   v_master_hash text;
   v_preview_token text;
   v_item jsonb;
+  v_revised_asset_name text;
 begin
   if p_org_id is null then
     raise exception 'SIMKOS_INVALID_PARAM: org_id wajib diisi';
@@ -1277,6 +1305,19 @@ begin
 
   if p_period_key != v_expected_key then
     raise exception 'SIMKOS_GAP_DETECTED: Urutan periode tidak valid. Periode yang diharapkan berikutnya adalah %', v_expected_key;
+  end if;
+
+  -- Tolak pratinjau jika terdapat aset atau komponen yang memerlukan pengesahan ulang (aktivasi ulang)
+  select a.nama_aset into v_revised_asset_name
+  from public.assets a
+  where a.org_id = p_org_id and (
+    a.status_pencatatan = 'perlu_pengesahan_ulang' or
+    exists (select 1 from public.asset_components c where c.asset_id = a.id and c.requires_reapproval = true)
+  )
+  limit 1;
+
+  if v_revised_asset_name is not null then
+    raise exception 'SIMKOS_REAPPROVAL_REQUIRED: Aset % memiliki parameter yang telah direvisi dan memerlukan pengesahan ulang (aktivasi ulang) sebelum pratinjau atau posting dapat dilakukan', v_revised_asset_name;
   end if;
 
   v_period_date := make_date(substring(p_period_key from 1 for 4)::int, substring(p_period_key from 6 for 2)::int, 1);
@@ -1448,6 +1489,7 @@ declare
   v_entry_type text;
   v_new_batch public.asset_depreciation_batches%rowtype;
   v_elem jsonb;
+  v_revised_asset_name text;
 begin
   -- 1. Validasi parameter wajib non-null secara ketat
   if p_org_id is null then
@@ -1494,6 +1536,19 @@ begin
     where org_id = p_org_id and period_key = p_period_key and batch_status = 'posted'
   ) then
     raise exception 'SIMKOS_BATCH_ALREADY_POSTED: Periode % telah memiliki batch posting aktif', p_period_key;
+  end if;
+
+  -- Tolak posting jika terdapat aset atau komponen yang memerlukan pengesahan ulang (aktivasi ulang)
+  select a.nama_aset into v_revised_asset_name
+  from public.assets a
+  where a.org_id = p_org_id and (
+    a.status_pencatatan = 'perlu_pengesahan_ulang' or
+    exists (select 1 from public.asset_components c where c.asset_id = a.id and c.requires_reapproval = true)
+  )
+  limit 1;
+
+  if v_revised_asset_name is not null then
+    raise exception 'SIMKOS_REAPPROVAL_REQUIRED: Aset % memiliki parameter yang telah direvisi dan memerlukan pengesahan ulang (aktivasi ulang) sebelum posting dapat dilakukan', v_revised_asset_name;
   end if;
 
   -- 6. Deteksi posting pengganti
@@ -1891,11 +1946,18 @@ begin
     porsi_usaha_persen = p_porsi_usaha_persen,
     metode_penyusutan = p_metode_penyusutan,
     status_kapitalisasi = p_status_kapitalisasi,
+    requires_reapproval = true,
     updated_at = now()
   where id = p_component_id
   returning * into v_updated_comp;
 
-  -- 6. Catat audit log
+  -- 6. Tandai aset induk sebagai memerlukan pengesahan ulang (perlu_pengesahan_ulang)
+  update public.assets set
+    status_pencatatan = 'perlu_pengesahan_ulang',
+    updated_at = now()
+  where id = v_asset.id;
+
+  -- 7. Catat audit log
   insert into public.asset_accounting_audit_logs (
     org_id, event_type, entity_type, entity_id, actor_id, actor_role, notes_reason, payload_before, payload_after
   ) values (

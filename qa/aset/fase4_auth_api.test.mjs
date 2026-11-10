@@ -316,6 +316,119 @@ test('Fase 4B-1R API: Pengujian GoTrue Resmi & PostgREST Terproteksi', { timeout
       assert.equal(ledgerReversal.data.length, 1, 'Harus ada tepat 1 baris reversal storno di ledger')
       assert.equal(Number(ledgerReversal.data[0].depreciation_amount), -200000, 'Nominal storno harus -200.000')
     })
+
+    // ------------------------------------------------------------------------
+    // 6. Pengujian Negatif Revisi Parameter Komponen via REST API
+    // ------------------------------------------------------------------------
+    await t.test('6. Jalur Negatif Revisi Parameter & Wajib Re-Aktivasi via REST RPC', async () => {
+      // 6.1 Revisi parameter komponen mesin server dari 12jt menjadi 24jt via RPC
+      const revRes = await restFetch('/rpc/revise_component_parameters', {
+        method: 'POST',
+        token: ownerA.access_token,
+        body: {
+          p_component_id: compId,
+          p_biaya_perolehan: 24000000,
+          p_nilai_sisa: 0,
+          p_masa_manfaat_bulan: 60,
+          p_tanggal_siap_guna: '2024-06-16',
+          p_porsi_usaha_persen: 100,
+          p_metode_penyusutan: 'garis_lurus',
+          p_status_kapitalisasi: 'kapitalisasi',
+          p_revision_notes: 'Revisi biaya server ke 24jt via REST',
+        },
+      })
+      assert.equal(revRes.status, 200, 'Revisi parameter via REST harus berhasil')
+
+      // Verifikasi status aset berubah menjadi 'perlu_pengesahan_ulang'
+      const checkAsset = await restFetch(`/assets?id=eq.${assetId}`, { token: ownerA.access_token })
+      assert.equal(checkAsset.data[0].status_pencatatan, 'perlu_pengesahan_ulang')
+
+      // 6.2 NEGATIF: Langsung sahkan saldo awal tanpa aktivasi ulang -> DITOLAK
+      const tryOb = await restFetch('/rpc/approve_component_opening_balance', {
+        method: 'POST',
+        token: ownerA.access_token,
+        body: {
+          p_component_id: compId,
+          p_jalur: 'simulasi_historis',
+          p_catatan: 'Coba sahkan langsung tanpa aktivasi',
+        },
+      })
+      assert.ok(tryOb.status >= 400, 'Pengesahan saldo awal tanpa aktivasi ulang wajib ditolak')
+      assert.ok(JSON.stringify(tryOb.data).includes('SIMKOS_REAPPROVAL_REQUIRED'))
+
+      // 6.3 NEGATIF: Langsung pratinjau penyusutan tanpa aktivasi ulang -> DITOLAK
+      const tryPrev = await restFetch('/rpc/preview_depreciation_posting', {
+        method: 'POST',
+        token: ownerA.access_token,
+        body: { p_org_id: orgA, p_period_key: '2027-01' },
+      })
+      assert.ok(tryPrev.status >= 400, 'Pratinjau penyusutan tanpa aktivasi ulang wajib ditolak')
+      assert.ok(JSON.stringify(tryPrev.data).includes('SIMKOS_REAPPROVAL_REQUIRED'))
+
+      // 6.4 Aktivasi ulang resmi via RPC activate_asset -> BERHASIL
+      const reactRes = await restFetch('/rpc/activate_asset', {
+        method: 'POST',
+        token: ownerA.access_token,
+        body: { p_asset_id: assetId, p_activation_notes: 'Aktivasi ulang setelah revisi 24jt' },
+      })
+      assert.equal(reactRes.status, 200)
+      assert.equal(reactRes.data.version, 2)
+
+      const checkAssetAfter = await restFetch(`/assets?id=eq.${assetId}`, { token: ownerA.access_token })
+      assert.equal(checkAssetAfter.data[0].status_pencatatan, 'aktif', 'Status aset kembali aktif atomik')
+
+      // 6.5 Sekarang sahkan saldo awal baru via REST RPC -> BERHASIL
+      const okOb = await restFetch('/rpc/approve_component_opening_balance', {
+        method: 'POST',
+        token: ownerA.access_token,
+        body: {
+          p_component_id: compId,
+          p_jalur: 'simulasi_historis',
+          p_catatan: 'Pengesahan saldo awal resmi setelah aktivasi ulang',
+        },
+      })
+      assert.equal(okOb.status, 200)
+      assert.equal(okOb.data.status, 'approved')
+
+      // 6.6 Pratinjau dan posting ulang untuk periode 2027-01
+      const okPrev = await restFetch('/rpc/preview_depreciation_posting', {
+        method: 'POST',
+        token: ownerA.access_token,
+        body: { p_org_id: orgA, p_period_key: '2027-01' },
+      })
+      assert.equal(okPrev.status, 200)
+      // Server 24jt / 60 bln = 400.000 / bln
+      assert.equal(Number(okPrev.data.total_depreciation), 400000, 'Beban pratinjau baru harus 400.000')
+
+      const notesPost2 = 'Posting Jan setelah revisi 24jt'
+      const hashPost2 = getCanonicalHash(orgA, '2027-01', notesPost2)
+
+      const okPost = await restFetch('/rpc/post_depreciation_batch', {
+        method: 'POST',
+        token: ownerA.access_token,
+        body: {
+          p_org_id: orgA,
+          p_period_key: '2027-01',
+          p_idempotency_key: 'idemp-api-jan2027-rev24m',
+          p_payload_hash: hashPost2,
+          p_preview_token: okPrev.data.preview_token,
+          p_notes: notesPost2,
+        },
+      })
+      assert.equal(okPost.status, 200)
+      const newBatchId = okPost.data.id
+
+      // 6.7 Verifikasi nominal ledger memakai parameter baru: Rp400.000 (bukan Rp200.000)
+      const ledgerCheck = await restFetch(`/asset_depreciation_ledger?batch_id=eq.${newBatchId}`, {
+        token: ownerA.access_token,
+      })
+      assert.equal(ledgerCheck.status, 200)
+      assert.equal(
+        Number(ledgerCheck.data[0].depreciation_amount),
+        400000,
+        'Nominal beban di ledger terbukti nyata menggunakan parameter baru (Rp400.000)'
+      )
+    })
   } finally {
     if (stack) {
       console.log('[QA-API] Menghentikan Supabase stack...')
