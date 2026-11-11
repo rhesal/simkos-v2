@@ -218,52 +218,92 @@ export function formatPeriodDisplay(periodKey) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Human-Readable Error Translators
+// 3. Ekstraksi Kode Error Server & Human-Readable Error Translators
 // ---------------------------------------------------------------------------
+
+/**
+ * Mengekstrak kode error kanonis server (misal: SIMKOS_STALE_PREVIEW)
+ * secara eksplisit dari objek atau string error Supabase/PostgreSQL.
+ */
+export function getBookkeepingErrorCode(err) {
+  if (!err) return null
+  const msg = typeof err === 'string' ? err : (err.message || err.details || JSON.stringify(err))
+  const match = msg.match(/\b(SIMKOS_[A-Z0-9_]+)\b/)
+  return match ? match[1] : null
+}
+
+/**
+ * Memeriksa apakah error merupakan penolakan pratinjau kedaluwarsa (SIMKOS_STALE_PREVIEW).
+ */
+export function isStalePreviewError(err) {
+  return getBookkeepingErrorCode(err) === 'SIMKOS_STALE_PREVIEW'
+}
+
 export function formatBookkeepingError(err) {
   if (!err) return 'Terjadi kesalahan tidak terduga.'
   const msg = typeof err === 'string' ? err : (err.message || err.details || JSON.stringify(err))
+  const code = getBookkeepingErrorCode(err)
 
-  if (msg.includes('SIMKOS_REAPPROVAL_REQUIRED')) {
-    return 'Terdapat aset atau komponen yang memerlukan pengesahan ulang parameter sebelum periode ini dapat dibukukan. Silakan sahkan ulang aset terkait terlebih dahulu.'
+  switch (code) {
+    case 'SIMKOS_STALE_PREVIEW':
+      return 'Pratinjau kedaluwarsa (SIMKOS_STALE_PREVIEW): Parameter aset, komponen, atau saldo awal telah berubah sejak pratinjau dibuat. Pratinjau terbaru telah dimuat; silakan tinjau perubahan nominal dan rincian sebelum mengonfirmasi ulang.'
+    case 'SIMKOS_REAPPROVAL_REQUIRED':
+      return 'Terdapat aset atau komponen yang memerlukan pengesahan ulang parameter sebelum periode ini dapat dibukukan. Silakan sahkan ulang aset terkait terlebih dahulu.'
+    case 'SIMKOS_PERIOD_LOCKED':
+      return 'Periode pembukuan ini terkunci dan tidak dapat diubah atau diposting. Buka kunci periode terlebih dahulu jika diperlukan penyesuaian.'
+    case 'SIMKOS_GAP_DETECTED': {
+      const match = msg.match(/diharapkan berikutnya adalah ([0-9]{4}-[0-9]{2})/)
+      const expected = match ? match[1] : 'periode sebelumnya'
+      return `Urutan periode tidak valid. Anda harus membukukan periode ${expected} terlebih dahulu secara berurutan.`
+    }
+    case 'SIMKOS_POSTED_BATCH_EXISTS':
+      return 'Masih terdapat batch pembukuan aktif di periode ini atau periode setelahnya. Batalkan (unwind) batch aktif terlebih dahulu sebelum melanjutkan mutasi ini.'
+    case 'SIMKOS_NO_SETTINGS':
+    case 'SIMKOS_BOOKKEEPING_NOT_CONFIGURED':
+      return 'Tanggal mulai pembukuan penyusutan belum dikonfigurasi. Atur tanggal mulai pembukuan terlebih dahulu.'
+    case 'SIMKOS_SETTINGS_LOCKED':
+      return 'Pengaturan tanggal mulai pembukuan telah dikunci karena sudah ada riwayat pembukuan dan tidak dapat diubah.'
+    case 'SIMKOS_NON_CHRONOLOGICAL_REVERSAL':
+    case 'SIMKOS_CANNOT_REVERSE_HISTORICAL_BATCH':
+      return 'Hanya batch pembukuan aktif terakhir yang dapat dibatalkan. Untuk membatalkan periode sebelumnya, batalkan periode setelahnya secara berurutan.'
+    case 'SIMKOS_BATCH_ALREADY_POSTED':
+      return 'Periode ini telah memiliki batch posting aktif.'
+    case 'SIMKOS_BATCH_NOT_POSTED':
+      return 'Batch ini telah dibatalkan sebelumnya.'
+    case 'SIMKOS_PERIOD_BEFORE_START':
+      return 'Periode yang dipilih berada sebelum tanggal mulai pembukuan organisasi.'
+    case 'SIMKOS_FORBIDDEN':
+      return 'Akses ditolak: Anda tidak memiliki wewenang untuk tindakan pembukuan ini (khusus Pemilik Kos atau Admin).'
+    case 'SIMKOS_LOCKED_STATUS_TRANSITION':
+    case 'SIMKOS_DIRECT_ACTIVATION_FORBIDDEN':
+    case 'SIMKOS_CANNOT_REVERT_ACTIVE_ASSET':
+    case 'SIMKOS_DIRECT_STATUS_CHANGE_FORBIDDEN':
+      return 'Status aset terkunci dan tidak dapat diubah secara langsung; gunakan aksi aktivasi atau revisi resmi.'
+    case 'SIMKOS_DIRECT_REAPPROVAL_FLAG_UPDATE_FORBIDDEN':
+      return 'Penanda pengesahan ulang tidak dapat dimanipulasi secara langsung; hanya diubah melalui aktivasi atau revisi resmi.'
+    case 'SIMKOS_LOCKED_FINANCIAL_PARAMETERS':
+      return 'Parameter finansial komponen ini telah dibukukan dan terkunci. Gunakan tombol Revisi Parameter setelah membatalkan batch aktif.'
+    case 'SIMKOS_LATE_COMPONENT_REQUIRES_UNWIND':
+      return 'Komponen baru memiliki tanggal siap guna sebelum posting aktif terakhir. Batalkan (unwind) posting aktif terlebih dahulu untuk memperhitungkan masa lalu komponen ini.'
+    case 'SIMKOS_IDEMPOTENCY_PAYLOAD_MISMATCH':
+      return 'Kunci permintaan tidak cocok dengan data pembukuan yang dikirim. Coba kembali beberapa saat lagi.'
+    case 'SIMKOS_INVALID_PATH':
+      return 'Jalur saldo awal tidak valid. Gunakan Simulasi Historis atau Catatan Terdahulu (Manual).'
+    case 'SIMKOS_INVALID_MANUAL_ACCUMULATION':
+      return 'Akumulasi penyusutan awal manual tidak valid (harus bilangan bulat rupiah antara 0 hingga dasar penyusutan).'
+    case 'SIMKOS_INVALID_MANUAL_BUSINESS':
+      return 'Akumulasi bagian usaha awal manual tidak valid (harus bilangan bulat rupiah antara 0 hingga akumulasi penyusutan awal).'
+    case 'SIMKOS_REVISION_REQUIRED':
+      return 'Sisa dasar penyusutan positif namun masa manfaat awal telah habis. Wajib mengisi revisi estimasi sisa masa manfaat (bulan).'
+    case 'SIMKOS_REASON_REQUIRED':
+      return 'Wajib mencantumkan alasan tertulis untuk tindakan ini.'
+    default:
+      break
   }
-  if (msg.includes('SIMKOS_INVALID_PREVIEW_TOKEN')) {
-    return 'Token pratinjau kedaluwarsa karena parameter pembukuan atau master aset telah diperbarui. Pratinjau diperbarui otomatis; silakan tinjau kembali sebelum mengonfirmasi.'
-  }
-  if (msg.includes('SIMKOS_PERIOD_LOCKED')) {
-    return 'Periode pembukuan ini terkunci dan tidak dapat diubah atau diposting. Buka kunci periode terlebih dahulu jika diperlukan penyesuaian.'
-  }
-  if (msg.includes('SIMKOS_GAP_DETECTED')) {
-    const match = msg.match(/diharapkan berikutnya adalah ([0-9]{4}-[0-9]{2})/)
-    const expected = match ? match[1] : 'periode sebelumnya'
-    return `Urutan periode tidak valid. Anda harus membukukan periode ${expected} terlebih dahulu secara berurutan.`
-  }
-  if (msg.includes('SIMKOS_POSTED_BATCH_EXISTS')) {
-    return 'Masih terdapat batch pembukuan aktif di periode ini atau periode setelahnya. Batalkan (unwind) batch aktif terlebih dahulu sebelum melanjutkan mutasi ini.'
-  }
-  if (msg.includes('SIMKOS_BOOKKEEPING_NOT_CONFIGURED')) {
-    return 'Tanggal mulai pembukuan penyusutan belum dikonfigurasi. Atur tanggal mulai pembukuan terlebih dahulu.'
-  }
-  if (msg.includes('SIMKOS_CANNOT_REVERSE_HISTORICAL_BATCH')) {
-    return 'Hanya batch pembukuan aktif terakhir yang dapat dibatalkan. Untuk membatalkan periode sebelumnya, batalkan periode setelahnya secara berurutan.'
-  }
-  if (msg.includes('SIMKOS_FORBIDDEN')) {
-    return 'Akses ditolak: Anda tidak memiliki wewenang untuk tindakan pembukuan ini (khusus Pemilik Kos atau Admin).'
-  }
-  if (msg.includes('SIMKOS_LOCKED_STATUS_TRANSITION') || msg.includes('SIMKOS_DIRECT_ACTIVATION_FORBIDDEN') || msg.includes('SIMKOS_CANNOT_REVERT_ACTIVE_ASSET')) {
-    return 'Status aset terkunci dan tidak dapat diubah secara langsung; gunakan aksi aktivasi atau revisi resmi.'
-  }
-  if (msg.includes('SIMKOS_DIRECT_REAPPROVAL_FLAG_UPDATE_FORBIDDEN')) {
-    return 'Penanda pengesahan ulang tidak dapat dimanipulasi secara langsung; hanya diubah melalui aktivasi atau revisi resmi.'
-  }
-  if (msg.includes('SIMKOS_LOCKED_FINANCIAL_PARAMETERS')) {
-    return 'Parameter finansial komponen ini telah dibukukan dan terkunci. Gunakan tombol Revisi Parameter setelah membatalkan batch aktif.'
-  }
-  if (msg.includes('SIMKOS_LATE_COMPONENT_REQUIRES_UNWIND')) {
-    return 'Komponen baru memiliki tanggal siap guna sebelum posting aktif terakhir. Batalkan (unwind) posting aktif terlebih dahulu untuk memperhitungkan masa lalu komponen ini.'
-  }
-  if (msg.includes('SIMKOS_IDEMPOTENCY_PAYLOAD_MISMATCH')) {
-    return 'Kunci permintaan tidak cocok dengan data pembukuan yang dikirim. Coba kembali beberapa saat lagi.'
+
+  // Tangani galat jaringan (Failed to fetch / NetworkError)
+  if (/failed to fetch|networkerror|network request failed|internetdisconnected/i.test(msg)) {
+    return 'Gagal terhubung ke server (respons jaringan terputus). Anda dapat menekan tombol konfirmasi kembali untuk mengirim ulang secara aman dengan kunci idempotensi yang sama.'
   }
 
   // Bersihkan prefix SIMKOS_* jika ada

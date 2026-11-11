@@ -475,13 +475,57 @@
 
     <!-- MODAL 2: KONFIRMASI POSTING BATCH -->
     <BaseModal v-if="showPostingModal" @click.self="showPostingModal = false">
-      <div class="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border-2 border-border space-y-4">
+      <div class="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border-2 border-border space-y-4 max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between border-b border-border pb-3">
           <div class="flex items-center gap-2">
             <span class="text-xl">📑</span>
             <h3 class="font-black text-base text-navy">Konfirmasi Posting Penyusutan</h3>
           </div>
           <button type="button" @click="showPostingModal = false" class="text-text-muted font-bold text-lg">✕</button>
+        </div>
+
+        <!-- Peringatan & Perbandingan Perubahan jika Pratinjau Kedaluwarsa (SIMKOS_STALE_PREVIEW) -->
+        <div
+          v-if="stalePreviewInfo"
+          class="p-3.5 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-950 text-xs space-y-2"
+        >
+          <div class="flex items-center gap-1.5 font-black text-amber-900">
+            <span>⚠️</span>
+            <span>Pratinjau Kedaluwarsa ({{ stalePreviewInfo.code }})</span>
+          </div>
+          <p class="leading-relaxed text-[11px] text-amber-900">
+            Keadaan parameter aset atau saldo awal telah berubah. Pratinjau terbaru telah dimuat dari server. Silakan tinjau perubahan nominal dan rincian berikut sebelum mengonfirmasi ulang:
+          </p>
+          <div class="bg-white rounded-xl p-2.5 border border-amber-200 space-y-1 text-[11px]">
+            <div class="flex justify-between">
+              <span class="text-text-muted">Total Beban:</span>
+              <span>
+                <span class="line-through text-text-muted mr-1">{{ formatCurrency(stalePreviewInfo.previous.totalDepreciation) }}</span>
+                <strong class="text-navy font-black">→ {{ formatCurrency(stalePreviewInfo.latest.totalDepreciation) }}</strong>
+              </span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-text-muted">Beban Usaha:</span>
+              <span>
+                <span class="line-through text-text-muted mr-1">{{ formatCurrency(stalePreviewInfo.previous.businessPortion) }}</span>
+                <strong class="text-emerald-700 font-black">→ {{ formatCurrency(stalePreviewInfo.latest.businessPortion) }}</strong>
+              </span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-text-muted">Beban Non-Usaha:</span>
+              <span>
+                <span class="line-through text-text-muted mr-1">{{ formatCurrency(stalePreviewInfo.previous.nonBusinessPortion) }}</span>
+                <strong class="text-blue-700 font-black">→ {{ formatCurrency(stalePreviewInfo.latest.nonBusinessPortion) }}</strong>
+              </span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-text-muted">Jumlah Komponen:</span>
+              <span>
+                <span class="line-through text-text-muted mr-1">{{ stalePreviewInfo.previous.componentCount }}</span>
+                <strong class="text-navy font-black">→ {{ stalePreviewInfo.latest.componentCount }} komponen</strong>
+              </span>
+            </div>
+          </div>
         </div>
 
         <div class="bg-bg-app rounded-2xl p-4 space-y-2 text-xs border border-border">
@@ -505,6 +549,19 @@
             <span class="text-text-muted">Jumlah Komponen:</span>
             <strong class="text-text-primary">{{ previewItems.length }} komponen</strong>
           </div>
+
+          <!-- Rincian Komponen pada Modal Konfirmasi -->
+          <div v-if="previewItems.length > 0" class="pt-2 border-t border-border space-y-1.5">
+            <span class="text-[11px] font-bold text-text-secondary block">Rincian Komponen Pratinjau Terbaru:</span>
+            <div
+              v-for="item in previewItems"
+              :key="item.component_id"
+              class="flex items-center justify-between text-[11px] bg-white px-2.5 py-1.5 rounded-lg border border-border/70"
+            >
+              <span class="font-bold text-navy truncate max-w-[170px]">{{ item.nama_komponen }}</span>
+              <span class="font-black text-navy">{{ formatCurrency(item.beban ?? item.depreciation_amount) }}</span>
+            </div>
+          </div>
         </div>
 
         <div class="space-y-1 text-xs">
@@ -512,8 +569,9 @@
           <input
             v-model="postingNotes"
             type="text"
+            :disabled="isPosting || isRetryWithSameKey"
             placeholder="Contoh: Pembukuan penyusutan rutin bulanan"
-            class="w-full border-2 border-border rounded-xl p-2.5 font-semibold text-xs"
+            class="w-full border-2 border-border rounded-xl p-2.5 font-semibold text-xs disabled:bg-gray-100"
           />
         </div>
 
@@ -522,7 +580,7 @@
         </div>
 
         <p class="text-[11px] text-text-muted leading-relaxed">
-          🛡️ Transaksi ini akan mencatat baris penyusutan resmi ke buku pembantu dan mengunci periode dari penyesuaian langsung. Permintaan dilindungi kunci idempotensi unik server.
+          🛡️ Transaksi ini akan mencatat baris penyusutan resmi ke buku pembantu dan mengunci periode dari penyesuaian langsung. Permintaan dilindungi kunci idempotensi unik server (<code class="text-[10px]">{{ currentIdempotencyKey }}</code>).
         </p>
 
         <div class="flex items-center justify-end gap-2 pt-3 border-t border-border">
@@ -536,7 +594,7 @@
           <button
             type="button"
             @click="executePosting"
-            :disabled="isPosting"
+            :disabled="isPosting || hasBlockingIssue"
             class="px-5 py-2.5 rounded-xl bg-navy text-white text-xs font-bold shadow hover:bg-navy-dark active:scale-95 transition disabled:opacity-50 flex items-center gap-1.5"
           >
             <span>{{ isPosting ? 'Memproses...' : 'Konfirmasi & Bukukan' }}</span>
@@ -665,6 +723,8 @@ import {
   getNextPeriodKey,
   getPrevPeriodKey,
   formatPeriodDisplay,
+  getBookkeepingErrorCode,
+  isStalePreviewError,
   formatBookkeepingError,
   getCanonicalPayloadHash,
   generateIdempotencyKey,
@@ -717,6 +777,8 @@ const postingNotes = ref('')
 const isPosting = ref(false)
 const postingModalError = ref('')
 const currentIdempotencyKey = ref('')
+const isRetryWithSameKey = ref(false)
+const stalePreviewInfo = ref(null)
 
 const showReverseModal = ref(false)
 const reverseReason = ref('')
@@ -935,15 +997,27 @@ function openPostingModal() {
   if (!previewData.value || hasBlockingIssue.value) return
   postingNotes.value = ''
   postingModalError.value = ''
+  stalePreviewInfo.value = null
+  isRetryWithSameKey.value = false
   // Generate idempotency key baru saat modal dibuka
   currentIdempotencyKey.value = generateIdempotencyKey(orgId.value, selectedPeriodKey.value)
   showPostingModal.value = true
 }
 
 async function executePosting() {
-  if (isPosting.value) return // Cegah klik ganda
+  if (isPosting.value || hasBlockingIssue.value) return // Cegah klik ganda
   isPosting.value = true
   postingModalError.value = ''
+
+  // Rekam keadaan pratinjau sebelum pengiriman untuk pembanding jika terjadi SIMKOS_STALE_PREVIEW
+  const previousPreviewSnapshot = {
+    previewToken: previewData.value?.preview_token,
+    totalDepreciation: Number(previewData.value?.total_depreciation) || 0,
+    businessPortion: Number(previewData.value?.total_business_portion) || 0,
+    nonBusinessPortion: Number(previewData.value?.total_non_business_portion) || 0,
+    componentCount: previewItems.value.length,
+    items: previewItems.value.map(item => ({ ...item })),
+  }
 
   try {
     const payloadHash = getCanonicalPayloadHash(
@@ -952,36 +1026,64 @@ async function executePosting() {
       postingNotes.value
     )
 
+    isRetryWithSameKey.value = true
+
     await postDepreciationBatch(supabase, {
       orgId: orgId.value,
       periodKey: selectedPeriodKey.value,
-      idempotencyKey: currentIdempotencyKey.value, // Reused in retry
+      idempotencyKey: currentIdempotencyKey.value, // Digunakan kembali saat retry jaringan
       payloadHash,
       previewToken: previewData.value.preview_token,
       notes: postingNotes.value,
     })
 
     showPostingModal.value = false
+    stalePreviewInfo.value = null
+    isRetryWithSameKey.value = false
     successMessage.value = `Penyusutan periode ${formatPeriodDisplay(selectedPeriodKey.value)} berhasil diposting!`
     await loadPeriodDetails()
   } catch (err) {
     console.error('[BukuPenyusutan] Gagal posting:', err)
+    const errCode = getBookkeepingErrorCode(err)
     const errText = formatBookkeepingError(err)
 
-    if (errText.includes('Token pratinjau kedaluwarsa')) {
-      // Auto-refresh pratinjau agar user bisa melihat token baru
+    // Tangani SIMKOS_STALE_PREVIEW secara eksplisit berdasarkan kode server, bukan kalimat terjemahan
+    if (errCode === 'SIMKOS_STALE_PREVIEW' || isStalePreviewError(err)) {
       postingModalError.value = errText
       try {
         const fresh = await previewDepreciationPosting(supabase, {
           orgId: orgId.value,
           periodKey: selectedPeriodKey.value,
         })
+        const freshItems = fresh.eligible_components || fresh.items || []
         previewData.value = fresh
-        previewItems.value = fresh.eligible_components || fresh.items || []
+        previewItems.value = freshItems
+        // Buat kunci idempotensi baru karena keadaan pratinjau telah berubah dan wajib dikonfirmasi ulang
+        currentIdempotencyKey.value = generateIdempotencyKey(orgId.value, selectedPeriodKey.value)
+        isRetryWithSameKey.value = false
+        stalePreviewInfo.value = {
+          code: 'SIMKOS_STALE_PREVIEW',
+          previous: previousPreviewSnapshot,
+          latest: {
+            previewToken: fresh.preview_token,
+            totalDepreciation: Number(fresh.total_depreciation) || 0,
+            businessPortion: Number(fresh.total_business_portion) || 0,
+            nonBusinessPortion: Number(fresh.total_non_business_portion) || 0,
+            componentCount: freshItems.length,
+            items: freshItems,
+          },
+        }
       } catch (rfErr) {
-        blockingIssueMessage.value = formatBookkeepingError(rfErr)
+        previewData.value = null
+        previewItems.value = []
+        stalePreviewInfo.value = null
+        isRetryWithSameKey.value = false
+        const rfText = formatBookkeepingError(rfErr)
+        blockingIssueMessage.value = rfText
+        postingModalError.value = rfText
       }
     } else {
+      // Pada galat jaringan, currentIdempotencyKey dipertahankan untuk retry idempoten yang aman
       postingModalError.value = errText
     }
   } finally {

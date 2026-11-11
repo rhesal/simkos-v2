@@ -9,6 +9,12 @@ import {
   getDaysInMonth,
   parseDateParts,
 } from '../../src/lib/depresiasi.js'
+import {
+  getBookkeepingErrorCode,
+  isStalePreviewError,
+  formatBookkeepingError,
+  getCanonicalPayloadHash,
+} from '../../src/lib/pembukuanAset.js'
 
 test('Mesin Penyusutan Garis Lurus (Fase 3-R): Kontrak, Pembulatan, & Rekonsiliasi Presisi', async (t) => {
   // ---------------------------------------------------------------------------
@@ -550,5 +556,37 @@ test('Mesin Penyusutan Garis Lurus (Fase 3-R): Kontrak, Pembulatan, & Rekonsilia
     // Cek bahwa pada 2026-01 nilai buku = 20M, dan pada 2026-07 naik jadi 30M
     assert.strictEqual(resAllZero.jadwalBulanan.find(r => r.periodeKey === '2026-01').nilaiBukuAkhir, 20000000)
     assert.strictEqual(resAllZero.jadwalBulanan.find(r => r.periodeKey === '2026-07').nilaiBukuAkhir, 30000000)
+  })
+
+  // ---------------------------------------------------------------------------
+  // 12. Fase 4B-2R: Penanganan Kode Error Server Eksplisit (SIMKOS_STALE_PREVIEW)
+  // ---------------------------------------------------------------------------
+  await t.test('12. Fase 4B-2R: Deteksi Eksplisit Kode Error Server SIMKOS_STALE_PREVIEW & Hash Payload Deterministik', () => {
+    const staleErr = {
+      code: 'P0001',
+      message: 'SIMKOS_STALE_PREVIEW: Pratinjau kedaluwarsa. Parameter aset, komponen, atau saldo awal telah berubah sejak pratinjau dibuat',
+    }
+    assert.strictEqual(getBookkeepingErrorCode(staleErr), 'SIMKOS_STALE_PREVIEW')
+    assert.strictEqual(isStalePreviewError(staleErr), true)
+
+    // Pesan terjemahan tanpa kode SIMKOS_STALE_PREVIEW TIDAK boleh dianggap sebagai SIMKOS_STALE_PREVIEW
+    const translatedFakeErr = {
+      message: 'Pratinjau kedaluwarsa karena data aset, komponen, atau saldo awal telah berubah.',
+    }
+    assert.strictEqual(getBookkeepingErrorCode(translatedFakeErr), null)
+    assert.strictEqual(isStalePreviewError(translatedFakeErr), false)
+
+    // Kode error server lain diekstrak secara akurat dan tidak tertukar dengan SIMKOS_STALE_PREVIEW
+    const lockedErr = { message: 'SIMKOS_PERIOD_LOCKED: Periode 2026-07 dalam keadaan terkunci (locked)' }
+    assert.strictEqual(getBookkeepingErrorCode(lockedErr), 'SIMKOS_PERIOD_LOCKED')
+    assert.strictEqual(isStalePreviewError(lockedErr), false)
+    assert.ok(formatBookkeepingError(lockedErr).includes('terkunci'))
+
+    // Hash payload deterministik untuk retry idempoten
+    const h1 = getCanonicalPayloadHash('org-1', '2026-06', '  Catatan uji  ')
+    const h2 = getCanonicalPayloadHash('org-1', '2026-06', 'Catatan uji')
+    const h3 = getCanonicalPayloadHash('org-1', '2026-06', 'Catatan berbeda')
+    assert.strictEqual(h1, h2, 'Payload identik (setelah trim) harus menghasilkan hash yang sama untuk retry')
+    assert.notStrictEqual(h1, h3, 'Catatan berbeda harus menghasilkan hash berbeda')
   })
 })

@@ -258,13 +258,26 @@
             <!-- Action Bar Komponen Pembukuan -->
             <div class="flex items-center justify-between gap-2 pt-2 border-t border-border/60 flex-wrap">
               <!-- Indikator Saldo Awal Historis -->
-              <div v-if="isComponentHistorical(comp)">
-                <span
-                  v-if="comp.approvedOB"
-                  class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800"
-                >
-                  ✅ Saldo Awal Disahkan ({{ comp.approvedOB.approval_route === 'manual' ? 'Manual' : 'Historis' }})
-                </span>
+              <div v-if="isComponentHistorical(comp)" class="space-y-1">
+                <div v-if="comp.approvedOB" class="flex items-center gap-1.5 flex-wrap">
+                  <span
+                    class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800"
+                  >
+                    ✅ Saldo Awal Disahkan ({{ comp.approvedOB.jalur_saldo === 'catatan_terdahulu' ? 'Catatan Terdahulu / Manual' : 'Historis' }} • v{{ comp.approvedOB.version || 1 }})
+                  </span>
+                  <button
+                    v-if="canManageAssets && asset.status_pencatatan !== 'perlu_pengesahan_ulang'"
+                    type="button"
+                    @click="openOBModal(comp)"
+                    class="text-[10px] font-bold text-navy hover:underline bg-white px-2 py-0.5 border border-border rounded shadow-xs"
+                  >
+                    Sahkan Saldo Awal
+                  </button>
+                </div>
+                <div v-if="comp.approvedOB" class="text-[10px] text-text-secondary font-semibold">
+                  <span>Akumulasi Awal: {{ formatCurrency(comp.approvedOB.akumulasi_penyusutan_awal) }} • Nilai Buku Awal: {{ formatCurrency(comp.approvedOB.nilai_buku_awal) }}</span>
+                  <span v-if="comp.approvedOB.catatan_sumber" class="ml-1 italic">• Sumber: "{{ comp.approvedOB.catatan_sumber }}"</span>
+                </div>
                 <div v-else class="flex items-center gap-1.5">
                   <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
                     🟡 Saldo Awal Belum Disahkan
@@ -1087,53 +1100,62 @@
           <label class="block font-bold text-text-secondary">Pilih Jalur Pengesahan:</label>
           <div class="flex gap-4">
             <label class="flex items-center gap-1.5 cursor-pointer font-semibold">
-              <input type="radio" value="simulasi_historis" v-model="obJalur" />
+              <input id="ob-jalur-historis" type="radio" value="simulasi_historis" v-model="obJalur" />
               <span>Simulasi Historis</span>
             </label>
             <label class="flex items-center gap-1.5 cursor-pointer font-semibold">
-              <input type="radio" value="manual" v-model="obJalur" />
-              <span>Manual</span>
+              <input id="ob-jalur-manual" type="radio" value="catatan_terdahulu" v-model="obJalur" />
+              <span>Catatan Terdahulu (Manual)</span>
             </label>
           </div>
         </div>
 
-        <!-- Form Manual jika dipilih -->
-        <div v-if="obJalur === 'manual'" class="space-y-3 text-xs bg-gray-50 p-3 rounded-xl border border-border">
+        <!-- Form Manual (Catatan Terdahulu) jika dipilih -->
+        <div v-if="obJalur === 'catatan_terdahulu'" class="space-y-3 text-xs bg-gray-50 p-3 rounded-xl border border-border">
           <div>
             <label class="block font-bold text-text-secondary mb-1">Akumulasi Penyusutan Awal (Rp) *</label>
             <input
+              id="ob-akumulasi-manual"
               v-model.number="obAkumulasiManual"
               type="number"
               min="0"
-              class="w-full border-2 border-border rounded-xl p-2 font-semibold"
+              placeholder="Contoh: 2840000"
+              class="w-full border-2 border-border rounded-xl p-2 font-semibold bg-white"
             />
           </div>
           <div>
-            <label class="block font-bold text-text-secondary mb-1">Sisa Masa Manfaat (Bulan) *</label>
+            <label class="block font-bold text-text-secondary mb-1">Akumulasi Bagian Usaha Awal (Rp) *</label>
             <input
-              v-model.number="obSisaBulanManual"
-              type="number"
-              min="1"
-              class="w-full border-2 border-border rounded-xl p-2 font-semibold"
-            />
-          </div>
-          <div>
-            <label class="block font-bold text-text-secondary mb-1">Target Usaha Kumulatif (Rp) *</label>
-            <input
+              id="ob-usaha-manual"
               v-model.number="obTargetUsahaManual"
               type="number"
               min="0"
-              class="w-full border-2 border-border rounded-xl p-2 font-semibold"
+              placeholder="Contoh: 2840000"
+              class="w-full border-2 border-border rounded-xl p-2 font-semibold bg-white"
+            />
+          </div>
+          <div>
+            <label class="block font-bold text-text-secondary mb-1">Revisi Estimasi Sisa Masa Manfaat (Bulan) <span class="font-normal text-text-muted">(Opsional — wajib jika masa manfaat awal habis)</span></label>
+            <input
+              id="ob-sisa-bulan-manual"
+              v-model.number="obSisaBulanManual"
+              type="number"
+              min="1"
+              placeholder="Kosongkan jika mengikuti sisa bobot jadwal..."
+              class="w-full border-2 border-border rounded-xl p-2 font-semibold bg-white"
             />
           </div>
         </div>
 
         <div class="space-y-1 text-xs">
-          <label class="block font-bold text-text-secondary">Catatan Pengesahan (Opsional)</label>
+          <label class="block font-bold text-text-secondary">
+            Catatan Sumber / Pengesahan {{ obJalur === 'catatan_terdahulu' ? '*' : '(Opsional)' }}
+          </label>
           <input
+            id="ob-catatan-sumber"
             v-model="obCatatan"
             type="text"
-            placeholder="Catatan saldo awal..."
+            placeholder="Contoh: Buku inventaris manual kos per 31 Mei 2026"
             class="w-full border-2 border-border rounded-xl p-2.5 font-semibold text-xs"
           />
         </div>
@@ -1587,17 +1609,32 @@ function openOBModal(comp) {
 async function executeApproveOB() {
   if (!targetCompOB.value) return
 
-  if (obJalur.value === 'manual') {
-    if (obAkumulasiManual.value === null || obAkumulasiManual.value === undefined) {
-      obModalError.value = 'Akumulasi penyusutan awal wajib diisi untuk jalur manual.'
+  let manualAkum = null
+  let manualUsaha = null
+  let manualSisaBulan = null
+
+  if (obJalur.value === 'catatan_terdahulu') {
+    if (obAkumulasiManual.value === null || obAkumulasiManual.value === undefined || obAkumulasiManual.value === '') {
+      obModalError.value = 'Akumulasi penyusutan awal wajib diisi untuk jalur catatan terdahulu (manual).'
       return
     }
-    if (!obSisaBulanManual.value || obSisaBulanManual.value < 1) {
-      obModalError.value = 'Sisa masa manfaat (bulan) harus minimal 1 periode.'
-      return
+    manualAkum = Number(obAkumulasiManual.value)
+
+    if (obTargetUsahaManual.value === null || obTargetUsahaManual.value === undefined || obTargetUsahaManual.value === '') {
+      const porsi = targetCompOB.value.porsi_usaha_persen !== null && targetCompOB.value.porsi_usaha_persen !== undefined
+        ? Number(targetCompOB.value.porsi_usaha_persen)
+        : 100
+      manualUsaha = Math.round(manualAkum * (porsi / 100))
+    } else {
+      manualUsaha = Number(obTargetUsahaManual.value)
     }
-    if (obTargetUsahaManual.value === null || obTargetUsahaManual.value === undefined) {
-      obModalError.value = 'Target usaha kumulatif wajib diisi untuk jalur manual.'
+
+    if (obSisaBulanManual.value !== null && obSisaBulanManual.value !== undefined && obSisaBulanManual.value !== '' && Number(obSisaBulanManual.value) > 0) {
+      manualSisaBulan = Number(obSisaBulanManual.value)
+    }
+
+    if (!obCatatan.value || !obCatatan.value.trim()) {
+      obModalError.value = 'Catatan sumber wajib diisi untuk jalur catatan terdahulu (manual).'
       return
     }
   }
@@ -1608,10 +1645,10 @@ async function executeApproveOB() {
     await approveComponentOpeningBalance(supabase, {
       componentId: targetCompOB.value.id,
       jalur: obJalur.value,
-      akumulasiManual: obJalur.value === 'manual' ? obAkumulasiManual.value : null,
-      sisaBulanManual: obJalur.value === 'manual' ? obSisaBulanManual.value : null,
-      targetUsahaManual: obJalur.value === 'manual' ? obTargetUsahaManual.value : null,
-      catatan: obCatatan.value,
+      akumulasiManual: manualAkum,
+      sisaBulanManual: manualSisaBulan,
+      targetUsahaManual: manualUsaha,
+      catatan: obCatatan.value.trim(),
     })
     showOBModal.value = false
     await loadAssetDetail()
