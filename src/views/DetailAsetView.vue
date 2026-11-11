@@ -481,32 +481,32 @@
                       <button
                         type="button"
                         @click="simParams.porsi_usaha_persen = 100"
-                        class="px-2 py-0.5 rounded text-[10px] font-bold border border-border bg-white hover:bg-gray-100"
-                        :class="simParams.porsi_usaha_persen === 100 ? 'bg-navy text-white border-navy' : ''"
+                        class="px-2 py-0.5 rounded text-[10px] font-bold border transition-all"
+                        :class="simParams.porsi_usaha_persen === 100 ? 'bg-navy text-white border-navy' : 'border-border bg-white text-navy hover:bg-gray-100'"
                       >
                         100% Usaha
                       </button>
                       <button
                         type="button"
                         @click="simParams.porsi_usaha_persen = 50"
-                        class="px-2 py-0.5 rounded text-[10px] font-bold border border-border bg-white hover:bg-gray-100"
-                        :class="simParams.porsi_usaha_persen === 50 ? 'bg-navy text-white border-navy' : ''"
+                        class="px-2 py-0.5 rounded text-[10px] font-bold border transition-all"
+                        :class="simParams.porsi_usaha_persen === 50 ? 'bg-navy text-white border-navy' : 'border-border bg-white text-navy hover:bg-gray-100'"
                       >
                         50% Sebagian
                       </button>
                       <button
                         type="button"
                         @click="simParams.porsi_usaha_persen = 0"
-                        class="px-2 py-0.5 rounded text-[10px] font-bold border border-border bg-white hover:bg-gray-100"
-                        :class="simParams.porsi_usaha_persen === 0 ? 'bg-navy text-white border-navy' : ''"
+                        class="px-2 py-0.5 rounded text-[10px] font-bold border transition-all"
+                        :class="simParams.porsi_usaha_persen === 0 ? 'bg-navy text-white border-navy' : 'border-border bg-white text-navy hover:bg-gray-100'"
                       >
                         0% Non-Usaha
                       </button>
                       <button
                         type="button"
                         @click="simParams.porsi_usaha_persen = null"
-                        class="px-2 py-0.5 rounded text-[10px] font-bold border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
-                        :class="simParams.porsi_usaha_persen === null ? 'ring-2 ring-amber-400' : ''"
+                        class="px-2 py-0.5 rounded text-[10px] font-bold border transition-all"
+                        :class="simParams.porsi_usaha_persen === null ? 'border-amber-400 bg-amber-500 text-white ring-2 ring-amber-300' : 'border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100'"
                       >
                         Kosongkan
                       </button>
