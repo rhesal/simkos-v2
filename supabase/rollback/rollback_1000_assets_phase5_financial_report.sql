@@ -4,6 +4,7 @@
 -- ==============================================================================
 
 drop function if exists public.get_period_financial_report(uuid, text, uuid);
+drop function if exists public.get_expense_effective_allocated_cost(uuid, uuid);
 
 drop index if exists public.idx_snapshots_location;
 drop index if exists public.idx_snapshots_org_asset_ver;

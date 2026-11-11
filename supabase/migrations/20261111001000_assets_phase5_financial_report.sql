@@ -41,6 +41,55 @@ create index if not exists idx_snapshots_org_asset_ver
 create index if not exists idx_snapshots_location
   on public.asset_activation_snapshots (location_id);
 
+-- 1b. Helper Function: get_expense_effective_allocated_cost
+--     Menghitung total alokasi yang sah dan terikat pada suatu pengeluaran kas:
+--     Memadukan snapshot aktif terakhir per aset (resmi berlaku) dan perubahan pada master komponen
+--     (usulan revisi/penambahan), sehingga selama revisi belum disahkan via activate_asset,
+--     kapasitas yang dirujuk snapshot tetap terlindungi (Rp4,8jt) dan usulan baru tetap divalidasi.
+--     Mendukung parameter p_exclude_comp_id untuk mengecualikan komponen yang sedang divalidasi.
+create or replace function public.get_expense_effective_allocated_cost(
+  p_expense_id uuid,
+  p_exclude_comp_id uuid default null
+)
+returns numeric
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce(sum(comp_reserved), 0)
+  from (
+    select
+      c_id,
+      greatest(coalesce(max(snap_cost), 0), coalesce(max(master_cost), 0)) as comp_reserved
+    from (
+      -- Komitmen resmi dari snapshot aktif terakhir per aset
+      select
+        (elem->>'id')::uuid as c_id,
+        nullif(elem->>'expense_id', '')::uuid as exp_id,
+        (elem->>'allocated_cost')::numeric as snap_cost,
+        null::numeric as master_cost
+      from (
+        select distinct on (asset_id) *
+        from public.asset_activation_snapshots
+        order by asset_id, version desc
+      ) s,
+      lateral jsonb_array_elements(s.snapshot_params) elem
+      union all
+      -- Usulan / keadaan master komponen saat ini
+      select
+        c.id as c_id,
+        c.expense_id as exp_id,
+        null::numeric as snap_cost,
+        c.allocated_cost as master_cost
+      from public.asset_components c
+    ) u
+    where exp_id = p_expense_id
+      and (p_exclude_comp_id is null or c_id <> p_exclude_comp_id)
+    group by c_id
+  ) r;
+$$;
+
 -- 2. Perbarui Trigger validate_asset_relations:
 --    Pertahankan seluruh guard Fase 4 + kunci perubahan location_id/room_id pada aset berriwayat
 create or replace function public.validate_asset_relations()
@@ -157,6 +206,7 @@ $$;
 -- 3. Perbarui Trigger validate_component_relations:
 --    Kunci perubahan langsung parameter finansial & alokasi (expense_id, allocated_cost, status_kapitalisasi)
 --    ketika komponen/aset telah memiliki snapshot, saldo awal, atau riwayat pembukuan.
+--    Validasi batas alokasi pengeluaran secara konsisten terhadap komitmen snapshot aktif + master.
 create or replace function public.validate_component_relations()
 returns trigger
 language plpgsql
@@ -167,7 +217,9 @@ declare
   v_asset_org uuid;
   v_exp_org uuid;
   v_exp_nominal numeric;
-  v_total_allocated numeric;
+  v_other_allocated numeric;
+  v_snap_exp_id uuid;
+  v_dummy record;
 begin
   -- Cegah perubahan org_id atau pemindahan asset_id
   if tg_op = 'UPDATE' and (new.org_id <> old.org_id or new.asset_id <> old.asset_id) then
@@ -235,12 +287,38 @@ begin
     end if;
   end if;
 
+  -- Deteksi apakah komponen ini memiliki pengeluaran yang terikat pada snapshot aktif terakhir
+  if tg_op = 'UPDATE' and old.id is not null then
+    select nullif(elem->>'expense_id', '')::uuid into v_snap_exp_id
+    from (
+      select snapshot_params
+      from public.asset_activation_snapshots
+      where asset_id = old.asset_id
+      order by version desc
+      limit 1
+    ) s,
+    lateral jsonb_array_elements(s.snapshot_params) elem
+    where (elem->>'id')::uuid = old.id;
+  end if;
+
+  -- Kunci seluruh pengeluaran yang terlibat (termasuk snapshot lama dan pengeluaran baru)
+  -- dalam urutan id terurut untuk mencegah deadlock konkurensi
+  if new.expense_id is not null or v_snap_exp_id is not null then
+    for v_dummy in
+      select id from public.expenses
+      where id in (select distinct exp_id from unnest(array[new.expense_id, v_snap_exp_id]) as exp_id where exp_id is not null)
+      order by id
+      for update
+    loop
+      null;
+    end loop;
+  end if;
+
   -- Validasi relasi pengeluaran & penguncian baris untuk konkurensi aman
   if new.expense_id is not null then
     select org_id, nominal into v_exp_org, v_exp_nominal
     from public.expenses
-    where id = new.expense_id
-    for update;
+    where id = new.expense_id;
 
     if v_exp_org is null or v_exp_org <> new.org_id then
       raise exception 'SIMKOS_CROSS_TENANT_EXPENSE: Transaksi pengeluaran (%) bukan milik organisasi (%)', new.expense_id, new.org_id;
@@ -252,14 +330,12 @@ begin
           new.allocated_cost, new.biaya_perolehan;
       end if;
 
-      select coalesce(sum(allocated_cost), 0) into v_total_allocated
-      from public.asset_components
-      where expense_id = new.expense_id
-        and id <> coalesce(new.id, '00000000-0000-0000-0000-000000000000'::uuid);
+      -- Hitung alokasi efektif komponen LAIN pada pengeluaran ini (termasuk snapshot aktif + master mereka)
+      v_other_allocated := public.get_expense_effective_allocated_cost(new.expense_id, new.id);
 
-      if (v_total_allocated + new.allocated_cost) > coalesce(v_exp_nominal, 0) then
+      if (v_other_allocated + new.allocated_cost) > coalesce(v_exp_nominal, 0) then
         raise exception 'SIMKOS_OVERALLOCATED_EXPENSE: Total alokasi aset (%) melebihi nominal transaksi sumber (%)',
-          (v_total_allocated + new.allocated_cost), v_exp_nominal;
+          (v_other_allocated + new.allocated_cost), v_exp_nominal;
       end if;
     end if;
   else
@@ -273,8 +349,8 @@ end;
 $$;
 
 -- 4. Perbarui Trigger validate_expense_asset_allocations pada tabel expenses:
---    Selain mencegah hapus dan penurunan nominal di bawah alokasi, cegah perubahan
---    lokasi atau tanggal pengeluaran yang sudah diikat oleh snapshot aset.
+--    Selain mencegah hapus dan penurunan nominal di bawah alokasi efektif (snapshot + master),
+--    cegah perubahan lokasi atau tanggal pengeluaran yang sudah diikat oleh snapshot aset.
 create or replace function public.validate_expense_asset_allocations()
 returns trigger
 language plpgsql
@@ -298,9 +374,9 @@ begin
     return old;
   elsif tg_op = 'UPDATE' then
     if new.nominal <> old.nominal then
-      select coalesce(sum(allocated_cost), 0) into v_total_allocated
-      from public.asset_components
-      where expense_id = new.id;
+      -- Gunakan alokasi efektif yang melindungi komitmen snapshot resmi yang sedang berlaku
+      -- maupun usulan revisi master komponen
+      v_total_allocated := public.get_expense_effective_allocated_cost(new.id);
 
       if new.nominal < v_total_allocated then
         raise exception 'SIMKOS_EXPENSE_BELOW_ALLOCATIONS: Nominal pengeluaran baru (%) tidak boleh lebih rendah dari total alokasi aset terkait (%)',
@@ -353,6 +429,7 @@ declare
   v_latest_posted_period text;
   v_latest_posted_end_date date;
   v_late_comp record;
+  v_dummy record;
 begin
   if p_asset_id is null then
     raise exception 'SIMKOS_INVALID_PARAM: asset_id wajib diisi';
@@ -459,7 +536,23 @@ begin
     end if;
   end if;
 
-  -- 6. Tentukan versi snapshot berikutnya
+  -- 6. Validasi konsistensi kapasitas pengeluaran dan kunci baris pengeluaran terkait
+  --    Kunci seluruh expenses yang terlibat dalam urutan id terurut untuk menghindari deadlock
+  for v_dummy in
+    select id, nominal from public.expenses
+    where id in (
+      select distinct c.expense_id
+      from public.asset_components c
+      where c.asset_id = p_asset_id
+        and c.expense_id is not null
+    )
+    order by id
+    for update
+  loop
+    null;
+  end loop;
+
+  -- 7. Tentukan versi snapshot berikutnya
   select coalesce(max(version), 0) + 1 into v_next_version
   from public.asset_activation_snapshots
   where asset_id = p_asset_id;
