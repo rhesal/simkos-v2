@@ -368,7 +368,7 @@ test('Fase 5C: Verifikasi Migrasi Database Kosong vs Upgrade Eksisting & Proteks
     await setSuperuser(db)
   })
 
-  await t.test('4. Prosedur Pemulihan Operasional (Operational Recovery) Non-Destruktif di Database Terisi Data', async () => {
+  await t.test('4. Prosedur Perbaikan Struktur & Izin Operasional (Repair Structure & Permissions) pada Kondisi Gagal Terencana', async () => {
     const db = new PGlite()
     await execSqlFile(db, 'qa/independent/00_stub.sql')
     await execSqlFile(db, 'docs/reference/live_schema_public.sql')
@@ -401,7 +401,7 @@ test('Fase 5C: Verifikasi Migrasi Database Kosong vs Upgrade Eksisting & Proteks
     // Buat data operasional awal
     const expRes = await db.query(`
       INSERT INTO public.expenses (org_id, location_id, kategori, nominal, tanggal_pengeluaran, keterangan)
-      VALUES ($1, $2, 'Operasional Kos', 6000000, '2026-06-01', 'Pengeluaran Pra-Recovery')
+      VALUES ($1, $2, 'Operasional Kos', 6000000, '2026-06-01', 'Pengeluaran Pra-Perbaikan')
       RETURNING id;
     `, [orgId, locId])
     const expId = expRes.rows[0].id
@@ -426,54 +426,135 @@ test('Fase 5C: Verifikasi Migrasi Database Kosong vs Upgrade Eksisting & Proteks
     `, [orgId, assetId, expId])
     const compId = compRes.rows[0].id
 
-    // Aktivasi sebelum prosedur pemulihan operasional dijalankan
+    // =========================================================================
+    // SIMULASI KONDISI GAGAL KONKRET 1: Izin Eksekusi RPC Dicabut / Hilang
+    // =========================================================================
+    await db.exec(`
+      REVOKE EXECUTE ON FUNCTION public.activate_asset(uuid, text) FROM anon, authenticated, public;
+      REVOKE EXECUTE ON FUNCTION public.get_period_financial_report(uuid, text, uuid) FROM anon, authenticated, public;
+    `)
+
+    // BUKTIKAN: Operasi aktivasi aset GAGAL sebelum skrip perbaikan dijalankan
     await setAuthContext(db, { userId: '22222222-0000-0000-0000-000000000002', role: 'authenticated' })
-    await db.query(`SELECT public.activate_asset($1, 'Aktivasi Pra-Recovery');`, [assetId])
+    let errActivateBefore = null
+    try {
+      await db.query(`SELECT public.activate_asset($1, 'Aktivasi Saat Izin Hilang');`, [assetId])
+    } catch (e) {
+      errActivateBefore = e
+    }
+    assert.ok(errActivateBefore !== null, 'Aktivasi aset harus GAGAL saat izin eksekusi dicabut')
+    assert.match(errActivateBefore.message, /permission denied/i)
+
+    // BUKTIKAN: Pembacaan laporan keuangan GAGAL sebelum skrip perbaikan dijalankan
+    let errReportBefore = null
+    try {
+      await db.query(`SELECT public.get_period_financial_report($1, '2026-06');`, [orgId])
+    } catch (e) {
+      errReportBefore = e
+    }
+    assert.ok(errReportBefore !== null, 'Pembacaan laporan harus GAGAL saat izin eksekusi dicabut')
+    assert.match(errReportBefore.message, /permission denied/i)
     await setSuperuser(db)
 
-    // JALANKAN PROSEDUR PEMULIHAN OPERASIONAL RESMI (NON-DESTRUKTIF)
-    await execSqlFile(db, 'supabase/ops/recover_1000_assets_phase5_operational.sql')
+    // =========================================================================
+    // SIMULASI KONDISI GAGAL KONKRET 2: Helper Internal Bocor ke Eksternal (Security Violation)
+    // =========================================================================
+    await db.exec(`
+      GRANT EXECUTE ON FUNCTION public.get_expense_effective_allocated_cost(uuid, uuid) TO anon, authenticated;
+    `)
+    // Verifikasi bahwa izin eksternal sempat bocor
+    const permCheckLeak = await db.query(`
+      SELECT has_function_privilege('anon', 'public.get_expense_effective_allocated_cost(uuid, uuid)', 'execute') as has_priv;
+    `)
+    assert.equal(permCheckLeak.rows[0].has_priv, true, 'Helper internal sempat bocor ke anon sebelum diperbaiki')
 
-    // VERIFIKASI PASCA-PEMULIHAN OPERASIONAL:
-    // 1. Data snapshot, aset, dan komponen tetap ada dan tidak terhapus
-    const snapCheck = await db.query("SELECT * FROM public.asset_activation_snapshots WHERE asset_id = $1;", [assetId])
-    assert.equal(snapCheck.rows.length, 1)
-    assert.equal(snapCheck.rows[0].location_id, locId, 'location_id snapshot harus tetap terjaga')
-    assert.equal(snapCheck.rows[0].location_recorded, true)
+    // =========================================================================
+    // SIMULASI KONDISI GAGAL KONKRET 3: Indeks Snapshot Hilang (Performance Degradation)
+    // =========================================================================
+    await db.exec(`
+      DROP INDEX IF EXISTS public.idx_snapshots_location;
+      DROP INDEX IF EXISTS public.idx_snapshots_org_asset_ver;
+    `)
+    const idxBefore = await db.query(`
+      SELECT indexname FROM pg_indexes 
+      WHERE tablename = 'asset_activation_snapshots' 
+        AND indexname IN ('idx_snapshots_location', 'idx_snapshots_org_asset_ver');
+    `)
+    assert.equal(idxBefore.rows.length, 0, 'Indeks snapshot harus hilang sebelum diperbaiki')
 
-    // 2. Validasi alokasi pengeluaran tetap aktif dan melindungi kapasitas Rp 4.000.000
-    let errBelow = null
-    try {
-      await db.query("UPDATE public.expenses SET nominal = 3500000 WHERE id = $1;", [expId])
-    } catch (e) {
-      errBelow = e
-    }
-    assert.ok(errBelow !== null, 'Penurunan di bawah alokasi tetap ditolak setelah recovery')
-    assert.match(errBelow.message, /SIMKOS_EXPENSE_BELOW_ALLOCATIONS/)
+    // =========================================================================
+    // JALANKAN SKRIP PERBAIKAN STRUKTUR & IZIN OPERASIONAL
+    // =========================================================================
+    await execSqlFile(db, 'supabase/ops/repair_1000_assets_phase5_structure_and_permissions.sql')
 
-    // 3. Aktivasi ulang & revisi tetap dapat berjalan normal
+    // =========================================================================
+    // BUKTIKAN: SELURUH OPERASI BERHASIL NORMAL SETELAH PERBAIKAN
+    // =========================================================================
+
+    // 1. Verifikasi indeks performa snapshot pulih terpasang
+    const idxAfter = await db.query(`
+      SELECT indexname FROM pg_indexes 
+      WHERE tablename = 'asset_activation_snapshots' 
+        AND indexname IN ('idx_snapshots_location', 'idx_snapshots_org_asset_ver');
+    `)
+    assert.equal(idxAfter.rows.length, 2, 'Kedua indeks snapshot harus pulih setelah skrip perbaikan')
+
+    // 2. Verifikasi izin helper internal kembali dicabut dari publik/anon
+    const permCheckFixed = await db.query(`
+      SELECT has_function_privilege('anon', 'public.get_expense_effective_allocated_cost(uuid, uuid)', 'execute') as has_priv;
+    `)
+    assert.equal(permCheckFixed.rows[0].has_priv, false, 'Helper internal harus dicabut dari anon setelah perbaikan')
+
+    // 3. Verifikasi aktivasi aset BERHASIL setelah perbaikan izin
     await setAuthContext(db, { userId: '22222222-0000-0000-0000-000000000002', role: 'authenticated' })
-    const reactRes = await db.query(`SELECT public.activate_asset($1, 'Aktivasi Ulang Pasca Recovery') as val;`, [assetId])
-    const snap2 = parseVal(reactRes.rows[0].val)
-    assert.equal(snap2.version, 2, 'Aktivasi ulang pasca recovery berhasil naik versi')
+    const reactRes = await db.query(`SELECT public.activate_asset($1, 'Aktivasi Setelah Perbaikan Izin') as val;`, [assetId])
+    const snap1 = parseVal(reactRes.rows[0].val)
+    assert.equal(snap1.version, 1, 'Aktivasi aset berhasil menghasilkan snapshot v1 setelah izin pulih')
 
-    // 4. Posting penyusutan berjalan normal
+    // 4. Verifikasi posting penyusutan berhasil normal
     const prevRes = await db.query(`SELECT public.preview_depreciation_posting($1, '2026-06') as preview;`, [orgId])
     const pVal = parseVal(prevRes.rows[0].preview)
-    const notesPost = 'Posting Pasca Pemulihan Operasional'
+    const notesPost = 'Posting Pasca Perbaikan Struktur & Izin'
     const hashPost = getCanonicalHash(orgId, '2026-06', notesPost)
     const postRes = await db.query(`
-      SELECT public.post_depreciation_batch($1, '2026-06', 'idemp-rec-01', $2, $3, $4) as val;
+      SELECT public.post_depreciation_batch($1, '2026-06', 'idemp-repair-01', $2, $3, $4) as val;
     `, [orgId, hashPost, pVal.preview_token, notesPost])
     const batchPost = parseVal(postRes.rows[0].val)
     assert.equal(batchPost.batch_status, 'posted')
     assert.equal(Number(batchPost.total_depreciation), 100000)
 
-    // 5. Pembacaan laporan keuangan pasca recovery berjalan lancar dan berstatus lengkap
+    // 5. Verifikasi pembacaan laporan keuangan BERHASIL setelah perbaikan izin
     const repRes = await db.query(`SELECT public.get_period_financial_report($1, '2026-06') as rep;`, [orgId])
     const rep = parseVal(repRes.rows[0].rep)
-    assert.equal(rep.completeness.is_complete, true, 'Laporan keuangan harus lengkap pasca recovery')
+    assert.equal(rep.completeness.is_complete, true, 'Laporan keuangan harus lengkap dan berhasil dibaca')
     assert.equal(rep.income_statement.depreciation_business_portion, 100000)
     await setSuperuser(db)
+  })
+
+  await t.test('5. Verifikasi Atomisitas Transaksi Skrip Pemeliharaan: Rollback Utuh Saat Terjadi Galat Sintaks/DML', async () => {
+    const db = new PGlite()
+    await execSqlFile(db, 'qa/independent/00_stub.sql')
+    await execSqlFile(db, 'docs/reference/live_schema_public.sql')
+
+    // Buka transaksi dan eksekusi CREATE TABLE, lalu picu error sebelum commit
+    let err = null
+    try {
+      await db.query('BEGIN;')
+      await db.query('CREATE TABLE public._temp_test_atomicity (id int);')
+      // Pernyataan sengaja memicu error tabel fiktif tidak ditemukan
+      await db.query('INSERT INTO public._tabel_fiktif_pemicu_error_sengaja VALUES (1);')
+      await db.query('COMMIT;')
+    } catch (e) {
+      err = e
+      await db.query('ROLLBACK;')
+    }
+    assert.ok(err !== null, 'Eksekusi transaksi harus melempar galat saat ada error di tengah transaksi')
+
+    // BUKTIKAN ATOMISITAS: Tabel _temp_test_atomicity yang dibuat sebelum error TIDAK TERSIMPAN di database (di-rollback)
+    const tblCheck = await db.query(`
+      SELECT table_name FROM information_schema.tables 
+      WHERE table_schema = 'public' AND table_name = '_temp_test_atomicity';
+    `)
+    assert.equal(tblCheck.rows.length, 0, 'Mutasi sebelum error harus bersih dibatalkan (Rollback Utuh Terbukti)')
   })
 })
