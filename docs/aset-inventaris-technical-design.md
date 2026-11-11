@@ -1232,21 +1232,56 @@ Verifikasi menyeluruh terhadap satu siklus hidup terpadu dari inventaris fisik h
 10. **Posting Ulang Pengganti**: Batch baru diterbitkan dengan referensi `replaces_batch_id` yang terhubung langsung ke batch sebelumnya dan ledger bertipe `replacement`.
 11. **Verifikasi Konsistensi Laporan Pasca-Koreksi**: Laporan Hasil Usaha Internal merefleksikan nilai buku dan beban penyusutan baru secara konsisten tanpa ada pembukuan ganda.
 
-### 13.2 Verifikasi Keamanan Direktori Migrasi dan Jalur Eksekusi Database (`qa/aset/fase5c_migrasi_verifikasi.test.mjs`)
+### 13.2 Verifikasi Keamanan Direktori Migrasi, Jalur Eksekusi Database, dan Prosedur Pemulihan (`qa/aset/fase5c_migrasi_verifikasi.test.mjs`)
 1. **Isolasi Skrip Rollback & Integritas Direktori Migrasi**:
    - Memastikan direktori `supabase/migrations/` **hanya berisi file migrasi maju (forward migration)** resmi berformat `YYYYMMDDHHMMSS_*.sql` (10 berkas migrasi).
-   - Memastikan direktori `supabase/rollback/` menampung seluruh skrip pembatalan darurat (10 berkas rollback) secara terpisah sehingga aman dari eksekusi migrasi otomatis runner CI/CD.
-2. **Fresh Database Install (Jalur Database Kosong)**:
+   - Memastikan direktori `supabase/rollback/` menampung seluruh skrip pembatalan darurat lingkungan lokal/pengembangan (10 berkas rollback) secara terpisah sehingga aman dari eksekusi migrasi otomatis runner CI/CD.
+2. **Pemisahan Rollback Pengembangan vs Pemulihan Operasional (Operational Recovery)**:
+   - Skrip `supabase/rollback/rollback_1000_assets_phase5_financial_report.sql` ditandai secara tegas sebagai **skrip destruktif khusus lingkungan pengembangan/test runner lokal** (menghapus kolom `location_id` dan `location_recorded`). Skrip ini **dilarang dijalankan di database produksi/operasional**.
+   - Prosedur pemulihan operasional resmi disediakan secara terpisah di `supabase/ops/recover_1000_assets_phase5_operational.sql` yang bersifat **non-destruktif** (mempertahankan kolom snapshot, menyegarkan indeks, mencabut izin eksekusi helper internal dari publik, dan memulihkan hak akses RPC resmi tanpa kehilangan data).
+3. **Fresh Database Install (Jalur Database Kosong)**:
    - Menjalankan rantai migrasi dari skema dasar hingga migrasi `1000` pada database bersih tanpa kegagalan.
    - Memastikan seluruh objek fungsi, trigger validasi alokasi, kolom lokasi snapshot, dan RLS policies terpasang secara sempurna.
-3. **Upgrade Path (Jalur Database Eksisting Fase 2 & Fase 4)**:
+4. **Upgrade Path (Jalur Database Eksisting Fase 2 & Fase 4)**:
    - Menguji penerapan migrasi `1000` di atas database yang telah memiliki data aset, komponen, saldo awal, dan batch pembukuan Fase 4.
-   - Membuktikan seluruh data eksisting tetap lestari (preserved), kolom baru terisi dengan aman, dan snapshot historis yang belum memiliki metadata lokasi langsung terdeteksi oleh sistem laporan tanpa silent-failure.
+   - Membuktikan **seluruh isi data penting tetap identik** sebelum vs sesudah migrasi:
+     * Aset (`id`, `nama_aset`, `status_pencatatan`),
+     * Komponen Finansial (`biaya_perolehan`, `allocated_cost`, `expense_id`, `masa_manfaat_bulan`),
+     * Saldo Awal Historis (`akumulasi_penyusutan_awal`, `nilai_buku_awal`, `sisa_bobot_manfaat`, `catatan`),
+     * Snapshot Versi Lama (`id`, `version`, `snapshot_params`, `location_recorded = false`, `location_id = null`),
+     * Rincian Baris Ledger Depresiasi (`depreciation_amount`, `entry_type`).
+   - Helper internal alokasi langsung aktif melindungi pengeluaran eksisting dari mutasi nominal di bawah kapasitas teralokasi, dan snapshot lama langsung terdeteksi oleh RPC `get_period_financial_report` sebagai `SNAPSHOT_LAMA_BELUM_MEMUAT_METADATA` (`is_complete = false`).
+5. **Verifikasi Prosedur Pemulihan Operasional Non-Destruktif**:
+   - Diuji pada database yang telah aktif terisi data operasional.
+   - Menjalankan `supabase/ops/recover_1000_assets_phase5_operational.sql`, lalu memverifikasi bahwa data snapshot tidak terhapus, validasi alokasi pengeluaran tetap aktif, aktivasi ulang (snapshot v2) dapat dieksekusi, posting batch baru berjalan sukses, dan laporan keuangan dapat diterbitkan lengkap (`is_complete = true`).
+6. **Proteksi Helper Internal (`get_expense_effective_allocated_cost`)**:
+   - Izin eksekusi helper dicabut dari `PUBLIC`, `anon`, dan `authenticated`.
+   - Pemanggilan RPC helper via REST oleh pengguna anonim maupun pengguna organisasi lain terbukti ditolak (HTTP 401/403/404), sementara trigger internal (`PATCH /expenses`) tetap berjalan normal via `SECURITY DEFINER`.
 
-### 13.3 Hasil Pengujian Suite Lengkap
+### 13.3 Panduan UAT (User Acceptance Testing) bagi Pemilik & Pengelola
+
+Panduan ringkas ini disusun sebagai acuan pengujian penerimaan pengguna:
+
+1. **Prasyarat & Pengaturan Periode Pembukuan**:
+   - **Langkah Pertama**: Tetapkan **Tanggal Mulai Pembukuan** organisasi terlebih dahulu di menu Pengaturan Pembukuan Aset sebelum melakukan pengesahan saldo awal atau posting penyusutan.
+   - Periode posting penyusutan dan Laporan Hasil Usaha Internal hanya berlaku untuk bulan kalender penuh (`YYYY-MM`).
+2. **Pembedaan Metode Saldo Awal Aset**:
+   - **Input Akumulasi Manual (`catatan_terdahulu`)**: Digunakan untuk aset yang diperoleh sebelum tanggal mulai pembukuan dan telah memiliki catatan akumulasi penyusutan riil dari pembukuan terdahulu. Pengguna mengisi sendiri nominal akumulasi penyusutan awal dan sisa bulan manfaat.
+   - **Simulasi Historis (`simulasi_historis`)**: Digunakan jika pengguna tidak memiliki catatan akumulasi lampau; sistem secara otomatis menghitung estimasi akumulasi penyusutan lampau sejak `tanggal_siap_guna` hingga tanggal mulai pembukuan berdasarkan metode garis lurus.
+3. **Matriks Peran Pengguna (Role Permissions)**:
+   - **Pemilik (Owner) & Admin**: Memiliki wewenang penuh untuk melakukan pengesahan saldo awal komponen, aktivasi draf aset, posting/pembatalan batch penyusutan, serta revisi parameter finansial aset.
+   - **Staf**: Hanya memiliki **hak baca (read-only)** terhadap data aset, simulasi, buku pembantu penyusutan, dan laporan keuangan. Seluruh upaya pengesahan, aktivasi, revisi, atau posting dari akun Staf akan ditolak oleh sistem (`SIMKOS_UNAUTHORIZED`).
+4. **Skenario Rekonsiliasi & Pemeriksaan Laporan**:
+   - Periksa tab **Hasil Usaha Internal**: pastikan status kelengkapan menunjukkan `LENGKAP_DIBUKUKAN`.
+   - Jika terdapat draf komponen baru yang belum disahkan atau nominal alokasi belum lengkap (`null`), laporan akan berstatus `BELUM_LENGKAP_KLASIFIKASI` dan hasil usaha bersih tidak ditampilkan semu.
+   - Jika periode belum memiliki batch penyusutan sah, laporan akan berstatus `BELUM_LENGKAP_PENYUSUTAN` dan beban penyusutan bernilai `null` (bukan Rp 0).
+   - Pastikan Jembatan Rekonsiliasi memverifikasi:
+     $$\text{Hasil Usaha Bersih} = \text{Arus Kas Bersih} + \text{Kapitalisasi Sah} - \text{Penyusutan Usaha Posted}$$
+
+### 13.4 Hasil Pengujian Suite Lengkap
 - **Suite Pengujian Non-Browser (`npm test` / `node scripts/run_all_tests.mjs`)**:
-  - Total: **28 berkas pengujian** (mencakup 191 pengujian subtest / assertions).
-  - Status: **191 PASS / 0 FAIL (100% Lulus)**.
+  - Total: **28 berkas pengujian** (mencakup 192 pengujian subtest / assertions).
+  - Status: **192 PASS / 0 FAIL (100% Lulus)**.
 - **Suite Pengujian Browser E2E (`qa/aset/fase5_browser_laporan_flow.test.mjs`)**:
   - Status: **7 subtest (8 assertions) PASS / 0 FAIL (100% Lulus)**.
   - Tangkapan layar desktop dan mobile tersimpan di `docs/screenshots/qa_fase5_desktop_hasil_usaha.png` dan `docs/screenshots/qa_fase5_mobile_hasil_usaha.png`.

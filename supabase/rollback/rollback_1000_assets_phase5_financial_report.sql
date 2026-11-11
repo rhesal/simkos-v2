@@ -1,6 +1,10 @@
 -- ==============================================================================
--- Rollback Pengembangan: rollback_1000_assets_phase5_financial_report.sql
--- Mengembalikan penambahan Fase 5B ke baseline akhir Fase 4B-2R
+-- Rollback Pengembangan (DEVELOPMENT ONLY): rollback_1000_assets_phase5_financial_report.sql
+-- PERINGATAN: SKRIP INI HANYA UNTUK KEPERLUAN PENGEMBANGAN / TEST RUNNER LOKAL!
+-- JANGAN PERNAH DIJALANKAN DI LINGKUNGAN OPERASIONAL ATAU PRODUKSI!
+-- Skrip ini merusak (DESTRUCTIVE) karena menghapus kolom metadata snapshot (location_id, location_recorded).
+-- Untuk pemulihan operasional (hotfix/disaster recovery), gunakan prosedur pemulihan
+-- operasional yang mempertahankan integritas data dan tabel snapshot.
 -- ==============================================================================
 
 drop function if exists public.get_period_financial_report(uuid, text, uuid);

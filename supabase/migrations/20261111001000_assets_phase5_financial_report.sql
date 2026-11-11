@@ -1481,3 +1481,8 @@ $$;
 grant execute on function public.activate_asset(uuid, text) to anon, authenticated;
 grant execute on function public.revise_component_parameters(uuid, numeric, numeric, int, date, numeric, text, text, text, uuid, numeric, boolean) to anon, authenticated;
 grant execute on function public.get_period_financial_report(uuid, text, uuid) to anon, authenticated;
+
+-- Helper alokasi adalah fungsi internal database (dipakai oleh trigger trg_validate_component_relations
+-- dan trg_validate_expense_asset_allocations): cabut izin eksekusi dari PUBLIC, anon, dan authenticated
+-- agar tidak dapat dipanggil langsung dari API luar (PostgREST RPC).
+revoke execute on function public.get_expense_effective_allocated_cost(uuid, uuid) from public, anon, authenticated;

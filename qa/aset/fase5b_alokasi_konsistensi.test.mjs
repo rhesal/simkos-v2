@@ -594,6 +594,80 @@ test('Fase 5B Koreksi: Konsistensi Batas Alokasi Master dan Snapshot', { timeout
         await client2.end().catch(() => {})
       }
     })
+
+    // ------------------------------------------------------------------------
+    // Subtest 4: Verifikasi Helper Alokasi sebagai Fungsi Internal (Blokir Pemanggilan REST Langsung)
+    // ------------------------------------------------------------------------
+    await t.test('4. Proteksi Helper Internal: Pemanggilan Langsung get_expense_effective_allocated_cost via REST Ditolak (Anonim & Lintas Organisasi)', async () => {
+      // 4.1 Pemanggilan RPC langsung oleh anonim
+      const anonRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_expense_effective_allocated_cost`, {
+        method: 'POST',
+        headers: {
+          apikey: ANON_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ p_expense_id: '11111111-1111-1111-1111-111111111111' }),
+      })
+      // PostgREST merespons 404/401/403 jika izin eksekusi dicabut dari anon / public
+      assert.ok(
+        [401, 403, 404].includes(anonRes.status),
+        `Pemanggilan helper oleh anonim harus ditolak (HTTP 401/403/404), dapat: ${anonRes.status}`
+      )
+
+      // 4.2 Pemanggilan RPC langsung oleh pengguna organisasi lain (Org B)
+      const loginB = await loginUser('ownerb@simkos.test', 'testpass123')
+      const userBRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_expense_effective_allocated_cost`, {
+        method: 'POST',
+        headers: {
+          apikey: ANON_KEY,
+          Authorization: `Bearer ${loginB.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ p_expense_id: '11111111-1111-1111-1111-111111111111' }),
+      })
+      assert.ok(
+        [401, 403, 404].includes(userBRes.status),
+        `Pemanggilan helper oleh pengguna terautentikasi harus ditolak (HTTP 401/403/404), dapat: ${userBRes.status}`
+      )
+
+      // 4.3 Pemanggilan RPC langsung oleh owner organisasi sendiri (Org A) juga harus ditolak karena ini fungsi internal
+      const userARes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_expense_effective_allocated_cost`, {
+        method: 'POST',
+        headers: {
+          apikey: ANON_KEY,
+          Authorization: `Bearer ${ownerToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ p_expense_id: '11111111-1111-1111-1111-111111111111' }),
+      })
+      assert.ok(
+        [401, 403, 404].includes(userARes.status),
+        `Pemanggilan helper oleh owner via REST harus ditolak (fungsi internal murni), dapat: ${userARes.status}`
+      )
+
+      // 4.4 Pastikan trigger dan RPC resmi (activate_asset, update expenses) tetap berfungsi normal dengan SECURITY DEFINER
+      const expTestRes = await dbClient.query(`
+        INSERT INTO public.expenses (org_id, location_id, kategori, nominal, tanggal_pengeluaran, keterangan)
+        VALUES ($1, $2, 'Uji Helper Internal', 2000000, '2026-06-01', 'Test Trigger')
+        RETURNING id;
+      `, [orgId, locId])
+      const expTestId = expTestRes.rows[0].id
+
+      // Direct patch expenses via REST oleh Owner A: harus berhasil karena trigger DB internal dapat mengeksekusi helper
+      const patchExpRes = await fetch(`${SUPABASE_URL}/rest/v1/expenses?id=eq.${expTestId}`, {
+        method: 'PATCH',
+        headers: {
+          apikey: ANON_KEY,
+          Authorization: `Bearer ${ownerToken}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify({ nominal: 2500000 }),
+      })
+      assert.equal(patchExpRes.status, 200, 'Trigger validasi expenses harus tetap bekerja normal saat dipanggil via REST')
+      const patched = await patchExpRes.json()
+      assert.equal(Number(patched[0].nominal), 2500000)
+    })
   } finally {
     if (dbClient) {
       await dbClient.end().catch(() => {})
