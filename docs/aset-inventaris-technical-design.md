@@ -1,6 +1,6 @@
 # Dokumen Audit & Desain Teknis: Modul Aset & Inventaris SimKos
-**Status: Selesai Fase 4B-1R (Implementasi Integritas Database & Kontrak Pembukuan Penyusutan: Penutupan Jalan Pintas Pengesahan, Snapshot Immutable Sebagai Sumber Perhitungan, Penanganan Komponen Terlambat Menuntut Unwind, Server-Side Canonical Payload Hash, Advisory Lock & Re-read State, Penanganan Pembatalan Batch Nol, Lulus Uji Integrasi PGlite & Konkurensi PostgreSQL Port 54322 Nyata 100%). Menunda UI Fase 4B-2. Tetap tanpa migrasi produksi, merge main, atau deployment.**
-*Tanggal Pembaruan: 10 November 2026 | Branch: `feat/aset-inventaris-audit-desain`*
+**Status: Selesai Fase 4B-2R (Antarmuka Pembukuan Aset, Penanganan Eksplisit `SIMKOS_STALE_PREVIEW`, Saldo Awal Catatan Terdahulu, Pengiriman Ulang Idempoten Sebenarnya, Lulus 12/12 Subtest Browser E2E & 160/160 Tes Non-Browser pada Commit `79940a3`) | Aktif Fase 5A (Desain Integrasi Laporan Arus Kas & Hasil Usaha Internal). Tetap tanpa migrasi produksi, merge main, atau deployment.**
+*Tanggal Pembaruan: 11 November 2026 | Branch: `feat/aset-inventaris-audit-desain`*
 
 ---
 
@@ -93,10 +93,10 @@ Mockup diekstrak ke direktori terisolasi `references/mockup-aset/SimKos_Mockup/`
 ## 3. Desain Teknis Data Aset & Inventaris
 
 ### 3.1 Status Fitur Menurut Fase Roadmap
-- **Fase 2-R [KODE DIIMPLEMENTASIKAN]**: Tabel `assets`, `asset_components`, kolom `organizations.capitalization_threshold`, trigger pengaman relasi/alokasi/sinkronisasi, fungsi RPC backfill terotorisasi, RLS berbasis peran (owner, admin, staff), serta UI CRUD dan draf aset.
-- **Fase 3 [DIRANCANG]**: Modul mesin kalkulasi penyusutan periodik, simulator interaktif, dan pratinjau tabel amortisasi.
-- **Fase 4 [DIRANCANG]**: Tabel `asset_beginning_balances`, `depreciation_entries`, `accounting_periods`, prosedur cut-off saldo awal aset lama, dan kunci periode buku.
-- **Fase 5 [DIRANCANG]**: Layar Laporan Hasil Usaha Internal terintegrasi dengan pemisahan kas keluar investasi vs beban operasional langsung.
+- **Fase 2-R [KODE DIIMPLEMENTASIKAN & TERVERIFIKASI]**: Tabel `assets`, `asset_components`, kolom `organizations.capitalization_threshold`, trigger pengaman relasi/alokasi/sinkronisasi, fungsi RPC backfill terotorisasi, RLS berbasis peran (owner, admin, staff), serta UI CRUD dan draf aset.
+- **Fase 3-R [KODE DIIMPLEMENTASIKAN & TERVERIFIKASI]**: Modul mesin kalkulasi penyusutan garis lurus prorata dengan distribusi pembulatan kumulatif Bresenham, simulator interaktif di Detail Aset, dan pratinjau tabel amortisasi.
+- **Fase 4B-1R & 4B-2R [KODE DIIMPLEMENTASIKAN & TERVERIFIKASI]**: Tabel `asset_bookkeeping_settings`, `asset_activation_snapshots`, `asset_opening_balances`, `asset_accounting_periods`, `asset_depreciation_batches`, `asset_depreciation_ledger`, `asset_accounting_audit_logs`, 9 RPC pembukuan atomik ber-lock advisory, serta antarmuka Buku Pembantu Penyusutan (`/aset/buku-pembantu`) dan alur pengesahan di Detail Aset (`/aset/:id`).
+- **Fase 5A [DIRANCANG — AKTIF]**: Desain integrasi Laporan Arus Kas vs Laporan Hasil Usaha Internal, perlakuan pembelian aset dan nota campuran agar tidak dihitung ganda sebagai beban operasional, aturan tunggal pembacaan batch `posted`, indikator periode `"Belum lengkap"`, contoh rekonsiliasi konkret, dan matriks pengujian (tanpa menjadikan pajak atau tabel jurnal umum sebagai kewajiban fase ini).
 
 ### 3.2 Diagram Hubungan Entitas (ERD Aktual Fase 2-R & Desain Fase 3–5)
 
@@ -363,18 +363,18 @@ create table if not exists public.asset_components (
 
 ---
 
-## 5. Integrasi Keuangan Internal [DIRANCANG - FASE 5]
+## 5. Integrasi Keuangan Internal [DIRANCANG - FASE 5A]
 
 ### 5.1 Basis Tanggal & Pembukuan Laporan
 - **Basis Pembukuan**: Modified Cash Basis (Basis Kas Dimodifikasi dengan Kapitalisasi Aset & Penyusutan).
-- **Penetapan Basis Tanggal Laporan**:
-  1. *Laporan Arus Kas (Cash Flow)*: Menggunakan **tanggal kas aktual** (`incomes.tanggal_bayar` untuk kas masuk, dan `expenses.tanggal_pengeluaran` untuk kas keluar).
-  2. *Laporan Hasil Usaha Internal*: Menggunakan **periode kalender bulanan** (`YYYY-MM-01` sampai hari terakhir bulan bersangkutan).
-  3. *Beban Penyusutan*: Diakui pada periode kalender berjalan berdasarkan `tanggal_siap_guna` aset, terpisah dari tanggal kas keluar pembelian aset.
-  4. *Aturan Pengurangan Beban Belanja Terkapitalisasi*:
-     - **Draf atau alokasi yang belum disahkan (status `draft` atau `status_kapitalisasi = 'perlu_telaah'`) TIDAK OTOMATIS MENGURANGI BEBAN LAPORAN**.
-     - Seluruh transaksi kas keluar di `expenses` tetap diakui penuh sebagai beban operasional berjalan sebelum alokasi kapitalisasinya diverifikasi secara resmi.
-     - Hanya pengeluaran yang telah diverifikasi dan disahkan sebagai kapitalisasi (`status_kapitalisasi = 'kapitalisasi'` dan aset induk `terverifikasi`) yang nominal alokasinya (`allocated_cost`) dikecualikan dari beban operasional langsung, lalu dialihkan menjadi beban penyusutan periodik. Hal ini menjamin prinsip kehati-hatian akuntansi (konservatisme).
+- **Penetapan Basis Tanggal & Sumber Data Aktual**:
+  1. *Penerimaan Kas & Pendapatan Usaha*: Mengambil `public.incomes.nominal` berdasarkan kolom tanggal aktual **`incomes.tanggal_bayar`** (`to_char(incomes.tanggal_bayar, 'YYYY-MM') = period_key`).
+  2. *Pengeluaran Kas & Beban Operasional*: Mengambil `public.expenses.nominal` berdasarkan kolom tanggal aktual **`expenses.tanggal_pengeluaran`** (`to_char(expenses.tanggal_pengeluaran, 'YYYY-MM') = period_key`).
+  3. *Beban Penyusutan Usaha*: Mengambil `business_portion_amount` (`total_business_portion`) dari **`public.asset_depreciation_ledger`** yang tergabung pada **`public.asset_depreciation_batches`** berdasarkan **`period_key`** (`YYYY-MM`) dengan syarat tunggal **`batch_status = 'posted'`** dan `entry_type IN ('regular', 'replacement')`. Penyusutan tidak mengubah kas, dan bagian non-usaha (`non_business_portion_amount`) dikecualikan dari Laporan Hasil Usaha Kos.
+  4. *Aturan Pengurangan Beban Belanja Terkapitalisasi (Pembelian Aset & Nota Campuran)*:
+     - **Draf atau alokasi yang belum disahkan (`status_pencatatan = 'draft'`, `requires_reapproval = true`, atau `status_kapitalisasi IN ('perlu_telaah', 'beban_langsung')`) TIDAK OTOMATIS MENGURANGI BEBAN LAPORAN**.
+     - Hanya alokasi komponen (`asset_components.allocated_cost`) yang memiliki `status_kapitalisasi = 'kapitalisasi'` pada aset induk yang telah diaktifkan secara resmi (`assets.status_pencatatan = 'aktif'`) dan tercatat di snapshot aktivasi resmi terbaru (`asset_activation_snapshots`) yang dikurangkan dari `expenses.nominal` saat menghitung Beban Operasional Non-Penyusutan.
+     - Rincian lengkap formula, aturan tunggal bebas penghitungan ganda, indikator `"Belum lengkap"`, contoh rekonsiliasi numerik konkret, dan matriks pengujian dijabarkan pada **Bagian 12**.
 
 ---
 
@@ -555,13 +555,15 @@ flowchart LR
     F0["Fase 0: Audit & Baseline<br><b>(SELESAI)</b>"] --> F1["Fase 1: Desain Teknis<br><b>(SELESAI)</b>"]
     F1 --> F2R["Fase 2-R: Integritas Data & Verifikasi DB/UI<br><b>(SELESAI & TERVERIFIKASI)</b>"]
     F2R --> F3R["Fase 3-R: Mesin Penyusutan & Pratinjau UI<br><b>(SELESAI & TERVERIFIKASI)</b>"]
-    F3R --> F4A["Fase 4A: Desain Kontrak Pembukuan<br><b>(AKTIF)</b>"]
-    F4A -.-> F4B["Fase 4B: Implementasi Saldo Awal & Posting<br><i>(MENUNGGU TINJAUAN 4A)</i>"]
-    F4B -.-> F5["Fase 5: Integrasi Laporan Keuangan<br><i>(DITUNDA)</i>"]
+    F3R --> F4A["Fase 4A: Desain Kontrak Pembukuan<br><b>(SELESAI)</b>"]
+    F4A --> F4B1R["Fase 4B-1R: Database & Kontrak Pembukuan<br><b>(SELESAI & TERVERIFIKASI)</b>"]
+    F4B1R --> F4B2R["Fase 4B-2R: UI Pembukuan & Browser E2E<br><b>(SELESAI & TERVERIFIKASI)</b>"]
+    F4B2R --> F5A["Fase 5A: Desain Integrasi Laporan<br><b>(AKTIF)</b>"]
+    F5A -.-> F5B["Fase 5B: Implementasi Laporan & E2E<br><i>(MENUNGGU TINJAUAN 5A)</i>"]
 ```
 
 Status pekerjaan pada branch `feat/aset-inventaris-audit-desain`:
-> **“Fase 3-R selesai dan terverifikasi penuh pada commit 4a574531350a8204b8cda4ce851ec91f8abf3666: Mesin penyusutan Bresenham cumulative target distribution, konvensi prorata kalender Juni 2031, penanganan komponen dasar nol, kapitalisasi berbasis waktu, dan pengujian browser E2E dengan snapshot database terbukti 100% konsisten. Saat ini masuk Fase 4A (Desain dan Kontrak Pembukuan). Tetap tanpa migrasi produksi, merge main, atau deployment.”**
+> **“Fase 4B-2R selesai dan terverifikasi penuh pada commit 79940a3: Antarmuka pembukuan aset, penanganan eksplisit kode server `SIMKOS_STALE_PREVIEW`, alur saldo awal catatan terdahulu (`catatan_terdahulu`), pengujian retry idempoten sebenarnya vs klik ganda, 12/12 subtest browser E2E, dan 160/160 tes non-browser lulus 100%. Saat ini berada pada Fase 5A (Desain Integrasi Laporan Arus Kas & Hasil Usaha Internal). Tidak menambahkan pajak atau jurnal umum sebagai kewajiban fase ini. Tetap tanpa migrasi produksi, merge main, atau deployment.”**
 
 ---
 
@@ -617,7 +619,7 @@ prevAkumulasiUsaha = targetAkumulasiUsaha;
      * `business_portion_amount numeric not null`: beban penyusutan bagian usaha kos, dihitung secara strictly kumulatif: $\text{TargetAkumulasiUsaha}(i) - \text{TargetAkumulasiUsaha}(i-1)$ (bukan perkalian langsung beban periode).
      * `non_business_portion_amount numeric not null`: beban penyusutan bagian non-usaha / pribadi, dihitung sebagai selisih: $\text{depreciation\_amount} - \text{business\_portion\_amount}$.
      * Pada komponen dengan dasar nol, seluruh komponen nominal bernilai 0 tanpa pembagian nol.
-   - **Penundaan Jurnal Umum:** Tabel jurnal umum (`journal_entries`, `journal_lines`) dan pemetaan akun prive ditunda ke Fase 5 (Integrasi Laporan Keuangan).
+   - **Tanpa Kewajiban Jurnal Umum & Pajak:** Tabel jurnal umum (`journal_entries`, `journal_lines`), pemetaan akun buku besar ganda, dan perhitungan pajak tidak menjadi kewajiban Fase 4 maupun Fase 5. Integrasi laporan pada Fase 5 dibangun langsung di atas sub-ledger penyusutan resmi dan alokasi pengeluaran yang sudah tersedia.
 2. **Pemisahan Tegas Simulasi vs Pembukuan Resmi**:
    - Simulasi di antarmuka hanyalah kalkulasi *in-memory* dan usulan nilai, tidak pernah otomatis menjadi catatan pembukuan resmi.
    - Pembukuan resmi mewajibkan konfigurasi tanggal mulai pembukuan, aktivasi aset eksplisit, pengesahan saldo awal, dan posting bulanan via RPC PostgreSQL berizin khusus (`owner`/`admin`).
@@ -1081,10 +1083,10 @@ Jika ada komponen baru yang memiliki tanggal siap guna di masa lalu (misal siap 
 | **Integrasi Database SQL (Fase 4B-1R)** | `qa/aset/fase4_bookkeeping_db.test.mjs` | 14 subtest: skema & constraint, set start date, kesetaraan engine server vs kontrak Fase 3-R, aktivasi aset, pembekuan kategori aset, penolakan mutasi langsung kategori (`SIMKOS_LOCKED_ASSET_CATEGORY`), penguncian parameter master, validasi manual tanpa desimal, stale preview guard, siklus multi-versi (posting -> reversal -> replacement x2), penutupan shortcut saldo awal, penanganan komponen terlambat menuntut unwind, penambahan komponen masa depan tanpa unwind, penguncian periode & reversal batch nol, revisi parameter finansial via RPC `revise_component_parameters` dengan penandaan status `perlu_pengesahan_ulang`, pengujian negatif penolakan pengesahan saldo awal/pratinjau/posting sebelum aktivasi ulang (`SIMKOS_REAPPROVAL_REQUIRED`), pembuktian perubahan beban riil di ledger, isolasi tenant, zero impact ke kas (`expenses`/`incomes` 100% data baris identik), ON DELETE RESTRICT organisasi. |
 | **Pengujian Konkurensi Nyata (PostgreSQL Port 54322)** | `qa/aset/fase4_concurrency.test.mjs` | 5 subtest: posting bersamaan periode sama (1 sukses, 1 SIMKOS_BATCH_ALREADY_POSTED), pembatalan bersamaan batch sama (1 sukses, 1 SIMKOS_BATCH_NOT_POSTED), pembatalan bersamaan batch nol, konkurensi posting vs penguncian periode (serialisasi atomik terjamin), konkurensi posting vs revisi parameter komponen (advisory lock mutual exclusion terbukti menolak revisi saat ada batch aktif). |
 | **Integrasi API Auth Resmi (GoTrue v2.197.0 & PostgREST 16.5)** | `qa/aset/fase4_auth_api.test.mjs` | 6 subtest: otentikasi login resmi owner/admin/staff/owner B, otentikasi konfigurasi pembukuan via REST, pencegahan mutasi langsung status/kategori/parameter finansial via REST, isolasi multi-tenant data pembukuan via PostgREST RLS (data Org A tidak bocor ke Owner B), siklus penuh pratinjau, posting, pembacaan ledger, dan storno reversal via REST RPC, serta jalur negatif revisi parameter via API yang menuntut re-aktivasi sebelum pengesahan saldo awal atau posting. |
-| **Regresi Engine Penyusutan (Fase 3-R)** | `qa/aset/depresiasi_engine.test.mjs` | 11 subtest: pembagian pembulatan Bresenham kumulatif, prorata hari nyata, penanganan komponen berdasar nol, input porsi usaha null vs 0%, konsistensi kalender gabungan. |
+| **Regresi Engine Penyusutan (Fase 3-R & 4B-2R)** | `qa/aset/depresiasi_engine.test.mjs` | 12 subtest: pembagian pembulatan Bresenham kumulatif, prorata hari nyata, penanganan komponen berdasar nol, input porsi usaha null vs 0%, konsistensi kalender gabungan, serta deteksi eksplisit kode error server `SIMKOS_STALE_PREVIEW` & hash payload deterministik. |
 | **Pencatatan Draf & Validasi Struktur (Fase 2-R)** | `qa/aset/aset_phase2.test.mjs` | 12 subtest: pengujian unit, simulasi backfill draf idempoten, pemisahan kategori tanah vs barang/gedung, validasi relasi draf cross-tenant, dan pemeriksaan statis UI. *(Catatan: berkas ini berisi pengujian unit/simulasi dan pemeriksaan statis, bukan bukti koneksi database nyata).* |
-| **Seluruh Suite Repositori (`npm test`)** | `scripts/run_all_tests.mjs` | 22 berkas uji non-browser di seluruh direktori `qa/` (aset, login, inventaris, date, move-script, sewa, migrasi, csv, ui) dieksekusi penuh: 157 tests lulus (exit 0). |
-| **Browser E2E UI (Fase 4B-2)** | *Ditunda* | Pengujian browser flow UI ditunda sesuai instruksi hingga pekerjaan database, otorisasi, dan kontrak pembukuan Fase 4B-1R disetujui. |
+| **Seluruh Suite Repositori (`npm test`)** | `scripts/run_all_tests.mjs` | 22 berkas uji non-browser di seluruh direktori `qa/` (aset, login, inventaris, date, move-script, sewa, migrasi, csv, ui) dieksekusi penuh: 160 tests lulus (exit 0). |
+| **Browser E2E UI (Fase 4B-2R)** | `qa/aset/fase4_browser_pembukuan_flow.test.mjs` | 12 subtest E2E di Google Chrome nyata (Puppeteer + GoTrue v2.197.0 + PostgREST v16.5): login owner, atur tanggal mulai pembukuan, aktivasi aset & saldo awal historis, saldo awal catatan terdahulu (`catatan_terdahulu`) & pencocokan DB, pratinjau kedaluwarsa (`SIMKOS_STALE_PREVIEW`) lintas sesi, retry idempoten sebenarnya pasca-commit server tanpa respons browser, pembatalan storno + uji klik ganda terpisah, kunci/buka periode, revisi parameter & aktivasi ulang snapshot v2, isolasi baca-saja staf, nol mutasi kas, serta tangkapan layar desktop & mobile. |
 
 ---
 
@@ -1127,6 +1129,76 @@ Jika ada komponen baru yang memiliki tanggal siap guna di masa lalu (misal siap 
      2. Menjadi `'aktif'` via `activate_asset`.
    - Kolom `requires_reapproval` pada `asset_components` dilindungi dari direct UPDATE atau INSERT langsung (`SIMKOS_DIRECT_REAPPROVAL_FLAG_UPDATE_FORBIDDEN`). Hanya RPC `revise_component_parameters` yang berhak menandainya `true`, dan RPC `activate_asset` yang berhak meresetnya menjadi `false`.
    - Pembuktian SQL & REST API: setelah manipulasi langsung ditolak, aset tetap mempertahankan status integritas aslinya (tetap masuk perhitungan jika aktif, atau tetap diblokir jika memerlukan pengesahan ulang). Fitur pengarsipan/penghentian aset ditunda dan tidak ditambahkan pada fase ini.
+
+---
+
+## 12. Desain Integrasi Laporan Arus Kas & Hasil Usaha Internal (Fase 5A)
+
+### 12.1 Sumber Data dan Kolom Tanggal Aktual per Periode Laporan (`period_key = YYYY-MM`)
+
+| Komponen Laporan | Tabel Sumber Aktual | Kolom Tanggal / Periode Penentu | Aturan Pemetaan ke `period_key` (`YYYY-MM`) | Kolom Nominal yang Diambil | Pemetaan Filter Lokasi Kos (`location_id`) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Penerimaan Kas / Pendapatan Sewa** | `public.incomes` | **`incomes.tanggal_bayar`** (`date not null`) | `to_char(incomes.tanggal_bayar, 'YYYY-MM') = period_key` *(Kolom `periode_bayar` tidak digunakan sebagai acuan karena bersifat nullable dan tidak diisi pada alur input pembayaran).* | `incomes.nominal` | `incomes.rental_id -> rentals.room_id -> rooms.location_id` |
+| **Pengeluaran Kas (Bruto)** | `public.expenses` | **`expenses.tanggal_pengeluaran`** (`date not null`) | `to_char(expenses.tanggal_pengeluaran, 'YYYY-MM') = period_key` | `expenses.nominal` | `expenses.location_id` (`NULL` = Tagihan Bersama lintas kos; dihitung pada `Semua Lokasi` dan disajikan sebagai informasi terpisah pada filter lokasi tunggal). |
+| **Pengurang Belanja Dikapitalisasi (Aset & Nota Campuran)** | `public.asset_components` + `public.assets` + `public.asset_activation_snapshots` | Mengikuti **`expenses.tanggal_pengeluaran`** dari transaksi sumber (`asset_components.expense_id = expenses.id`) | Mengurangi beban operasional pada periode terjadinya transaksi `expenses` sumber setelah komponen aset disahkan aktif. | `asset_components.allocated_cost` | Mengikuti `expenses.location_id` dari transaksi sumber. |
+| **Beban Penyusutan Aset** | `public.asset_depreciation_batches` & `public.asset_depreciation_ledger` | **`period_key`** (`text not null`, `'YYYY-MM'`) | Pencocokan langsung `b.period_key = period_key` pada batch efektif `batch_status = 'posted'`. Tidak menggunakan `posted_at` atau `created_at`. | **Hasil Usaha:** `business_portion_amount` (`total_business_portion`).<br>**Non-Usaha/Prive:** `non_business_portion_amount` (`total_non_business_portion`). | `asset_depreciation_ledger.asset_id -> assets.location_id` (`NULL` = aset bersama lintas kos). |
+
+### 12.2 Pemisahan Laporan Arus Kas vs Laporan Hasil Usaha Internal
+
+1. **Laporan Arus Kas (`Cash Flow Report`)**:
+   - $\text{Kas Masuk}(P) = \sum_{i \in \text{incomes}(P)} i.\text{nominal}$
+   - $\text{Kas Keluar Total}(P) = \sum_{e \in \text{expenses}(P)} e.\text{nominal}$ (terdiri atas rincian *Kas Keluar Operasional* dan *Kas Belanja Aset Sah*)
+   - $\text{Arus Kas Bersih}(P) = \text{Kas Masuk}(P) - \text{Kas Keluar Total}(P)$
+   - **Penyusutan = Rp 0** (penyusutan tidak mengubah kas masuk maupun kas keluar).
+2. **Laporan Hasil Usaha Internal (`Internal Income Statement`)**:
+   - $\text{Pendapatan Usaha}(P) = \sum_{i \in \text{incomes}(P)} i.\text{nominal}$
+   - $\text{Beban Operasional Non-Penyusutan}(P) = \sum_{e \in \text{expenses}(P)} \bigl(e.\text{nominal} - \text{KapitalisasiSah}(e)\bigr)$
+   - $\text{Hasil Usaha Sebelum Penyusutan}(P) = \text{Pendapatan Usaha}(P) - \text{Beban Operasional Non-Penyusutan}(P)$
+   - $\text{Beban Penyusutan Usaha}(P)$: Hanya mengambil **`business_portion_amount`** (`total_business_portion`) dari batch yang berstatus **`batch_status = 'posted'`**. Bagian non-usaha (`non_business_portion_amount`) dikecualikan dari perhitungan Hasil Usaha Kos dan ditampilkan terpisah sebagai informasi *Penyusutan Non-Usaha / Prive*.
+   - $\text{Hasil Usaha Bersih}(P) = \text{Hasil Usaha Sebelum Penyusutan}(P) - \text{Beban Penyusutan Usaha}(P)$ (hanya dihitung jika periode berstatus **`Lengkap`**; jika belum dibukukan, bernilai `NULL` dengan indikator **`Belum Lengkap`**).
+
+### 12.3 Perlakuan Pembelian Aset dan Nota Campuran (`KapitalisasiSah(e)`)
+
+Alokasi komponen `c` (`c.expense_id = e.id`) mengurangi `e.nominal` dalam perhitungan Beban Operasional Non-Penyusutan sebesar `c.allocated_cost` **hanya jika**:
+1. `c.allocated_cost IS NOT NULL AND c.allocated_cost > 0`,
+2. `c.status_kapitalisasi = 'kapitalisasi'`,
+3. Aset induk berstatus `a.status_pencatatan = 'aktif'` dan `c.requires_reapproval = false`, serta
+4. Komponen `c.id` tercatat sebagai komponen `'kapitalisasi'` di dalam snapshot aktivasi resmi terbaru (`asset_activation_snapshots`).
+
+Dengan rumus $\text{BebanOperasionalKas}(e) = e.\text{nominal} - \text{KapitalisasiSah}(e)$:
+- **Pembelian Aset Penuh Aktif** (`allocated_cost = e.nominal`): Beban operasional langsung menjadi **Rp 0**; biaya diakui bertahap melalui penyusutan.
+- **Nota Campuran Aktif** (`0 < allocated_cost < e.nominal`): Bagian `allocated_cost` dieliminasi dari beban operasional dan disusutkan di sub-ledger, sedangkan selisihnya ($e.\text{nominal} - \text{allocated\_cost}$) tetap diakui sebagai beban operasional periode berjalan.
+- **Alokasi pada Aset Draf / Perlu Telaah / Beban Langsung**: $\text{KapitalisasiSah}(e) = 0$; tetap dihitung sebagai beban operasional kas penuh disertai informasi adanya alokasi draf yang belum diaktifkan.
+
+### 12.4 Aturan Tunggal Menghitung Posting, Pembatalan, dan Posting Pengganti
+
+Untuk mencegah penghitungan ganda (*double counting*) saat terjadi siklus *Posting $\rightarrow$ Pembatalan (Reversed) $\rightarrow$ Posting Pengganti (Replacement)*:
+- **Satu-satunya sumber penyusutan laporan adalah batch dengan `batch_status = 'posted'`** dan baris ledger dengan `entry_type IN ('regular', 'replacement')` yang terhubung ke batch `posted` tersebut:
+  ```sql
+  WHERE b.org_id = :p_org_id
+    AND b.period_key = :p_period_key
+    AND b.batch_status = 'posted'
+    AND l.entry_type IN ('regular', 'replacement')
+  ```
+- Partial unique index `uq_active_posted_batch` menjamin paling banyak 1 batch `posted` per `(org_id, period_key)`. Seluruh batch `reversed` dan baris ledger `reversal` diabaikan dari perhitungan laporan hasil usaha.
+
+### 12.5 Indikator Periode “Belum Lengkap”
+
+Periode yang penyusutannya belum dibukukan **dilarang** dianggap memiliki beban penyusutan Rp 0:
+- **`LENGKAP_TERKUNCI` / `LENGKAP_DIBUKUKAN`**: Terdapat batch `batch_status = 'posted'` dan tidak ada aset berstatus `perlu_pengesahan_ulang`. Nilai `Beban Penyusutan Usaha` dan `Hasil Usaha Bersih` disajikan sebagai angka pasti (termasuk `Rp 0` apabila batch yang diposting memang bernilai nol).
+- **`BELUM_LENGKAP`** (`BELUM_LENGKAP_PENGATURAN`, `BELUM_LENGKAP_PRA_CUTOFF`, `BELUM_LENGKAP_REAPPROVAL`, `BELUM_LENGKAP_BELUM_POSTING`): Nilai `depreciation_business_portion` dan `net_operating_income` adalah `NULL`; UI menampilkan badge **`⚠️ Belum Lengkap`** dan label **`Belum dibukukan`** pada baris penyusutan.
+
+### 12.6 Contoh Rekonsiliasi Konkret & Matriks Pengujian Fase 5B
+
+Contoh rekonsiliasi numerik lengkap untuk periode `2026-06` (Kas Masuk Rp 4.500.000, Kas Keluar Total Rp 10.500.000 dengan Kapitalisasi Sah Rp 7.800.000 dan Beban Operasional Rp 2.700.000, serta siklus Batch 1 Rp 730.000 $\rightarrow$ Storno $\rightarrow$ Batch 2 Pengganti Rp 714.000 bagian usaha dan Rp 416.000 bagian non-usaha) membuktikan identitas jembatan rekonsiliasi:
+$$\text{Hasil Usaha Bersih (Rp 1.086.000)} = \text{Arus Kas Bersih (-Rp 6.000.000)} + \text{Kapitalisasi Sah (Rp 7.800.000)} - \text{Penyusutan Usaha Posted (Rp 714.000)}$$
+
+Matriks pengujian mandatori untuk implementasi Fase 5B mencakup:
+1. `qa/aset/fase5_laporan_engine.test.mjs` (unit rekonsiliasi & pemetaan tanggal/nota campuran),
+2. `qa/aset/fase5_laporan_db.test.mjs` (integrasi SQL atas siklus multi-storno, alokasi draf vs aktif, penguncian `expense_id`/`allocated_cost`, indikator `Belum Lengkap` vs batch nol, dan filter lokasi),
+3. `qa/aset/fase5_laporan_api.test.mjs` (otorisasi GoTrue + PostgREST RLS lintas peran & lintas organisasi),
+4. `qa/aset/fase5_browser_laporan_flow.test.mjs` (pengujian browser E2E Puppeteer + GoTrue + PostgREST untuk tab Arus Kas vs Hasil Usaha Internal dan transisi status `Belum Lengkap` $\leftrightarrow$ `Lengkap`).
+
 
 
 
