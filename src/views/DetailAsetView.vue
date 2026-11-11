@@ -1203,6 +1203,7 @@
           <div>
             <label class="block font-bold text-text-secondary mb-1">Biaya Perolehan (Rp) *</label>
             <input
+              id="revise-biaya"
               v-model.number="reviseBiaya"
               type="number"
               min="0"
@@ -1249,9 +1250,33 @@
               />
             </div>
           </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block font-bold text-text-secondary mb-1">Keputusan Kapitalisasi</label>
+              <select
+                v-model="reviseStatusKapitalisasi"
+                class="w-full border-2 border-border rounded-xl p-2 font-semibold bg-white"
+              >
+                <option value="kapitalisasi">Kapitalisasi Aset</option>
+                <option value="beban_langsung">Beban Langsung</option>
+                <option value="perlu_telaah">Perlu Telaah</option>
+              </select>
+            </div>
+            <div v-if="reviseExpenseId">
+              <label class="block font-bold text-text-secondary mb-1">Alokasi Pengeluaran (Rp)</label>
+              <input
+                id="revise-allocated-cost"
+                v-model.number="reviseAllocatedCost"
+                type="number"
+                min="0"
+                class="w-full border-2 border-border rounded-xl p-2 font-semibold"
+              />
+            </div>
+          </div>
           <div>
             <label class="block font-bold text-text-secondary mb-1">Alasan Revisi *</label>
             <textarea
+              id="revise-reason"
               v-model="reviseReason"
               rows="2"
               placeholder="Jelaskan alasan perubahan parameter finansial ini..."
@@ -1351,6 +1376,9 @@ const reviseNilaiSisa = ref(0)
 const reviseMasaManfaat = ref(0)
 const reviseTanggalSiapGuna = ref('')
 const revisePorsiUsaha = ref(100)
+const reviseStatusKapitalisasi = ref('kapitalisasi')
+const reviseExpenseId = ref(null)
+const reviseAllocatedCost = ref(null)
 const reviseReason = ref('')
 const isRevising = ref(false)
 const reviseModalError = ref('')
@@ -1666,6 +1694,9 @@ function openReviseModal(comp) {
   reviseMasaManfaat.value = comp.masa_manfaat_bulan ? Number(comp.masa_manfaat_bulan) : 0
   reviseTanggalSiapGuna.value = comp.tanggal_siap_guna || ''
   revisePorsiUsaha.value = comp.porsi_usaha_persen !== null ? Number(comp.porsi_usaha_persen) : 100
+  reviseStatusKapitalisasi.value = comp.status_kapitalisasi || 'kapitalisasi'
+  reviseExpenseId.value = comp.expense_id || null
+  reviseAllocatedCost.value = comp.allocated_cost !== null && comp.allocated_cost !== undefined ? Number(comp.allocated_cost) : null
   reviseReason.value = ''
   reviseModalError.value = ''
   showReviseModal.value = true
@@ -1681,6 +1712,7 @@ async function executeReviseParameters() {
   isRevising.value = true
   reviseModalError.value = ''
   try {
+    const hasAllocationField = Boolean(reviseExpenseId.value)
     await reviseComponentParameters(supabase, {
       componentId: targetCompRevise.value.id,
       notes: reviseReason.value.trim(),
@@ -1689,6 +1721,10 @@ async function executeReviseParameters() {
       masaManfaat: reviseMasaManfaat.value,
       tanggalSiapGuna: reviseTanggalSiapGuna.value,
       porsiUsaha: revisePorsiUsaha.value,
+      statusKapitalisasi: reviseStatusKapitalisasi.value,
+      expenseId: reviseExpenseId.value,
+      allocatedCost: reviseAllocatedCost.value,
+      updateExpenseAllocation: hasAllocationField,
     })
     showReviseModal.value = false
     await loadAssetDetail()

@@ -297,6 +297,18 @@ export function formatBookkeepingError(err) {
       return 'Sisa dasar penyusutan positif namun masa manfaat awal telah habis. Wajib mengisi revisi estimasi sisa masa manfaat (bulan).'
     case 'SIMKOS_REASON_REQUIRED':
       return 'Wajib mencantumkan alasan tertulis untuk tindakan ini.'
+    case 'SIMKOS_FULL_MONTH_REQUIRED':
+      return 'Laporan Hasil Usaha Internal hanya tersedia untuk periode satu bulan kalender penuh (format YYYY-MM).'
+    case 'SIMKOS_CROSS_TENANT_LOCATION':
+      return 'Lokasi yang dipilih tidak valid atau bukan milik organisasi ini.'
+    case 'SIMKOS_LOCKED_ASSET_LOCATION':
+      return 'Lokasi aset telah dikunci karena aset sudah memiliki snapshot pengesahan atau riwayat pembukuan penyusutan.'
+    case 'SIMKOS_EXPENSE_LOCKED_BY_ACTIVE_ASSET':
+      return 'Transaksi pengeluaran ini telah terikat pada snapshot aset yang disahkan; lokasi dan tanggal pengeluaran tidak dapat diubah secara langsung.'
+    case 'SIMKOS_INCOMPLETE_ALLOCATION':
+      return 'Komponen yang terhubung ke pengeluaran kas wajib memiliki nilai alokasi biaya (allocated_cost) yang jelas sebelum aset dapat diaktifkan.'
+    case 'SIMKOS_ALLOCATED_COST_WITHOUT_EXPENSE':
+      return 'Nilai alokasi biaya tidak boleh diisi tanpa memilih transaksi pengeluaran kas yang valid.'
     default:
       break
   }
@@ -430,8 +442,11 @@ export async function reviseComponentParameters(supabaseClient, {
   metode = 'garis_lurus',
   statusKapitalisasi = 'kapitalisasi',
   notes = '',
+  expenseId = null,
+  allocatedCost = null,
+  updateExpenseAllocation = false,
 }) {
-  const { data, error } = await supabaseClient.rpc('revise_component_parameters', {
+  const payload = {
     p_component_id: componentId,
     p_biaya_perolehan: biaya,
     p_nilai_sisa: nilaiSisa,
@@ -441,7 +456,13 @@ export async function reviseComponentParameters(supabaseClient, {
     p_metode_penyusutan: metode,
     p_status_kapitalisasi: statusKapitalisasi,
     p_revision_notes: notes,
-  })
+  }
+  if (updateExpenseAllocation) {
+    payload.p_expense_id = expenseId || null
+    payload.p_allocated_cost = allocatedCost !== null && allocatedCost !== '' ? Number(allocatedCost) : null
+    payload.p_update_expense_allocation = true
+  }
+  const { data, error } = await supabaseClient.rpc('revise_component_parameters', payload)
   if (error) throw error
   return data
 }

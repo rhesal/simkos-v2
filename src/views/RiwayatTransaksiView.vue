@@ -114,6 +114,51 @@
       </div>
 
       <template v-else>
+        <!-- Banner Status Cakupan Bulan Penuh vs Arus Kas -->
+        <div
+          id="banner-status-periode-laporan"
+          class="rounded-2xl border-2 p-4 text-xs space-y-2 print-hide"
+          :class="fullMonthDetection.isFullMonth
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
+            : 'bg-blue-50 border-blue-200 text-blue-950'"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="font-extrabold flex items-center gap-1.5">
+              <span>{{ fullMonthDetection.isFullMonth ? '📊' : '💵' }}</span>
+              <span>
+                {{
+                  fullMonthDetection.isFullMonth
+                    ? `Periode Bulan Kalender Penuh (${fullMonthDetection.periodKey})`
+                    : 'Mode Riwayat Arus Kas (Rentang Tanggal Bebas / Parsial)'
+                }}
+              </span>
+            </span>
+            <router-link
+              v-if="fullMonthDetection.isFullMonth"
+              id="btn-buka-hasil-usaha-bulan-penuh"
+              :to="`/keuangan?period=${fullMonthDetection.periodKey}&tab=hasil_usaha`"
+              class="px-3 py-1.5 rounded-xl bg-navy text-white font-bold text-[11px] hover:bg-navy-dark transition"
+            >
+              Buka Hasil Usaha Internal ({{ fullMonthDetection.periodKey }}) →
+            </router-link>
+            <router-link
+              v-else
+              id="btn-ke-hasil-usaha-bulanan"
+              to="/keuangan?tab=hasil_usaha"
+              class="px-3 py-1.5 rounded-xl bg-navy text-white font-bold text-[11px] hover:bg-navy-dark transition"
+            >
+              Ke Laporan Hasil Usaha Bulanan →
+            </router-link>
+          </div>
+          <p id="text-alasan-bulan-penuh" class="text-[11px] leading-relaxed">
+            {{
+              fullMonthDetection.isFullMonth
+                ? `Rentang tanggal ${startDate} s/d ${endDate} mencakup satu bulan kalender penuh. Anda dapat melihat penyesuaian kapitalisasi dan penyusutan pada Laporan Hasil Usaha Internal.`
+                : fullMonthDetection.reason
+            }}
+          </p>
+        </div>
+
         <!-- Summary Mini Cards (Clickable Filter Masuk / Keluar) -->
         <div class="space-y-3">
           <div class="grid grid-cols-2 gap-4">
@@ -446,6 +491,7 @@ import { supabase } from '../supabase.js'
 import { RECEIPT_BUCKET, getSignedUrl, deleteStorageFile } from '../lib/storage.js'
 import BottomNav from '../components/BottomNav.vue'
 import { buildCsv, csvFileParts, localDateStamp } from '../lib/csv.js'
+import { detectFullMonthFromDateRange } from '../lib/laporanKeuangan.js'
 
 const isLoading = ref(true)
 const locationList = ref([])
@@ -456,6 +502,10 @@ const startDate = ref('')
 const endDate = ref('')
 const currentPage = ref(1)
 const pageSize = ref(10)
+
+const fullMonthDetection = computed(() => {
+  return detectFullMonthFromDateRange(startDate.value, endDate.value)
+})
 
 function toggleTypeFilter(tipe) {
   if (filterTipe.value === tipe) {

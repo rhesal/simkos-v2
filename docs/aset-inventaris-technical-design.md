@@ -1194,6 +1194,20 @@ Matriks pengujian mandatori Fase 5B mencakup:
 3. `qa/aset/fase5_laporan_api.test.mjs` (otorisasi GoTrue + PostgREST RLS lintas peran & lintas organisasi),
 4. `qa/aset/fase5_browser_laporan_flow.test.mjs` (pengujian browser E2E Puppeteer + GoTrue + PostgREST).
 
+### 12.6 Status Implementasi & Verifikasi Aktual Fase 5B (SELESAI)
+
+1. **Migrasi Database & Rollback (`supabase/migrations/20261111001000_assets_phase5_financial_report.sql` & `supabase/rollback/rollback_1000_assets_phase5_financial_report.sql`)**:
+   - Menambahkan `location_id uuid references public.locations(id) on delete restrict` dan `location_recorded boolean not null default false` pada `public.asset_activation_snapshots`.
+   - Memperbarui `activate_asset` untuk membekukan `location_id`, `expense_id`, `allocated_cost`, dan `status_kapitalisasi` ke dalam snapshot resmi, serta menolak aktivasi apabila `expense_id IS NOT NULL AND allocated_cost IS NULL` (`SIMKOS_INCOMPLETE_ALLOCATION`).
+   - Memperbarui `revise_component_parameters` untuk mendukung perubahan `expense_id` dan `allocated_cost` secara atomik dengan tetap menjaga kompatibilitas pemanggilan 9 argumen dari Fase 4.
+   - Mengimplementasikan RPC `get_period_financial_report(p_org_id, p_period_key, p_location_id default null)` di server sesuai kontrak Fase 5A, termasuk penanganan eksplisit snapshot lama pra-Fase 5B (`legacy_snapshot_issue_count` dan kode alasan `SNAPSHOT_LAMA_BELUM_MEMUAT_METADATA`) tanpa menganggapnya otomatis sebagai aset bersama atau nol.
+2. **Integrasi Frontend (`src/lib/laporanKeuangan.js`, `src/lib/pembukuanAset.js`, `src/views/KeuanganView.vue`, `src/views/RiwayatTransaksiView.vue`, `src/views/DetailAsetView.vue`)**:
+   - Halaman `/keuangan` memisahkan tab **`💵 Arus Kas`** dan **`📊 Hasil Usaha Internal`** untuk periode bulan penuh (`YYYY-MM`), menampilkan nilai referensi terakhir disahkan vs usulan revisi secara terpisah tanpa hitung ganda, menampilkan pembedaan tegas `Belum dibukukan` (`null`) vs `Rp 0` (`0`), kartu `Informasi Biaya Bersama Lintas Lokasi`, `Jembatan Rekonsiliasi`, dan `Riwayat Revisi Alokasi Pengeluaran`.
+   - Halaman `/riwayat-transaksi` membatasi tautan Laporan Hasil Usaha Internal hanya untuk rentang tanggal satu bulan kalender penuh.
+3. **Verifikasi Aktual**:
+   - Seluruh 25 berkas tes non-browser (`npm test`, total 171 tes) dan pengujian E2E browser (`qa/aset/fase5_browser_laporan_flow.test.mjs`, 8 tes / 7 subtest) lulus 100% tanpa kegagalan, serta `npm run build` berhasil tanpa error.
+
+
 
 
 

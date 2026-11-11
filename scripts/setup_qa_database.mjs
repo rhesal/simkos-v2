@@ -148,9 +148,8 @@ export async function setupQaDatabase() {
     await execSqlFile(client, 'supabase/migrations/20261018000600_pindah_kamar.sql')
     await execSqlFile(client, 'supabase/migrations/20261107000700_tenant_alamat.sql')
     await execSqlFile(client, 'supabase/migrations/20261108000800_assets_phase2.sql')
-    await execSqlFile(client, 'supabase/migrations/20261109000900_assets_phase4_bookkeeping.sql')
 
-    // 7. Izin hak akses PostgREST / Supabase
+    // 7. Izin hak akses dasar PostgREST / Supabase sebelum penguncian tabel pembukuan
     await client.query(`
       GRANT USAGE ON SCHEMA public, auth, storage, extensions TO anon, authenticated, service_role;
       GRANT ALL ON ALL TABLES IN SCHEMA public, auth, storage TO anon, authenticated, service_role;
@@ -160,6 +159,9 @@ export async function setupQaDatabase() {
       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authenticated, service_role;
     `)
+
+    await execSqlFile(client, 'supabase/migrations/20261109000900_assets_phase4_bookkeeping.sql')
+    await execSqlFile(client, 'supabase/migrations/20261111001000_assets_phase5_financial_report.sql')
 
     console.log('[QA-DB] Database skema migrasi & akun resmi Supabase Auth berhasil disiapkan!')
     return userMap
