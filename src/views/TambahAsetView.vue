@@ -506,6 +506,29 @@
           </div>
         </div>
 
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-text-secondary mb-1">Tanggal Siap Guna</label>
+            <input
+              v-model="componentForm.tanggal_siap_guna"
+              type="date"
+              class="w-full bg-white border-2 border-border rounded-xl px-3 py-2.5 text-sm font-semibold"
+            />
+            <small class="text-[10px] text-text-muted mt-0.5 block">Tanggal mulai dipakai/dapat disusutkan.</small>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-text-secondary mb-1">Masa Manfaat (Tahun)</label>
+            <input
+              v-model.number="componentForm.masa_manfaat_tahun"
+              type="number"
+              min="1"
+              placeholder="Contoh: 4 atau 5"
+              class="w-full bg-white border-2 border-border rounded-xl px-3 py-2.5 text-sm font-semibold"
+            />
+            <small class="text-[10px] text-text-muted mt-0.5 block">Estimasi umur ekonomis barang.</small>
+          </div>
+        </div>
+
         <div>
           <label class="block text-xs font-bold text-text-secondary mb-1">Catatan</label>
           <textarea
@@ -753,9 +776,9 @@ async function saveAsset() {
       nama_komponen: form.kategori_aset === 'gedung' ? 'Bangunan Awal' : form.nama_aset,
       jenis_pekerjaan: form.kategori_aset === 'gedung' ? 'bangunan_awal' : 'perolehan_baru',
       biaya_perolehan: componentForm.biaya_perolehan !== null && componentForm.biaya_perolehan !== '' ? componentForm.biaya_perolehan : null,
-      tahun_perolehan: componentForm.tahun_perolehan || null,
+      tahun_perolehan: componentForm.tahun_perolehan || (componentForm.tanggal_siap_guna ? new Date(componentForm.tanggal_siap_guna).getFullYear() : (componentForm.tanggal_perolehan ? new Date(componentForm.tanggal_perolehan).getFullYear() : null)),
       tanggal_perolehan: componentForm.tanggal_perolehan || null,
-      tanggal_siap_guna: componentForm.tanggal_siap_guna || null,
+      tanggal_siap_guna: componentForm.tanggal_siap_guna || componentForm.tanggal_perolehan || null,
       nilai_sisa: componentForm.nilai_sisa || 0,
       masa_manfaat_bulan: form.kategori_aset === 'tanah' ? null : (componentForm.masa_manfaat_tahun ? componentForm.masa_manfaat_tahun * 12 : null),
       metode_penyusutan: form.kategori_aset === 'tanah' ? 'tidak_disusutkan' : 'garis_lurus',
