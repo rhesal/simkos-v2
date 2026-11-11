@@ -363,18 +363,19 @@ create table if not exists public.asset_components (
 
 ---
 
-## 5. Integrasi Keuangan Internal [DIRANCANG - FASE 5A]
+## 5. Integrasi Keuangan Internal [DIRANCANG - FASE 5A REVISI]
 
 ### 5.1 Basis Tanggal & Pembukuan Laporan
-- **Basis Pembukuan**: Modified Cash Basis (Basis Kas Dimodifikasi dengan Kapitalisasi Aset & Penyusutan).
-- **Penetapan Basis Tanggal & Sumber Data Aktual**:
-  1. *Penerimaan Kas & Pendapatan Usaha*: Mengambil `public.incomes.nominal` berdasarkan kolom tanggal aktual **`incomes.tanggal_bayar`** (`to_char(incomes.tanggal_bayar, 'YYYY-MM') = period_key`).
-  2. *Pengeluaran Kas & Beban Operasional*: Mengambil `public.expenses.nominal` berdasarkan kolom tanggal aktual **`expenses.tanggal_pengeluaran`** (`to_char(expenses.tanggal_pengeluaran, 'YYYY-MM') = period_key`).
-  3. *Beban Penyusutan Usaha*: Mengambil `business_portion_amount` (`total_business_portion`) dari **`public.asset_depreciation_ledger`** yang tergabung pada **`public.asset_depreciation_batches`** berdasarkan **`period_key`** (`YYYY-MM`) dengan syarat tunggal **`batch_status = 'posted'`** dan `entry_type IN ('regular', 'replacement')`. Penyusutan tidak mengubah kas, dan bagian non-usaha (`non_business_portion_amount`) dikecualikan dari Laporan Hasil Usaha Kos.
-  4. *Aturan Pengurangan Beban Belanja Terkapitalisasi (Pembelian Aset & Nota Campuran)*:
-     - **Draf atau alokasi yang belum disahkan (`status_pencatatan = 'draft'`, `requires_reapproval = true`, atau `status_kapitalisasi IN ('perlu_telaah', 'beban_langsung')`) TIDAK OTOMATIS MENGURANGI BEBAN LAPORAN**.
-     - Hanya alokasi komponen (`asset_components.allocated_cost`) yang memiliki `status_kapitalisasi = 'kapitalisasi'` pada aset induk yang telah diaktifkan secara resmi (`assets.status_pencatatan = 'aktif'`) dan tercatat di snapshot aktivasi resmi terbaru (`asset_activation_snapshots`) yang dikurangkan dari `expenses.nominal` saat menghitung Beban Operasional Non-Penyusutan.
-     - Rincian lengkap formula, aturan tunggal bebas penghitungan ganda, indikator `"Belum lengkap"`, contoh rekonsiliasi numerik konkret, dan matriks pengujian dijabarkan pada **Bagian 12**.
+- **Basis Pembukuan**: **Laporan Internal Berbasis Penerimaan dan Pengeluaran Kas dengan Penyesuaian Kapitalisasi Aset dan Penyusutan Resmi** (bukan laporan laba-rugi akrual penuh).
+- **Penetapan Basis Tanggal, Satuan Bulan Penuh, & Sumber Data Aktual**:
+  1. *Satuan Periode*: Laporan Hasil Usaha Internal dibatasi hanya pada **periode bulan kalender penuh (`YYYY-MM`)** sesuai siklus pembukuan penyusutan.
+  2. *Penerimaan Kas Usaha*: Mengambil `public.incomes.nominal` berdasarkan kolom tanggal aktual **`incomes.tanggal_bayar`** (`to_char(incomes.tanggal_bayar, 'YYYY-MM') = period_key`).
+  3. *Pengeluaran Kas & Klasifikasi Alokasi Belanja*: Mengambil `public.expenses.nominal` berdasarkan kolom tanggal aktual **`expenses.tanggal_pengeluaran`** (`to_char(expenses.tanggal_pengeluaran, 'YYYY-MM') = period_key`), dengan memisahkan 3 klasifikasi alokasi komponen dari **versi snapshot yang disahkan (`asset_activation_snapshots.snapshot_params`)**:
+     - `approved_capitalized_deduction` (`status_kapitalisasi = 'kapitalisasi'` yang sudah disahkan pada snapshot aktif): mengurangi pengeluaran kas operasional.
+     - `approved_direct_expense_allocation` (`status_kapitalisasi = 'beban_langsung'` yang sudah disahkan pada snapshot aktif): tetap menjadi pengeluaran kas operasional, dan status klasifikasinya sudah final/lengkap.
+     - `unapproved_allocation_pending_amount` (alokasi pada aset `draft`, `perlu_telaah`, `perlu_pengesahan_ulang`, atau belum masuk snapshot): tidak mengurangi pengeluaran operasional sementara, namun menandai periode dengan **status ketidaklengkapan klasifikasi (`BELUM_LENGKAP_KLASIFIKASI`)** sehingga hasil akhir tidak ditampilkan seolah sudah final.
+  4. *Beban Penyusutan Usaha*: Pemeriksaan keberadaan batch (`batch_status = 'posted'`) dilakukan secara terpisah di tingkat organisasi dari agregasi nominal dan filter lokasi. Laporan Hasil Usaha hanya mengambil `business_portion_amount` dari batch yang sudah `posted`. Penyusutan aset bersama (`assets.location_id IS NULL`) dan tagihan bersama (`expenses.location_id IS NULL`) disertakan dalam objek `shared_costs` beserta label bahwa hasil per lokasi belum mencakup alokasi biaya bersama.
+  5. Rincian lengkap formula, batas penguncian periode dan lokasi, contoh rekonsiliasi numerik konkret, dan matriks pengujian dijabarkan pada **Bagian 12**.
 
 ---
 
@@ -1132,72 +1133,62 @@ Jika ada komponen baru yang memiliki tanggal siap guna di masa lalu (misal siap 
 
 ---
 
-## 12. Desain Integrasi Laporan Arus Kas & Hasil Usaha Internal (Fase 5A)
+## 12. Desain Integrasi Laporan Arus Kas & Hasil Usaha Internal (Fase 5A — Revisi Terbatas)
 
-### 12.1 Sumber Data dan Kolom Tanggal Aktual per Periode Laporan (`period_key = YYYY-MM`)
+### 12.1 Sifat Laporan, Pembatasan Bulan Penuh, dan Sumber Data Aktual (`period_key = YYYY-MM`)
 
-| Komponen Laporan | Tabel Sumber Aktual | Kolom Tanggal / Periode Penentu | Aturan Pemetaan ke `period_key` (`YYYY-MM`) | Kolom Nominal yang Diambil | Pemetaan Filter Lokasi Kos (`location_id`) |
+1. **Bukan Laporan Akrual Penuh**:
+   Laporan Hasil Usaha didefinisikan sebagai **Laporan Hasil Usaha Internal Berbasis Penerimaan dan Pengeluaran Kas dengan Penyesuaian Kapitalisasi Aset dan Penyusutan Resmi** (`report_basis = 'cash_adjusted_internal'`). Penerimaan tetap mengikuti tanggal kas diterima (`incomes.tanggal_bayar`) dan pengeluaran mengikuti tanggal kas keluar (`expenses.tanggal_pengeluaran`), disesuaikan dengan eliminasi belanja yang telah disahkan sebagai kapitalisasi aset serta penambahan beban penyusutan bagian usaha yang telah dibukukan (`batch_status = 'posted'`).
+2. **Pembatasan Bulan Kalender Penuh (`YYYY-MM`)**:
+   Laporan Hasil Usaha Internal hanya disajikan untuk periode bulan kalender penuh (`YYYY-MM`). Rentang tanggal parsial/harian hanya menampilkan mutasi arus kas.
+
+| Elemen Laporan | Tabel Sumber Aktual | Kolom Tanggal / Periode Penentu | Aturan Pemetaan ke `period_key` (`YYYY-MM`) | Sumber Nominal & Versi Acuan | Pemetaan Lokasi (`location_id`) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Penerimaan Kas / Pendapatan Sewa** | `public.incomes` | **`incomes.tanggal_bayar`** (`date not null`) | `to_char(incomes.tanggal_bayar, 'YYYY-MM') = period_key` *(Kolom `periode_bayar` tidak digunakan sebagai acuan karena bersifat nullable dan tidak diisi pada alur input pembayaran).* | `incomes.nominal` | `incomes.rental_id -> rentals.room_id -> rooms.location_id` |
-| **Pengeluaran Kas (Bruto)** | `public.expenses` | **`expenses.tanggal_pengeluaran`** (`date not null`) | `to_char(expenses.tanggal_pengeluaran, 'YYYY-MM') = period_key` | `expenses.nominal` | `expenses.location_id` (`NULL` = Tagihan Bersama lintas kos; dihitung pada `Semua Lokasi` dan disajikan sebagai informasi terpisah pada filter lokasi tunggal). |
-| **Pengurang Belanja Dikapitalisasi (Aset & Nota Campuran)** | `public.asset_components` + `public.assets` + `public.asset_activation_snapshots` | Mengikuti **`expenses.tanggal_pengeluaran`** dari transaksi sumber (`asset_components.expense_id = expenses.id`) | Mengurangi beban operasional pada periode terjadinya transaksi `expenses` sumber setelah komponen aset disahkan aktif. | `asset_components.allocated_cost` | Mengikuti `expenses.location_id` dari transaksi sumber. |
-| **Beban Penyusutan Aset** | `public.asset_depreciation_batches` & `public.asset_depreciation_ledger` | **`period_key`** (`text not null`, `'YYYY-MM'`) | Pencocokan langsung `b.period_key = period_key` pada batch efektif `batch_status = 'posted'`. Tidak menggunakan `posted_at` atau `created_at`. | **Hasil Usaha:** `business_portion_amount` (`total_business_portion`).<br>**Non-Usaha/Prive:** `non_business_portion_amount` (`total_non_business_portion`). | `asset_depreciation_ledger.asset_id -> assets.location_id` (`NULL` = aset bersama lintas kos). |
+| **Penerimaan Kas Usaha** | `public.incomes` | **`incomes.tanggal_bayar`** (`date not null`) | `to_char(incomes.tanggal_bayar, 'YYYY-MM') = period_key` *(Kolom `periode_bayar` tidak digunakan karena nullable dan tidak diisi oleh alur input pembayaran).* | `incomes.nominal` | `incomes.rental_id -> rentals.room_id -> rooms.location_id` |
+| **Pengeluaran Kas Bruto** | `public.expenses` | **`expenses.tanggal_pengeluaran`** (`date not null`) | `to_char(expenses.tanggal_pengeluaran, 'YYYY-MM') = period_key` | `expenses.nominal` | `expenses.location_id` (`NULL` = Tagihan Bersama lintas lokasi) |
+| **Klasifikasi Alokasi Disahkan (`kapitalisasi` vs `beban_langsung`)** | `public.asset_activation_snapshots` + `public.assets` + `public.asset_components` | Mengikuti **`expenses.tanggal_pengeluaran`** dari transaksi sumber (`expense_id = expenses.id`) | Masuk ke periode `to_char(expenses.tanggal_pengeluaran, 'YYYY-MM')` dari transaksi sumber. | **Wajib dari versi snapshot terakhir yang disahkan** (`snapshot_params` pada `asset_activation_snapshots`). | Mengikuti `expenses.location_id` dari transaksi sumber. |
+| **Alokasi Belanja Tertunda (Belum Disahkan)** | `public.asset_components` + `public.assets` | Mengikuti **`expenses.tanggal_pengeluaran`** dari transaksi sumber (`expense_id = expenses.id`) | Mendeteksi alokasi pada periode tersebut yang belum disahkan (`draft`, `perlu_telaah`, `requires_reapproval`, atau belum tersnapshot). | `asset_components.allocated_cost` | Mengikuti `expenses.location_id` dari transaksi sumber. |
+| **Beban Penyusutan Aset** | `public.asset_depreciation_batches` & `public.asset_depreciation_ledger` | **`period_key`** (`text not null`, `'YYYY-MM'`) | Pencocokan langsung `b.period_key = period_key` pada batch efektif `batch_status = 'posted'`. Tidak menggunakan `posted_at` atau `created_at`. | **Hasil Usaha:** `business_portion_amount`.<br>**Non-Usaha/Prive:** `non_business_portion_amount`. | Lokasi aset yang dibekukan pada snapshot/ledger (`NULL` = Aset Bersama lintas lokasi). |
 
-### 12.2 Pemisahan Laporan Arus Kas vs Laporan Hasil Usaha Internal
+### 12.2 Pemisahan Tiga Klasifikasi Alokasi Belanja & Status Ketidaklengkapan Klasifikasi
 
-1. **Laporan Arus Kas (`Cash Flow Report`)**:
-   - $\text{Kas Masuk}(P) = \sum_{i \in \text{incomes}(P)} i.\text{nominal}$
-   - $\text{Kas Keluar Total}(P) = \sum_{e \in \text{expenses}(P)} e.\text{nominal}$ (terdiri atas rincian *Kas Keluar Operasional* dan *Kas Belanja Aset Sah*)
-   - $\text{Arus Kas Bersih}(P) = \text{Kas Masuk}(P) - \text{Kas Keluar Total}(P)$
-   - **Penyusutan = Rp 0** (penyusutan tidak mengubah kas masuk maupun kas keluar).
-2. **Laporan Hasil Usaha Internal (`Internal Income Statement`)**:
-   - $\text{Pendapatan Usaha}(P) = \sum_{i \in \text{incomes}(P)} i.\text{nominal}$
-   - $\text{Beban Operasional Non-Penyusutan}(P) = \sum_{e \in \text{expenses}(P)} \bigl(e.\text{nominal} - \text{KapitalisasiSah}(e)\bigr)$
-   - $\text{Hasil Usaha Sebelum Penyusutan}(P) = \text{Pendapatan Usaha}(P) - \text{Beban Operasional Non-Penyusutan}(P)$
-   - $\text{Beban Penyusutan Usaha}(P)$: Hanya mengambil **`business_portion_amount`** (`total_business_portion`) dari batch yang berstatus **`batch_status = 'posted'`**. Bagian non-usaha (`non_business_portion_amount`) dikecualikan dari perhitungan Hasil Usaha Kos dan ditampilkan terpisah sebagai informasi *Penyusutan Non-Usaha / Prive*.
-   - $\text{Hasil Usaha Bersih}(P) = \text{Hasil Usaha Sebelum Penyusutan}(P) - \text{Beban Penyusutan Usaha}(P)$ (hanya dihitung jika periode berstatus **`Lengkap`**; jika belum dibukukan, bernilai `NULL` dengan indikator **`Belum Lengkap`**).
+1. **`approved_capitalized_deduction` (`status_kapitalisasi = 'kapitalisasi'` pada snapshot aktif)**:
+   - Mengurangi `Pengeluaran Kas Operasional` pada periode transaksi `expenses` induk dan dialihkan menjadi penyusutan periodik. Status klasifikasi: **Final/Lengkap**.
+2. **`approved_direct_expense_allocation` (`status_kapitalisasi = 'beban_langsung'` pada snapshot aktif)**:
+   - Sudah diputuskan secara resmi bukan kapitalisasi aset; tetap berada di dalam `Pengeluaran Kas Operasional`, **dan status klasifikasinya Final/Lengkap** (bukan alokasi tertunda).
+3. **`unapproved_allocation_pending_amount` (Alokasi `draft` / `perlu_telaah` / `perlu_pengesahan_ulang` / belum masuk snapshot)**:
+   - Belum mengurangi `Pengeluaran Kas Operasional` sementara, **DAN menyebabkan `classification_complete = false` (`BELUM_LENGKAP_KLASIFIKASI`)**. Selama `unapproved_allocation_pending_amount > 0`, hasil akhir laporan (`operating_cash_expense`, `surplus_deficit_before_depreciation`, `net_operating_income`) bernilai `null` (ditampilkan dengan badge **`⚠️ Belum Lengkap`** dan angka sementara tidak disajikan seolah sudah final).
 
-### 12.3 Perlakuan Pembelian Aset dan Nota Campuran (`KapitalisasiSah(e)`)
+### 12.3 Penyimpanan di Snapshot Resmi, Dampak Revisi Alokasi pada Periode Asal, & Batas Penguncian Periode/Lokasi
 
-Alokasi komponen `c` (`c.expense_id = e.id`) mengurangi `e.nominal` dalam perhitungan Beban Operasional Non-Penyusutan sebesar `c.allocated_cost` **hanya jika**:
-1. `c.allocated_cost IS NOT NULL AND c.allocated_cost > 0`,
-2. `c.status_kapitalisasi = 'kapitalisasi'`,
-3. Aset induk berstatus `a.status_pencatatan = 'aktif'` dan `c.requires_reapproval = false`, serta
-4. Komponen `c.id` tercatat sebagai komponen `'kapitalisasi'` di dalam snapshot aktivasi resmi terbaru (`asset_activation_snapshots`).
+1. **Snapshot Menyimpan `expense_id`, `allocated_cost`, `status_kapitalisasi`, dan `location_id`**:
+   - `activate_asset` membekukan `expense_id`, `allocated_cost`, `status_kapitalisasi`, dan `location_id` di dalam `asset_activation_snapshots.snapshot_params`.
+   - Trigger `validate_component_relations()` menolak perubahan langsung atas `expense_id`, `allocated_cost`, dan `status_kapitalisasi` setelah aset memiliki snapshot/riwayat (`SIMKOS_LOCKED_FINANCIAL_PARAMETERS`).
+2. **Dampak Revisi terhadap Periode Transaksi Asal & Transparansi Perubahan**:
+   - Jika `revise_component_parameters` mengubah `allocated_cost`, `expense_id`, atau `status_kapitalisasi`, RPC memeriksa apakah periode transaksi pengeluaran asal (`to_char(expenses.tanggal_pengeluaran, 'YYYY-MM')`) berstatus `'locked'`. Jika terkunci, revisi ditolak dengan `SIMKOS_EXPENSE_ORIGIN_PERIOD_LOCKED`.
+   - Setelah disahkan ulang (`Snapshot v+1`), perubahan antar-versi snapshot pada periode transaksi asal ditampilkan secara transparan di dalam array `allocation_revision_history` (mencatat versi snapshot asal $\rightarrow$ baru, nominal alokasi lama $\rightarrow$ baru, dan `operating_expense_delta`).
+3. **Batas Penguncian Periode (`locked`) & Perlindungan Lokasi Historis**:
+   - Saat periode $P$ berstatus `'locked'`, trigger memblokir `INSERT`/`UPDATE`/`DELETE` pada `incomes` (`tanggal_bayar` di $P$) dan `expenses` (`tanggal_pengeluaran` di $P$) dengan `SIMKOS_PERIOD_LOCKED`, selain memblokir posting/storno batch penyusutan dan revisi alokasi belanja periode $P$.
+   - Perubahan `assets.location_id` dan `assets.room_id` pada aset yang sudah memiliki snapshot/riwayat ditolak (`SIMKOS_LOCKED_ASSET_LOCATION`), dan perubahan `expenses.location_id` atau `tanggal_pengeluaran` pada pengeluaran yang teralokasi ke aset aktif ditolak (`SIMKOS_EXPENSE_LOCKED_BY_ACTIVE_ASSET`), sehingga laporan historis tidak pernah berpindah lokasi tanpa penjelasan.
 
-Dengan rumus $\text{BebanOperasionalKas}(e) = e.\text{nominal} - \text{KapitalisasiSah}(e)$:
-- **Pembelian Aset Penuh Aktif** (`allocated_cost = e.nominal`): Beban operasional langsung menjadi **Rp 0**; biaya diakui bertahap melalui penyusutan.
-- **Nota Campuran Aktif** (`0 < allocated_cost < e.nominal`): Bagian `allocated_cost` dieliminasi dari beban operasional dan disusutkan di sub-ledger, sedangkan selisihnya ($e.\text{nominal} - \text{allocated\_cost}$) tetap diakui sebagai beban operasional periode berjalan.
-- **Alokasi pada Aset Draf / Perlu Telaah / Beban Langsung**: $\text{KapitalisasiSah}(e) = 0$; tetap dihitung sebagai beban operasional kas penuh disertai informasi adanya alokasi draf yang belum diaktifkan.
+### 12.4 Pemisahan Dua Langkah: Pemeriksaan Keberadaan Batch vs Agregasi Nominal & Filter Lokasi
 
-### 12.4 Aturan Tunggal Menghitung Posting, Pembatalan, dan Posting Pengganti
+1. **Langkah 1 — Pemeriksaan Keberadaan Batch Tingkat Organisasi**:
+   Mengecek `SELECT * FROM public.asset_depreciation_batches WHERE org_id = p_org_id AND period_key = p_period_key AND batch_status = 'posted'` **tanpa join ke ledger dan tanpa filter lokasi**. Jika ditemukan, maka `depreciation_complete = true` (sekalipun `component_count = 0` [Batch Nol] atau lokasi tertentu memiliki 0 baris ledger).
+2. **Langkah 2 — Agregasi Nominal dari `v_posted_batch.id` & Pemisahan Biaya Bersama (`shared_costs`)**:
+   Jika `v_posted_batch.id` ada, agregasi dilakukan hanya pada `l.batch_id = v_posted_batch.id AND l.entry_type IN ('regular', 'replacement')` (bebas penghitungan ganda dari batch `reversed`). Untuk lokasi kos tanpa baris ledger pada periode yang sudah `posted`, hasil `COALESCE(SUM(...), 0)` adalah `Rp 0` dengan status **`Lengkap — Sudah Dibukukan`**.
+   Saat memfilter satu lokasi kos (`p_location_id IS NOT NULL`), objek `shared_costs` memuat `shared_operating_cash_expense` (`expenses.location_id IS NULL`) dan `shared_depreciation_business_portion` (`assets.location_id IS NULL`) beserta label `scope_disclaimer_label`: *"Hasil per lokasi ini belum mencakup alokasi biaya bersama lintas lokasi (Tagihan Bersama & Penyusutan Aset Bersama)."*
 
-Untuk mencegah penghitungan ganda (*double counting*) saat terjadi siklus *Posting $\rightarrow$ Pembatalan (Reversed) $\rightarrow$ Posting Pengganti (Replacement)*:
-- **Satu-satunya sumber penyusutan laporan adalah batch dengan `batch_status = 'posted'`** dan baris ledger dengan `entry_type IN ('regular', 'replacement')` yang terhubung ke batch `posted` tersebut:
-  ```sql
-  WHERE b.org_id = :p_org_id
-    AND b.period_key = :p_period_key
-    AND b.batch_status = 'posted'
-    AND l.entry_type IN ('regular', 'replacement')
-  ```
-- Partial unique index `uq_active_posted_batch` menjamin paling banyak 1 batch `posted` per `(org_id, period_key)`. Seluruh batch `reversed` dan baris ledger `reversal` diabaikan dari perhitungan laporan hasil usaha.
+### 12.5 Contoh Rekonsiliasi Konkret & Matriks Pengujian Fase 5B
 
-### 12.5 Indikator Periode “Belum Lengkap”
+Contoh rekonsiliasi numerik lengkap untuk periode `2026-06` pada Kos Melati (Lokasi 1), Kos Mawar (Lokasi 2 — 0 baris ledger), dan Aset/Tagihan Bersama (`location_id IS NULL`) melalui 4 tahap (Tahap 1: alokasi `E4` Rp 1.200.000 tertunda $\rightarrow$ `BELUM_LENGKAP_KLASIFIKASI`; Tahap 2: `E4` disahkan sebagai `beban_langsung` $\rightarrow$ `LENGKAP_DIBUKUKAN` dengan Hasil Usaha Bersih Lokasi 1 Rp 1.086.000; Tahap 3: storno & revisi `E3` dari Rp 4.800.000 ke Rp 4.500.000 $\rightarrow$ `BELUM_LENGKAP_KEDUANYA`; Tahap 4: pengesahan ulang `Snapshot v2` & posting pengganti `Batch 2` $\rightarrow$ `LENGKAP_DIBUKUKAN` dengan Pengeluaran Kas Operasional Lokasi 1 Rp 3.000.000, Penyusutan Usaha Lokasi 1 Rp 710.000, dan Hasil Usaha Internal Bersih Lokasi 1 Rp 790.000) membuktikan jembatan rekonsiliasi:
+$$\text{Hasil Usaha Internal Bersih (Rp 790.000)} = \text{Arus Kas Bersih (-Rp 6.000.000)} + \text{Kapitalisasi Sah (Rp 7.500.000)} - \text{Penyusutan Usaha Posted (Rp 710.000)}$$
 
-Periode yang penyusutannya belum dibukukan **dilarang** dianggap memiliki beban penyusutan Rp 0:
-- **`LENGKAP_TERKUNCI` / `LENGKAP_DIBUKUKAN`**: Terdapat batch `batch_status = 'posted'` dan tidak ada aset berstatus `perlu_pengesahan_ulang`. Nilai `Beban Penyusutan Usaha` dan `Hasil Usaha Bersih` disajikan sebagai angka pasti (termasuk `Rp 0` apabila batch yang diposting memang bernilai nol).
-- **`BELUM_LENGKAP`** (`BELUM_LENGKAP_PENGATURAN`, `BELUM_LENGKAP_PRA_CUTOFF`, `BELUM_LENGKAP_REAPPROVAL`, `BELUM_LENGKAP_BELUM_POSTING`): Nilai `depreciation_business_portion` dan `net_operating_income` adalah `NULL`; UI menampilkan badge **`⚠️ Belum Lengkap`** dan label **`Belum dibukukan`** pada baris penyusutan.
-
-### 12.6 Contoh Rekonsiliasi Konkret & Matriks Pengujian Fase 5B
-
-Contoh rekonsiliasi numerik lengkap untuk periode `2026-06` (Kas Masuk Rp 4.500.000, Kas Keluar Total Rp 10.500.000 dengan Kapitalisasi Sah Rp 7.800.000 dan Beban Operasional Rp 2.700.000, serta siklus Batch 1 Rp 730.000 $\rightarrow$ Storno $\rightarrow$ Batch 2 Pengganti Rp 714.000 bagian usaha dan Rp 416.000 bagian non-usaha) membuktikan identitas jembatan rekonsiliasi:
-$$\text{Hasil Usaha Bersih (Rp 1.086.000)} = \text{Arus Kas Bersih (-Rp 6.000.000)} + \text{Kapitalisasi Sah (Rp 7.800.000)} - \text{Penyusutan Usaha Posted (Rp 714.000)}$$
-
-Matriks pengujian mandatori untuk implementasi Fase 5B mencakup:
-1. `qa/aset/fase5_laporan_engine.test.mjs` (unit rekonsiliasi & pemetaan tanggal/nota campuran),
-2. `qa/aset/fase5_laporan_db.test.mjs` (integrasi SQL atas siklus multi-storno, alokasi draf vs aktif, penguncian `expense_id`/`allocated_cost`, indikator `Belum Lengkap` vs batch nol, dan filter lokasi),
+Matriks pengujian mandatori Fase 5B mencakup:
+1. `qa/aset/fase5_laporan_engine.test.mjs` (unit rekonsiliasi, pembatasan bulan penuh, pemisahan 3 klasifikasi alokasi),
+2. `qa/aset/fase5_laporan_db.test.mjs` (integrasi SQL atas alokasi tertunda vs `beban_langsung` disahkan, status `perlu_pengesahan_ulang`, revisi alokasi periode lampau & `allocation_revision_history`, siklus multi-storno, batch nol, lokasi tanpa ledger & `shared_costs`, serta penguncian periode/lokasi),
 3. `qa/aset/fase5_laporan_api.test.mjs` (otorisasi GoTrue + PostgREST RLS lintas peran & lintas organisasi),
-4. `qa/aset/fase5_browser_laporan_flow.test.mjs` (pengujian browser E2E Puppeteer + GoTrue + PostgREST untuk tab Arus Kas vs Hasil Usaha Internal dan transisi status `Belum Lengkap` $\leftrightarrow$ `Lengkap`).
+4. `qa/aset/fase5_browser_laporan_flow.test.mjs` (pengujian browser E2E Puppeteer + GoTrue + PostgREST).
 
 
 
