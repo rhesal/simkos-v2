@@ -1214,6 +1214,45 @@ Matriks pengujian mandatori Fase 5B mencakup:
    - Seluruh 7 subtest pengujian browser E2E (`qa/aset/fase5_browser_laporan_flow.test.mjs`, 8 assertions) lulus 100% dengan Google Chrome nyata.
    - Build produksi Vite (`npm run build`) sukses tanpa error (108 modul transformed).
 
+---
+
+## 13. Fase 5C — Verifikasi Akhir dan Persiapan UAT (SELESAI)
+
+### 13.1 Verifikasi Alur Siklus Hidup Aset End-to-End (`qa/aset/fase5c_e2e_lifecycle.test.mjs`)
+Verifikasi menyeluruh terhadap satu siklus hidup terpadu dari inventaris fisik hingga laporan keuangan tanpa terputus:
+1. **Inventaris Fisik Lama $\rightarrow$ Sinkronisasi Draf**: Pendaftaran barang fisik di `inventories` disinkronkan secara resmi dan idempoten ke `assets` (`status_pencatatan = 'draft'`) dan `asset_components` (`is_origin_inventory = true`).
+2. **Kelengkapan Komponen Finansial**: Pengisian masa manfaat (60 bulan), metode penyusutan (garis lurus), alokasi pengeluaran kas (`expense_id` dan `allocated_cost`), serta status kapitalisasi.
+3. **Aktivasi Aset (Snapshot v1)**: Penerbitan snapshot versi 1 resmi membekukan `location_id`, `location_recorded = true`, dan parameter finansial.
+4. **Pengesahan Saldo Awal Historis**: Pendaftaran saldo awal historis (`catatan_terdahulu`) mengunci pengaturan tanggal mulai pembukuan organisasi.
+5. **Posting Penyusutan Periode Pertama**: Pratinjau berbasis token kanonis server $\rightarrow$ posting batch `2026-06` dengan ledger tipe `regular`.
+6. **Laporan Hasil Usaha Internal**: Penerimaan pendapatan kas, pengeluaran kas operasional, dan beban penyusutan tersaji secara lengkap (`LENGKAP_DIBUKUKAN`) dan terekonsiliasi sempurna dengan arus kas.
+7. **Koreksi Parameter Komponen**: Validasi server menolak revisi langsung selama ada batch posting aktif, menjaga integritas riwayat pembukuan.
+8. **Pembatalan Batch Terakhir (Storno)**: Pelaksanaan pembatalan batch secara eksplisit menerbitkan ledger reversal (`reversal`) bertanda negatif tanpa menghapus jejak audit.
+9. **Revisi & Aktivasi Ulang (Snapshot v2)**: Pelaksanaan revisi biaya perolehan $\rightarrow$ penandaan `requires_reapproval = true` $\rightarrow$ pembaruan saldo awal historis $\rightarrow$ aktivasi ulang resmi menerbitkan `Snapshot v2`.
+10. **Posting Ulang Pengganti**: Batch baru diterbitkan dengan referensi `replaces_batch_id` yang terhubung langsung ke batch sebelumnya dan ledger bertipe `replacement`.
+11. **Verifikasi Konsistensi Laporan Pasca-Koreksi**: Laporan Hasil Usaha Internal merefleksikan nilai buku dan beban penyusutan baru secara konsisten tanpa ada pembukuan ganda.
+
+### 13.2 Verifikasi Keamanan Direktori Migrasi dan Jalur Eksekusi Database (`qa/aset/fase5c_migrasi_verifikasi.test.mjs`)
+1. **Isolasi Skrip Rollback & Integritas Direktori Migrasi**:
+   - Memastikan direktori `supabase/migrations/` **hanya berisi file migrasi maju (forward migration)** resmi berformat `YYYYMMDDHHMMSS_*.sql` (10 berkas migrasi).
+   - Memastikan direktori `supabase/rollback/` menampung seluruh skrip pembatalan darurat (10 berkas rollback) secara terpisah sehingga aman dari eksekusi migrasi otomatis runner CI/CD.
+2. **Fresh Database Install (Jalur Database Kosong)**:
+   - Menjalankan rantai migrasi dari skema dasar hingga migrasi `1000` pada database bersih tanpa kegagalan.
+   - Memastikan seluruh objek fungsi, trigger validasi alokasi, kolom lokasi snapshot, dan RLS policies terpasang secara sempurna.
+3. **Upgrade Path (Jalur Database Eksisting Fase 2 & Fase 4)**:
+   - Menguji penerapan migrasi `1000` di atas database yang telah memiliki data aset, komponen, saldo awal, dan batch pembukuan Fase 4.
+   - Membuktikan seluruh data eksisting tetap lestari (preserved), kolom baru terisi dengan aman, dan snapshot historis yang belum memiliki metadata lokasi langsung terdeteksi oleh sistem laporan tanpa silent-failure.
+
+### 13.3 Hasil Pengujian Suite Lengkap
+- **Suite Pengujian Non-Browser (`npm test` / `node scripts/run_all_tests.mjs`)**:
+  - Total: **28 berkas pengujian** (mencakup 191 pengujian subtest / assertions).
+  - Status: **191 PASS / 0 FAIL (100% Lulus)**.
+- **Suite Pengujian Browser E2E (`qa/aset/fase5_browser_laporan_flow.test.mjs`)**:
+  - Status: **7 subtest (8 assertions) PASS / 0 FAIL (100% Lulus)**.
+  - Tangkapan layar desktop dan mobile tersimpan di `docs/screenshots/qa_fase5_desktop_hasil_usaha.png` dan `docs/screenshots/qa_fase5_mobile_hasil_usaha.png`.
+- **Build Produksi (`npm run build`)**: Berhasil tanpa peringatan sintaks/tipe (108 modul transformed, bundle PWA terdistribusi di `dist/`).
+
+
 
 
 
