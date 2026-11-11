@@ -209,7 +209,7 @@
           <button
             v-if="canManageAssets"
             type="button"
-            @click="showAddComponentModal = true"
+            @click="openAddComponentModal"
             class="text-xs bg-navy text-white px-3 py-1.5 rounded-xl font-bold shadow hover:bg-navy-light transition"
           >
             ＋ Tambah
@@ -962,32 +962,43 @@
       </div>
     </main>
 
-    <!-- Modal Tambah Komponen / Pengembangan -->
+    <!-- Modal Tambah Komponen / Peningkatan Aset -->
     <BaseModal v-if="showAddComponentModal" @click.self="showAddComponentModal = false">
       <div class="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border-2 border-border space-y-4 max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between border-b border-border pb-3">
-          <h3 class="font-black text-base text-navy">Tambah Pengembangan / Renovasi</h3>
+          <h3 class="font-black text-base text-navy">
+            {{ asset.kategori_aset === 'gedung' ? 'Tambah Pengembangan / Renovasi' : 'Tambah Komponen / Bagian Aset' }}
+          </h3>
           <button type="button" @click="showAddComponentModal = false" class="text-text-muted font-bold text-lg">✕</button>
         </div>
 
         <div class="space-y-3 text-xs">
           <div>
-            <label class="block font-bold text-text-secondary mb-1">Nama Pekerjaan *</label>
+            <label class="block font-bold text-text-secondary mb-1">Nama Komponen / Pekerjaan *</label>
             <input
               v-model="newComp.nama_komponen"
               type="text"
-              placeholder="Contoh: Penambahan 2 Kamar Lt 2"
+              :placeholder="asset.kategori_aset === 'gedung' ? 'Contoh: Penambahan 2 Kamar Lt 2' : 'Contoh: Kompresor Tambahan / Aksesori'"
               class="w-full border-2 border-border rounded-xl p-2.5 font-semibold"
             />
           </div>
 
           <div>
-            <label class="block font-bold text-text-secondary mb-1">Jenis Pekerjaan</label>
+            <label class="block font-bold text-text-secondary mb-1">Jenis Pekerjaan / Komponen</label>
             <select v-model="newComp.jenis_pekerjaan" class="w-full border-2 border-border rounded-xl p-2.5 font-semibold">
-              <option value="penambahan_kapasitas">Penambahan Kapasitas / Lantai</option>
-              <option value="penggantian_komponen">Penggantian Komponen (Atap, Instalasi)</option>
-              <option value="pemeliharaan_rutin">Pemeliharaan Rutin</option>
-              <option value="lainnya">Lainnya — Perlu Telaah</option>
+              <template v-if="asset.kategori_aset === 'gedung'">
+                <option value="penambahan_kapasitas">Penambahan Kapasitas / Lantai</option>
+                <option value="penggantian_komponen">Penggantian Komponen (Atap, Instalasi)</option>
+                <option value="pemeliharaan_rutin">Pemeliharaan Rutin</option>
+                <option value="lainnya">Lainnya — Perlu Telaah</option>
+              </template>
+              <template v-else>
+                <option value="perolehan_baru">Komponen / Bagian Baru</option>
+                <option value="penambahan_kapasitas">Peningkatan Kapasitas / Upgrade</option>
+                <option value="penggantian_komponen">Penggantian Suku Cadang Utama</option>
+                <option value="pemeliharaan_rutin">Pemeliharaan Rutin</option>
+                <option value="lainnya">Lainnya — Perlu Telaah</option>
+              </template>
             </select>
           </div>
 
@@ -1003,7 +1014,7 @@
               />
             </div>
             <div>
-              <label class="block font-bold text-text-secondary mb-1">Tahun Pekerjaan</label>
+              <label class="block font-bold text-text-secondary mb-1">Tahun Perolehan</label>
               <input
                 v-model.number="newComp.tahun_perolehan"
                 type="number"
@@ -1502,12 +1513,22 @@ const paginatedJadwalBulanan = computed(() => {
 
 const newComp = reactive({
   nama_komponen: '',
-  jenis_pekerjaan: 'penambahan_kapasitas',
+  jenis_pekerjaan: 'perolehan_baru',
   biaya_perolehan: null,
   tahun_perolehan: null,
   pola_penggunaan: 'seluruhnya_usaha',
   porsi_usaha_persen: 100,
 })
+
+function openAddComponentModal() {
+  newComp.nama_komponen = ''
+  newComp.jenis_pekerjaan = asset.value?.kategori_aset === 'gedung' ? 'penambahan_kapasitas' : 'perolehan_baru'
+  newComp.biaya_perolehan = null
+  newComp.tahun_perolehan = null
+  newComp.pola_penggunaan = 'seluruhnya_usaha'
+  newComp.porsi_usaha_persen = 100
+  showAddComponentModal.value = true
+}
 
 async function loadAssetDetail() {
   isLoading.value = true
