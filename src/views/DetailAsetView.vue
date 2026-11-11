@@ -204,7 +204,7 @@
         <div class="flex items-center justify-between">
           <div>
             <h3 class="text-sm font-black text-navy">Komponen & Riwayat Perolehan</h3>
-            <p class="text-xs text-text-muted">Riwayat pembangunan awal dan renovasi lanjutan.</p>
+            <p class="text-xs text-text-muted">Rincian perolehan awal, penambahan, dan peningkatan aset.</p>
           </div>
           <button
             v-if="canManageAssets"
